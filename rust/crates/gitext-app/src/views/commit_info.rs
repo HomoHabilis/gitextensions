@@ -1,5 +1,7 @@
 //! Port of `CommitInfo`: header, message, parents/children, containing branches and tags.
 
+use std::collections::HashMap;
+
 use egui::{RichText, Ui};
 use gitext_core::{GitModule, GitRevision, ObjectId};
 
@@ -7,19 +9,31 @@ use crate::tasks::Loader;
 use crate::theme::Palette;
 use crate::util::{format_date, short_date};
 
+/// The parts of the details that git finds quickly.
 #[derive(Debug, Clone, Default)]
 pub struct CommitDetails {
     pub revision: Option<GitRevision>,
-    pub branches: Vec<String>,
-    pub tags: Vec<String>,
     pub describe: Option<String>,
     pub gpg: Option<String>,
-    pub children: Vec<ObjectId>,
 }
+
+/// The branches and tags containing the commit: `--contains` walks the history, which can
+/// take a while in a large repository without a commit-graph.
+#[derive(Debug, Clone, Default)]
+pub struct CommitRefs {
+    pub branches: Vec<String>,
+    pub tags: Vec<String>,
+}
+
+/// Results kept for recently shown commits, so that going back to one shows it at once.
+const CACHE_SIZE: usize = 256;
 
 #[derive(Default)]
 pub struct CommitInfo {
     details: Loader<ObjectId, CommitDetails>,
+    refs: Loader<ObjectId, CommitRefs>,
+    details_cache: HashMap<ObjectId, CommitDetails>,
+    refs_cache: HashMap<ObjectId, CommitRefs>,
     pub show_branches: bool,
 }
 
@@ -30,6 +44,58 @@ pub enum CommitInfoLink {
 impl CommitInfo {
     pub fn invalidate(&mut self) {
         self.details.invalidate();
+        self.refs.invalidate();
+        self.details_cache.clear();
+        self.refs_cache.clear();
+    }
+
+    /// Loads the details and the containing refs of `id` in the background, both in parallel and
+    /// each with its git commands in parallel. Returns what is ready.
+    fn load(&mut self, ctx: &egui::Context, module: &GitModule, rev: &GitRevision) -> (Option<CommitDetails>, Option<CommitRefs>) {
+        let id = rev.object_id;
+        let details = match self.details_cache.get(&id) {
+            Some(d) => Some(d.clone()),
+            None => {
+                let m = module.clone();
+                let rev = rev.clone();
+                let d = self
+                    .details
+                    .request_latest(ctx, id, move || {
+                        std::thread::scope(|s| {
+                            let describe = s.spawn(|| m.describe(id));
+                            let gpg = s.spawn(|| m.gpg_info(id));
+                            let revision = m.get_revision(&id.to_string(), true).ok().flatten().or(Some(rev));
+                            CommitDetails { revision, describe: describe.join().unwrap_or_default(), gpg: gpg.join().unwrap_or_default() }
+                        })
+                    })
+                    .cloned();
+                if let Some(d) = &d {
+                    cache_insert(&mut self.details_cache, id, d.clone());
+                }
+                d
+            }
+        };
+        let refs = match self.refs_cache.get(&id) {
+            Some(r) => Some(r.clone()),
+            None => {
+                let m = module.clone();
+                let r = self
+                    .refs
+                    .request_latest(ctx, id, move || {
+                        std::thread::scope(|s| {
+                            let tags = s.spawn(|| m.tags_containing(id));
+                            let branches = m.branches_containing(id, true, true);
+                            CommitRefs { branches, tags: tags.join().unwrap_or_default() }
+                        })
+                    })
+                    .cloned();
+                if let Some(r) = &r {
+                    cache_insert(&mut self.refs_cache, id, r.clone());
+                }
+                r
+            }
+        };
+        (details, refs)
     }
 
     pub fn ui(&mut self, ui: &mut Ui, module: &GitModule, rev: Option<&GitRevision>, children: Vec<ObjectId>) -> Option<CommitInfoLink> {
@@ -45,19 +111,8 @@ impl CommitInfo {
             ui.label(RichText::new(if id == ObjectId::WORK_TREE { "Changes in the working directory that are not staged." } else { "Changes staged in the index, to be committed." }).color(palette.muted));
             return None;
         }
-        let m = module.clone();
-        let rev_clone = rev.clone();
-        let details = self.details.request(ui.ctx(), id, move || {
-            let full = m.get_revision(&id.to_string(), true).ok().flatten().or(Some(rev_clone));
-            CommitDetails {
-                revision: full,
-                branches: m.branches_containing(id, true, true),
-                tags: m.tags_containing(id),
-                describe: m.describe(id),
-                gpg: m.gpg_info(id),
-                children,
-            }
-        });
+        let (details, refs) = self.load(ui.ctx(), module, rev);
+        let details = details.as_ref();
 
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             let full = details.and_then(|d| d.revision.as_ref()).unwrap_or(rev);
@@ -95,18 +150,16 @@ impl CommitInfo {
                     });
                     ui.end_row();
                 }
-                if let Some(d) = details {
-                    if !d.children.is_empty() {
-                        ui.label(RichText::new(if d.children.len() > 1 { "Children" } else { "Child" }).color(palette.muted));
-                        ui.horizontal_wrapped(|ui| {
-                            for c in &d.children {
-                                if ui.link(RichText::new(c.to_short_string()).monospace()).clicked() {
-                                    link = Some(CommitInfoLink::Select(*c));
-                                }
+                if !children.is_empty() {
+                    ui.label(RichText::new(if children.len() > 1 { "Children" } else { "Child" }).color(palette.muted));
+                    ui.horizontal_wrapped(|ui| {
+                        for c in &children {
+                            if ui.link(RichText::new(c.to_short_string()).monospace()).clicked() {
+                                link = Some(CommitInfoLink::Select(*c));
                             }
-                        });
-                        ui.end_row();
-                    }
+                        }
+                    });
+                    ui.end_row();
                 }
             });
             ui.add_space(8.0);
@@ -119,7 +172,10 @@ impl CommitInfo {
             }
             ui.add_space(10.0);
             ui.separator();
-            match details {
+            if let Some(desc) = details.and_then(|d| d.describe.as_ref()) {
+                ui.label(RichText::new(format!("Describe: {desc}")).color(palette.muted));
+            }
+            match &refs {
                 None => {
                     ui.horizontal(|ui| {
                         ui.spinner();
@@ -127,9 +183,6 @@ impl CommitInfo {
                     });
                 }
                 Some(d) => {
-                    if let Some(desc) = &d.describe {
-                        ui.label(RichText::new(format!("Describe: {desc}")).color(palette.muted));
-                    }
                     if !d.branches.is_empty() {
                         ui.horizontal_wrapped(|ui| {
                             ui.label(RichText::new("Contained in branches:").color(palette.muted));
@@ -155,13 +208,20 @@ impl CommitInfo {
                             }
                         });
                     }
-                    if let Some(g) = &d.gpg {
-                        ui.add_space(6.0);
-                        ui.label(RichText::new(format!("🔏 {g}")).color(palette.muted));
-                    }
                 }
+            }
+            if let Some(g) = details.and_then(|d| d.gpg.as_ref()) {
+                ui.add_space(6.0);
+                ui.label(RichText::new(format!("🔏 {g}")).color(palette.muted));
             }
         });
         link
     }
+}
+
+fn cache_insert<T>(cache: &mut HashMap<ObjectId, T>, id: ObjectId, value: T) {
+    if cache.len() >= CACHE_SIZE && !cache.contains_key(&id) {
+        cache.clear();
+    }
+    cache.insert(id, value);
 }
