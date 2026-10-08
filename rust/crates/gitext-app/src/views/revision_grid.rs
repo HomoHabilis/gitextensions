@@ -344,6 +344,17 @@ impl RevisionGrid {
     pub fn update_status_counts(&mut self, data: &RepoData) {
         self.work_tree_changes = data.work_tree_changes();
         self.index_changes = data.index_changes();
+        // the artificial rows show the counts in their subject
+        for (id, subject) in [
+            (ObjectId::WORK_TREE, format!("Working directory ({})", plural(self.work_tree_changes, "change"))),
+            (ObjectId::INDEX, format!("Commit index ({})", plural(self.index_changes, "change"))),
+        ] {
+            if let Some(n) = self.graph.try_get_node(&id) {
+                if let Some(rev) = &mut self.graph.store.nodes[n].revision {
+                    rev.subject = subject;
+                }
+            }
+        }
     }
 
     /// Drains loaded revisions into the graph.
@@ -801,6 +812,11 @@ impl RevisionGrid {
 
         if first_visible != usize::MAX {
             self.visible = VisibleRowRange { from_index: first_visible, count: last_visible - first_visible + 1 };
+            // Rows were shown without graph lanes (the cache was built for the previous scroll
+            // position, e.g. after a jump): draw again with the cache built for this range.
+            if last_visible >= valid && valid < count {
+                ui.ctx().request_repaint();
+            }
         }
         if let Some((row, ctrl, shift)) = clicked {
             self.select_row(row, ctrl, shift);

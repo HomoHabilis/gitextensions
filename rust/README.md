@@ -24,6 +24,9 @@ The settings are stored as JSON in the platform config directory (`~/.config/Git
 on Linux, `%APPDATA%\GitExtensions` on Windows, `~/Library/Application Support/GitExtensions`
 on macOS). Set `GITEXT_CONFIG_DIR` to use another directory.
 
+Set `GITEXT_PROFILE=1` to print the frames that take longer than 16 ms, with the time spent in
+each part of the window, to stderr. This helps when reporting slowness in a large repository.
+
 ## Layout
 
 | Crate | Contents | C# origin |

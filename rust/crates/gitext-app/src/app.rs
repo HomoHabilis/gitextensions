@@ -55,6 +55,8 @@ pub struct GitExtApp {
     start: Option<StartCommand>,
     exit_after_dialog: bool,
     last_title: String,
+    /// Repository description for the title, cached per working directory.
+    title_description: Option<(std::path::PathBuf, String)>,
 }
 
 impl GitExtApp {
@@ -77,6 +79,7 @@ impl GitExtApp {
             exit_after_dialog: !matches!(start, StartCommand::Browse),
             start: Some(start),
             last_title: String::new(),
+            title_description: None,
         };
         if let Some(path) = repo {
             app.open_repo(&cc.egui_ctx, &path, false);
@@ -540,7 +543,12 @@ impl GitExtApp {
         let title = match &self.browse {
             None => APPLICATION_NAME.to_string(),
             Some(b) => {
-                let desc = repository_description(b.module.work_dir(), |p: &Path| GitModule::is_valid_git_working_dir(p));
+                let work_dir = b.module.work_dir();
+                if self.title_description.as_ref().is_none_or(|(dir, _)| dir != work_dir) {
+                    let desc = repository_description(work_dir, |p: &Path| GitModule::is_valid_git_working_dir(p));
+                    self.title_description = Some((work_dir.to_path_buf(), desc));
+                }
+                let desc = self.title_description.as_ref().map(|(_, d)| d.clone()).unwrap_or_default();
                 let path = (!b.grid.filter.path.is_empty()).then(|| b.grid.filter.path.clone());
                 generate_title(Some(&desc), b.data.current_branch.as_deref(), "(no branch)", path.as_deref())
             }
@@ -591,6 +599,7 @@ impl GitExtApp {
 
 impl eframe::App for GitExtApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let _frame_timer = crate::prof::FrameTimer::start();
         if !self.theme_applied {
             crate::theme::apply(ctx, self.settings.theme, self.settings.ui_scale, self.settings.font_size, self.settings.monospace_font_size);
             self.theme_applied = true;
@@ -598,17 +607,17 @@ impl eframe::App for GitExtApp {
         if self.start.is_some() && (self.browse.as_ref().is_none_or(|b| !b.data.refs.is_empty() || !b.is_loading())) {
             self.run_start_command();
         }
-        self.shortcuts(ctx);
-        self.update_title(ctx);
+        crate::prof::scope("shortcuts", || self.shortcuts(ctx));
+        crate::prof::scope("title", || self.update_title(ctx));
 
         egui::TopBottomPanel::top("menu").show(ctx, |ui| self.menu_bar(ui));
         if let Some(browse) = &mut self.browse {
             egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
                 ui.add_space(2.0);
-                browse.toolbar(ui, &mut self.settings, &mut self.actions);
+                crate::prof::scope("toolbar", || browse.toolbar(ui, &mut self.settings, &mut self.actions));
                 ui.add_space(2.0);
             });
-            egui::TopBottomPanel::bottom("statusbar").show(ctx, |ui| browse.status_bar(ui, &mut self.actions));
+            egui::TopBottomPanel::bottom("statusbar").show(ctx, |ui| crate::prof::scope("statusbar", || browse.status_bar(ui, &mut self.actions)));
             egui::CentralPanel::default().show(ctx, |ui| {
                 browse.ui(ctx, ui, &mut self.settings, &mut self.actions);
             });

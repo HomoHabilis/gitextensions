@@ -4,8 +4,9 @@
 use std::time::{Duration, Instant};
 
 use egui::{RichText, Ui};
-use gitext_core::commands::{self, LocalChangesAction};
+use gitext_core::commands::{self, LocalChangesAction, UntrackedFilesMode};
 use gitext_core::settings::{AppSettings, BranchFilterMode, PullAction};
+use gitext_core::status::GitItemStatus;
 use gitext_core::{GitArgs, GitModule, ObjectId};
 
 use crate::dialogs::{self, Action, GitRun};
@@ -30,7 +31,12 @@ pub struct BrowseView {
     commit_info: CommitInfo,
     diff: RevisionDiffView,
     pub file_tree: FileTreeView,
+    /// When the last status refresh completed (or a full refresh was started).
     last_status_refresh: Instant,
+    /// Background status check (port of `GitStatusMonitor`); does not show the busy spinner.
+    status_task: Option<Task<(ObjectId, Vec<GitItemStatus>)>>,
+    /// How long the last status check took, to space checks out in slow repositories.
+    status_duration: Duration,
     filter_input: String,
     filter_kind: TextFilterKind,
 }
@@ -50,6 +56,8 @@ impl BrowseView {
             diff: RevisionDiffView::default(),
             file_tree: FileTreeView::default(),
             last_status_refresh: Instant::now(),
+            status_task: None,
+            status_duration: Duration::ZERO,
             filter_input: String::new(),
             filter_kind: TextFilterKind::Message,
         };
@@ -98,13 +106,35 @@ impl BrowseView {
                 }
             }
         }
-        // Periodic status refresh (port of `GitStatusMonitor`)
+        // Periodic status refresh (port of `GitStatusMonitor`): only `git status` and HEAD, in
+        // the background. The interval grows with the duration of the check so slow
+        // repositories (or platforms with slow process creation) are not kept busy.
+        if let Some(t) = &mut self.status_task {
+            if let Some((head, status)) = t.try_take() {
+                self.status_task = None;
+                self.status_duration = self.last_status_refresh.elapsed();
+                self.last_status_refresh = Instant::now();
+                if self.data_task.is_none() {
+                    if head != self.data.head {
+                        // committed, checked out or reset outside of the app
+                        self.refresh(ctx, settings, true);
+                    } else if status != self.data.status {
+                        self.data.status = status;
+                        self.grid.update_status_counts(&self.data);
+                        if self.grid.selected.iter().any(|s| s.is_artificial()) {
+                            self.diff.invalidate();
+                        }
+                    }
+                }
+            }
+        }
+        let interval = Duration::from_secs(5).max(self.status_duration * 4);
         let focused = ctx.input(|i| i.focused);
-        if focused && self.data_task.is_none() && self.last_status_refresh.elapsed() > Duration::from_secs(5) {
+        if focused && self.data_task.is_none() && self.status_task.is_none() && !self.data.is_bare && self.last_status_refresh.elapsed() > interval {
             let m = self.module.clone();
-            let untracked = settings.show_untracked_files;
-            self.data_task = Some(Task::spawn(ctx, move || RepoData::load(&m, untracked)));
+            let mode = if settings.show_untracked_files { UntrackedFilesMode::All } else { UntrackedFilesMode::No };
             self.last_status_refresh = Instant::now();
+            self.status_task = Some(Task::spawn(ctx, move || (m.head_id(), m.get_status(mode, true).unwrap_or_default())));
         }
         ctx.request_repaint_after(Duration::from_secs(5));
     }
@@ -353,11 +383,11 @@ impl BrowseView {
     }
 
     pub fn ui(&mut self, ctx: &egui::Context, ui: &mut Ui, settings: &mut AppSettings, actions: &mut Vec<Action>) {
-        self.poll(ctx, settings);
+        crate::prof::scope("poll", || self.poll(ctx, settings));
         let selected = self.grid.selected_revision();
         if settings.left_panel_visible {
             egui::SidePanel::left("left_panel").resizable(true).default_width(240.0).width_range(150.0..=500.0).show_inside(ui, |ui| {
-                if let Some(c) = self.left.ui(ui, &self.data, selected) {
+                if let Some(c) = crate::prof::scope("left", || self.left.ui(ui, &self.data, selected)) {
                     self.handle_left(c, settings, actions);
                 }
             });
@@ -381,7 +411,7 @@ impl BrowseView {
                         .and_then(|id| self.grid.graph.try_get_node(&id))
                         .map(|n| self.grid.graph.store.nodes[n].children.iter().map(|&c| self.grid.graph.store.nodes[c].object_id).collect())
                         .unwrap_or_default();
-                    if let Some(CommitInfoLink::Select(id)) = self.commit_info.ui(ui, &self.module, rev.as_ref(), children) {
+                    if let Some(CommitInfoLink::Select(id)) = crate::prof::scope("commit_info", || self.commit_info.ui(ui, &self.module, rev.as_ref(), children)) {
                         self.grid.select(id);
                     }
                 }
@@ -393,7 +423,9 @@ impl BrowseView {
                     }
                 }
                 _ => {
-                    if let Some(c) = self.file_tree.ui(ui, &self.module, selected, settings.show_line_numbers) {
+                    // the work tree / index are shown at HEAD
+                    let tree_rev = selected.map(|id| if id.is_artificial() { self.data.head } else { id });
+                    if let Some(c) = self.file_tree.ui(ui, &self.module, tree_rev, settings.show_line_numbers) {
                         self.handle_diff(c, settings, actions);
                     }
                 }
@@ -401,7 +433,7 @@ impl BrowseView {
         });
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            let events = self.grid.ui(ui, settings, &self.data);
+            let events = crate::prof::scope("grid", || self.grid.ui(ui, settings, &self.data));
             if events.selection_changed {
                 self.diff.list.clear();
             }

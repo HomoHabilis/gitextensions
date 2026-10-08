@@ -5,10 +5,14 @@
 //! `gitext blame src/main.rs 42`. Without a command the repository in the current directory
 //! (or the dashboard) is shown.
 
+// No console window behind the GUI on Windows (release builds; debug builds keep it for logs).
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod browse;
 mod cli;
 mod dialogs;
+mod prof;
 mod repo;
 mod tasks;
 mod theme;

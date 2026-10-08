@@ -165,12 +165,14 @@ impl GitModule {
     }
 
     /// Whether `path` is inside a git repository.
+    /// Port of `GitModule.IsValidGitWorkingDir`: a `.git` directory or file, or a bare
+    /// repository layout. Only checks the file system (it is called for every parent folder).
     pub fn is_valid_git_working_dir(path: impl AsRef<Path>) -> bool {
         let p = path.as_ref();
-        if !p.is_dir() {
+        if p.as_os_str().is_empty() {
             return false;
         }
-        Executable::git(p).run(&GitArgs::new("rev-parse").arg("--git-dir")).map(|r| r.success()).unwrap_or(false)
+        p.join(".git").exists() || (p.join("info").is_dir() && p.join("objects").is_dir() && p.join("refs").is_dir())
     }
 
     /// Initialises a new repository (port of `FormInit`).
@@ -1279,6 +1281,28 @@ mod tests {
         assert!(repo.module.rev_parse("no-such-ref").is_zero());
         let id = ObjectId::random();
         assert_eq!(repo.module.rev_parse(&id.to_string()), id);
+    }
+
+    #[test]
+    fn is_valid_git_working_dir_checks_the_file_system() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        assert!(!GitModule::is_valid_git_working_dir(""));
+        assert!(!GitModule::is_valid_git_working_dir(p));
+        // a sub folder of a repository is not a working dir itself (as in the C# version)
+        std::fs::create_dir_all(p.join("repo/.git")).unwrap();
+        std::fs::create_dir_all(p.join("repo/sub")).unwrap();
+        assert!(GitModule::is_valid_git_working_dir(p.join("repo")));
+        assert!(!GitModule::is_valid_git_working_dir(p.join("repo/sub")));
+        // worktrees and submodules have a .git file
+        std::fs::create_dir_all(p.join("wt")).unwrap();
+        std::fs::write(p.join("wt/.git"), "gitdir: ../repo/.git/worktrees/wt\n").unwrap();
+        assert!(GitModule::is_valid_git_working_dir(p.join("wt")));
+        // bare repository layout
+        for d in ["bare/info", "bare/objects", "bare/refs"] {
+            std::fs::create_dir_all(p.join(d)).unwrap();
+        }
+        assert!(GitModule::is_valid_git_working_dir(p.join("bare")));
     }
 
     #[test]

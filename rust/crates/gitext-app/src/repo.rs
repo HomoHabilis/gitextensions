@@ -21,42 +21,61 @@ pub struct RepoData {
     pub worktrees: Vec<GitWorktree>,
     pub ahead_behind: HashMap<String, AheadBehind>,
     pub status: Vec<GitItemStatus>,
-    pub user_name: String,
     pub user_email: String,
     pub is_bare: bool,
-    pub superproject: Option<std::path::PathBuf>,
     pub error: Option<String>,
 }
 
 impl RepoData {
-    /// Loads everything (runs on a background thread).
+    /// Loads everything (runs on a background thread). The git commands are independent, so
+    /// they run in parallel: process creation dominates on Windows.
     pub fn load(module: &GitModule, show_untracked: bool) -> RepoData {
-        let mut d = RepoData { is_bare: module.is_bare(), ..Default::default() };
-        d.head = module.head_id();
-        d.current_branch = module.current_branch();
-        match module.get_refs() {
-            Ok(r) => d.refs = r,
-            Err(e) => d.error = Some(e.to_string()),
-        }
+        let is_bare = module.is_bare();
+        let mut d = std::thread::scope(|s| {
+            let head = s.spawn(|| module.head_id());
+            let current_branch = s.spawn(|| module.current_branch());
+            let refs = s.spawn(|| module.get_refs());
+            let state = s.spawn(|| module.state());
+            let remotes = s.spawn(|| module.get_remotes().unwrap_or_default());
+            let stashes = s.spawn(|| module.get_stashes());
+            let submodules = s.spawn(|| module.get_submodules());
+            let worktrees = s.spawn(|| module.get_worktrees());
+            let ahead_behind = s.spawn(|| module.get_ahead_behind());
+            let status = s.spawn(|| {
+                if is_bare {
+                    return Vec::new();
+                }
+                let mode = if show_untracked { UntrackedFilesMode::All } else { UntrackedFilesMode::No };
+                module.get_status(mode, true).unwrap_or_default()
+            });
+            let user_email = s.spawn(|| module.user_email());
+            let (refs, error) = match refs.join().unwrap() {
+                Ok(r) => (r, None),
+                Err(e) => (Vec::new(), Some(e.to_string())),
+            };
+            RepoData {
+                refs,
+                error,
+                is_bare,
+                head: head.join().unwrap(),
+                current_branch: current_branch.join().unwrap(),
+                state: state.join().unwrap(),
+                remotes: remotes.join().unwrap(),
+                stashes: stashes.join().unwrap(),
+                submodules: submodules.join().unwrap(),
+                worktrees: worktrees.join().unwrap(),
+                ahead_behind: ahead_behind.join().unwrap(),
+                status: status.join().unwrap(),
+                user_email: user_email.join().unwrap(),
+                ..Default::default()
+            }
+        });
         for r in &d.refs {
             if gitext_core::git_ref::ref_name::is_remote_head(&r.complete_name) {
                 continue;
             }
             d.refs_by_commit.entry(r.object_id).or_default().push(r.clone());
         }
-        d.state = module.state();
-        d.remotes = module.get_remotes().unwrap_or_default();
-        d.stashes = module.get_stashes();
-        d.submodules = module.get_submodules();
-        d.worktrees = module.get_worktrees();
-        d.ahead_behind = module.get_ahead_behind();
-        if !d.is_bare {
-            let mode = if show_untracked { UntrackedFilesMode::All } else { UntrackedFilesMode::No };
-            d.status = module.get_status(mode, true).unwrap_or_default();
-        }
-        d.user_name = module.user_name();
-        d.user_email = module.user_email();
-        d.superproject = module.superproject();
         d
     }
 

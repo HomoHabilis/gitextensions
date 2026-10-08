@@ -38,8 +38,8 @@ impl FileTreeView {
             ui.label(RichText::new("No commit selected").italics().color(palette.muted));
             return None;
         };
-        // The work tree / index are shown at HEAD
-        let tree_rev = if rev.is_artificial() { module.head_id() } else { rev };
+        // The caller maps the work tree / index to HEAD (no git call per frame here)
+        let tree_rev = rev;
         if tree_rev.is_zero() {
             ui.label(RichText::new("No files").italics().color(palette.muted));
             return None;

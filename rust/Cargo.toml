@@ -26,3 +26,7 @@ rfd = "0.15"
 
 [profile.release]
 lto = "thin"
+
+# egui and the other dependencies are very slow unoptimized: optimize them in debug builds too.
+[profile.dev.package."*"]
+opt-level = 2
