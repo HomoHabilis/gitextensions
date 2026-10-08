@@ -14,7 +14,6 @@ use crate::util::{format_date, short_date};
 pub struct CommitDetails {
     pub revision: Option<GitRevision>,
     pub describe: Option<String>,
-    pub gpg: Option<String>,
 }
 
 /// The branches and tags containing the commit: `--contains` walks the history, which can
@@ -34,6 +33,10 @@ pub struct CommitInfo {
     refs: Loader<ObjectId, CommitRefs>,
     details_cache: HashMap<ObjectId, CommitDetails>,
     refs_cache: HashMap<ObjectId, CommitRefs>,
+    /// The signature is checked only on request: `%G?` runs gpg, which is slow on Windows
+    /// (the C# app shows it in a separate tab).
+    gpg: Loader<ObjectId, Option<String>>,
+    gpg_requested: Option<ObjectId>,
     pub show_branches: bool,
 }
 
@@ -45,12 +48,17 @@ impl CommitInfo {
     pub fn invalidate(&mut self) {
         self.details.invalidate();
         self.refs.invalidate();
+        self.gpg.invalidate();
         self.details_cache.clear();
         self.refs_cache.clear();
     }
 
     /// Loads the details and the containing refs of `id` in the background, both in parallel and
     /// each with its git commands in parallel. Returns what is ready.
+    ///
+    /// As in the C# app, each git process counts (starting one is slow on Windows): the message
+    /// is read again only when the grid did not load it, and only local branches are searched
+    /// (`branch -a --contains` also walks every remote branch).
     fn load(&mut self, ctx: &egui::Context, module: &GitModule, rev: &GitRevision) -> (Option<CommitDetails>, Option<CommitRefs>) {
         let id = rev.object_id;
         let details = match self.details_cache.get(&id) {
@@ -63,9 +71,13 @@ impl CommitInfo {
                     .request_latest(ctx, id, move || {
                         std::thread::scope(|s| {
                             let describe = s.spawn(|| m.describe(id));
-                            let gpg = s.spawn(|| m.gpg_info(id));
-                            let revision = m.get_revision(&id.to_string(), true).ok().flatten().or(Some(rev));
-                            CommitDetails { revision, describe: describe.join().unwrap_or_default(), gpg: gpg.join().unwrap_or_default() }
+                            let revision = if rev.body().is_some() {
+                                Some(rev)
+                            } else {
+                                // the grid loads notes when they are shown
+                                m.get_revision(&id.to_string(), rev.notes.is_some()).ok().flatten().or(Some(rev))
+                            };
+                            CommitDetails { revision, describe: describe.join().unwrap_or_default() }
                         })
                     })
                     .cloned();
@@ -84,7 +96,7 @@ impl CommitInfo {
                     .request_latest(ctx, id, move || {
                         std::thread::scope(|s| {
                             let tags = s.spawn(|| m.tags_containing(id));
-                            let branches = m.branches_containing(id, true, true);
+                            let branches = m.branches_containing(id, true, false);
                             CommitRefs { branches, tags: tags.join().unwrap_or_default() }
                         })
                     })
@@ -210,9 +222,22 @@ impl CommitInfo {
                     }
                 }
             }
-            if let Some(g) = details.and_then(|d| d.gpg.as_ref()) {
-                ui.add_space(6.0);
-                ui.label(RichText::new(format!("🔏 {g}")).color(palette.muted));
+            ui.add_space(6.0);
+            if self.gpg_requested == Some(id) {
+                let m = module.clone();
+                match self.gpg.request(ui.ctx(), id, move || m.gpg_info(id)) {
+                    None => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(RichText::new("Checking the signature…").color(palette.muted));
+                        });
+                    }
+                    Some(g) => {
+                        ui.label(RichText::new(format!("🔏 {}", g.as_deref().unwrap_or("No signature"))).color(palette.muted));
+                    }
+                }
+            } else if ui.link(RichText::new("🔏 Check signature").color(palette.muted)).clicked() {
+                self.gpg_requested = Some(id);
             }
         });
         link
