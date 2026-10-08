@@ -1,0 +1,55 @@
+name: rust
+
+on:
+  push:
+    # branches only: tags are built by rust-release.yml
+    branches: ["**"]
+    paths: ["rust/**", ".github/workflows/rust.yml"]
+  pull_request:
+    paths: ["rust/**", ".github/workflows/rust.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux is built on the oldest supported Ubuntu: the binary needs the glibc of the
+        # build machine (2.35 for 22.04) or newer, so it runs on Ubuntu 22.04, 24.04 and later.
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Configure git for the test repositories
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.com"
+          git config --global init.defaultBranch main
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Build release binary
+        run: cargo build --release --locked -p gitext-app
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          if [ ! -f "/c/Program Files (x86)/NSIS/makensis.exe" ]; then choco install nsis -y --no-progress; fi
+          version="$(cargo pkgid -p gitext-app | sed 's/.*[@#]//')"
+          ./packaging/package.sh "$version" windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gitext-${{ matrix.os }}
+          path: |
+            rust/target/release/gitext
+            rust/target/release/gitext.exe
+            rust/dist/*
+          if-no-files-found: ignore

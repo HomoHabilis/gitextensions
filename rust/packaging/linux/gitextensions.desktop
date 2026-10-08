@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Git Extensions
+GenericName=Git GUI
+Comment=Graphical user interface for git
+Exec=gitext %F
+Icon=gitextensions
+Terminal=false
+Categories=Development;RevisionControl;
+Keywords=git;version control;
+StartupWMClass=gitextensions
