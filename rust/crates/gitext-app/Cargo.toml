@@ -1,5 +1,6 @@
 [package]
 name = "gitext-app"
+description = "Git Extensions - a cross-platform graphical user interface for git (Rust port)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,3 +8,19 @@ license.workspace = true
 [[bin]]
 name = "gitext"
 path = "src/main.rs"
+
+[dependencies]
+gitext-core.workspace = true
+gitext-graph.workspace = true
+eframe.workspace = true
+egui.workspace = true
+egui_extras.workspace = true
+rfd.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+regex.workspace = true
+dirs.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,0 +1,43 @@
+name: rust
+
+on:
+  push:
+    paths: ["rust/**", ".github/workflows/rust.yml"]
+  pull_request:
+    paths: ["rust/**", ".github/workflows/rust.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Configure git for the test repositories
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.com"
+          git config --global init.defaultBranch main
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Build release binary
+        run: cargo build --release --locked -p gitext-app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gitext-${{ matrix.os }}
+          path: |
+            rust/target/release/gitext
+            rust/target/release/gitext.exe
+          if-no-files-found: ignore
