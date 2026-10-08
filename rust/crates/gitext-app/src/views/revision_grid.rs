@@ -357,6 +357,20 @@ impl RevisionGrid {
         }
     }
 
+    /// `(id, parents)` of the commits around the selected one (the next two rows below it and
+    /// the row above), the likely next selections.
+    pub fn neighbor_revisions(&mut self) -> Vec<(ObjectId, Vec<ObjectId>)> {
+        let Some(row) = self.selected_revision().and_then(|id| self.graph.try_get_row_index(&id)) else { return Vec::new() };
+        let mut out = Vec::new();
+        for r in [Some(row + 1), Some(row + 2), row.checked_sub(1)].into_iter().flatten() {
+            let Some(n) = self.graph.get_node_for_row(r) else { continue };
+            if let Some(rev) = self.graph.store.nodes[n].revision.as_ref().filter(|rev| !rev.is_artificial()) {
+                out.push((rev.object_id, rev.parents().to_vec()));
+            }
+        }
+        out
+    }
+
     /// Drains loaded revisions into the graph.
     pub fn poll(&mut self, ctx: &egui::Context) -> bool {
         let Some(rx) = &self.rx else { return false };

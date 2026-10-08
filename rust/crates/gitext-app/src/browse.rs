@@ -421,6 +421,10 @@ impl BrowseView {
                     if let Some(c) = self.diff.ui(ui, &self.module, first, second, &parents, settings, "browse_diff") {
                         self.handle_diff(c, settings, actions);
                     }
+                    if self.grid.selected.len() == 1 {
+                        let neighbors = self.grid.neighbor_revisions();
+                        self.diff.prefetch(ctx, &self.module, &neighbors, settings);
+                    }
                 }
                 _ => {
                     // the work tree / index are shown at HEAD
@@ -436,6 +440,8 @@ impl BrowseView {
             let events = crate::prof::scope("grid", || self.grid.ui(ui, settings, &self.data));
             if events.selection_changed {
                 self.diff.list.clear();
+                // the tabs are drawn before the grid: draw again now to load the new selection
+                ctx.request_repaint();
             }
             if let Some(id) = events.double_clicked {
                 if id.is_artificial() {

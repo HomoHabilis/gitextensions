@@ -6,6 +6,9 @@ use std::sync::{Arc, Mutex};
 /// The result of a computation running on a background thread.
 pub struct Task<T> {
     slot: Arc<Mutex<Option<T>>>,
+    /// Start time and duration of the work (profiling).
+    started: std::time::Instant,
+    worked: Arc<Mutex<Option<std::time::Duration>>>,
 }
 
 impl<T: Send + 'static> Task<T> {
@@ -13,13 +16,17 @@ impl<T: Send + 'static> Task<T> {
     pub fn spawn(ctx: &egui::Context, f: impl FnOnce() -> T + Send + 'static) -> Self {
         let slot = Arc::new(Mutex::new(None));
         let s = Arc::clone(&slot);
+        let worked = Arc::new(Mutex::new(None));
+        let w = Arc::clone(&worked);
         let ctx = ctx.clone();
+        let started = std::time::Instant::now();
         std::thread::spawn(move || {
             let r = f();
+            *w.lock().unwrap() = Some(started.elapsed());
             *s.lock().unwrap() = Some(r);
             ctx.request_repaint();
         });
-        Task { slot }
+        Task { slot, started, worked }
     }
 
     /// Takes the result if it is ready.
@@ -60,6 +67,10 @@ impl<K: PartialEq + Clone, T: Send + 'static> Loader<K, T> {
     pub fn poll(&mut self) {
         if let Some((k, t)) = self.task.as_mut() {
             if let Some(v) = t.try_take() {
+                if crate::prof::enabled() {
+                    let worked = t.worked.lock().unwrap().unwrap_or_default();
+                    eprintln!("load {}: work {:.1} ms, shown after {:.1} ms", std::any::type_name::<T>(), worked.as_secs_f64() * 1000.0, t.started.elapsed().as_secs_f64() * 1000.0);
+                }
                 self.key = Some(k.clone());
                 self.value = Some(v);
                 self.task = None;
