@@ -1,0 +1,153 @@
+name: rust-release
+
+# Builds the Rust port for Linux, macOS and Windows and publishes a GitHub release with the
+# packages and release notes (rust/CHANGELOG.md + commits since the previous release).
+#
+# Release by pushing a tag:     git tag v0.2.0 && git push origin v0.2.0
+# or from the Actions tab:      "Run workflow" with the version (the tag is created at the
+#                               selected branch). A version with a suffix (0.2.0-beta.1) is
+#                               published as a pre-release.
+
+on:
+  push:
+    tags: ["v[0-9]*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the v (e.g. 0.2.0 or 0.2.0-beta.1)"
+        required: true
+      draft:
+        description: "Create a draft release (publish it from the Releases page)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${INPUT_VERSION#v}"
+          fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$version' is not a version like 1.2.3 or 1.2.3-beta.1"
+            exit 1
+          fi
+          prerelease=false
+          [[ "$version" == *-* ]] && prerelease=true
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # the oldest supported Ubuntu: the binary needs the glibc of the build machine or newer
+          - os: ubuntu-22.04
+            platform: linux
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: rust
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          key: release
+      - name: Set the version
+        run: |
+          perl -0pi -e 's/(\[workspace\.package\]\s*\nversion = ")[^"]*"/${1}$ENV{VERSION}"/' Cargo.toml
+          grep -q "^version = \"$VERSION\"" Cargo.toml || { echo "::error::could not set the version in Cargo.toml"; exit 1; }
+      - name: Build
+        if: matrix.platform != 'macos'
+        run: cargo build --release -p gitext-app
+      - name: Build (universal binary)
+        if: matrix.platform == 'macos'
+        run: |
+          cargo build --release -p gitext-app --target aarch64-apple-darwin
+          cargo build --release -p gitext-app --target x86_64-apple-darwin
+          mkdir -p target/universal
+          lipo -create -output target/universal/gitext target/aarch64-apple-darwin/release/gitext target/x86_64-apple-darwin/release/gitext
+          lipo -info target/universal/gitext
+      - name: Install NSIS
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: if (-not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) { choco install nsis -y --no-progress }
+      - name: Package
+        run: |
+          if [ "${{ matrix.platform }}" = macos ]; then
+            ./packaging/package.sh "$VERSION" macos target/universal/gitext
+          else
+            ./packaging/package.sh "$VERSION" ${{ matrix.platform }}
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: rust/dist/*
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Release notes
+        run: |
+          rust/packaging/release-notes.sh "$VERSION" "$TAG" > release-notes.md
+          cat release-notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          target_commitish: ${{ github.sha }}
+          name: Git Extensions ${{ env.VERSION }}
+          body_path: release-notes.md
+          prerelease: ${{ needs.version.outputs.prerelease == 'true' }}
+          draft: ${{ inputs.draft == true }}
+          fail_on_unmatched_files: true
+          files: dist/*

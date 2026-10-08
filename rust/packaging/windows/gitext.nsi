@@ -1,7 +1,8 @@
 ; Windows installer of the Rust port of Git Extensions (NSIS 3).
 ;
 ; Build (on Windows or Linux, after building gitext.exe):
-;   makensis /DVERSION=0.1.0 /DEXE=..\target\release\gitext.exe gitext.nsi
+;   makensis /DVERSION=0.1.0 /DEXE=..\..\target\release\gitext.exe gitext.nsi
+; or use ../package.sh, as the release workflow does.
 ; It writes GitExtensions-<version>-setup.exe next to this script (or to /DOUTFILE=...).
 ;
 ; The installation is per user: no administrator rights are needed, and the Explorer
@@ -15,8 +16,12 @@ ManifestDPIAware true
 !ifndef VERSION
   !define VERSION "0.1.0"
 !endif
+; numeric X.Y.Z of VERSION (VERSION may carry a pre-release suffix, e.g. 0.2.0-beta.1)
+!ifndef NUMVERSION
+  !define NUMVERSION "${VERSION}"
+!endif
 !ifndef EXE
-  !define EXE "..\target\release\gitext.exe"
+  !define EXE "..\..\target\release\gitext.exe"
 !endif
 !ifndef OUTFILE
   !define OUTFILE "GitExtensions-${VERSION}-setup.exe"
@@ -24,7 +29,7 @@ ManifestDPIAware true
 
 !define APPNAME "Git Extensions"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\GitExtensionsRust"
-!define ICONS "..\crates\gitext-app\res\icons"
+!define ICONS "..\..\crates\gitext-app\res\icons"
 
 Name "${APPNAME}"
 OutFile "${OUTFILE}"
@@ -32,7 +37,7 @@ InstallDir "$LOCALAPPDATA\Programs\GitExtensions"
 InstallDirRegKey HKCU "${UNINSTKEY}" "InstallLocation"
 BrandingText "${APPNAME} ${VERSION}"
 
-VIProductVersion "${VERSION}.0"
+VIProductVersion "${NUMVERSION}.0"
 VIAddVersionKey "ProductName" "${APPNAME}"
 VIAddVersionKey "FileDescription" "${APPNAME} setup"
 VIAddVersionKey "FileVersion" "${VERSION}"
@@ -51,7 +56,7 @@ VIAddVersionKey "LegalCopyright" "GNU General Public License v3"
 !define MUI_FINISHPAGE_RUN_TEXT "Start ${APPNAME}"
 
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE "..\..\LICENSE.md"
+!insertmacro MUI_PAGE_LICENSE "..\..\..\LICENSE.md"
 !insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
@@ -73,7 +78,7 @@ Section "${APPNAME}" SecApp
   SectionIn RO
   SetOutPath "$INSTDIR"
   File "/oname=gitext.exe" "${EXE}"
-  File "/oname=LICENSE.md" "..\..\LICENSE.md"
+  File "/oname=LICENSE.md" "..\..\..\LICENSE.md"
   WriteUninstaller "$INSTDIR\uninstall.exe"
   ; the next section adds the context menu again when it is selected
   ExecWait '"$INSTDIR\gitext.exe" shellext uninstall'

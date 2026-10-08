@@ -1,2 +1,3 @@
 target/
-installer/*-setup.exe
+packaging/windows/*-setup.exe
+/dist/

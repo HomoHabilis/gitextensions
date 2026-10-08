@@ -2,6 +2,8 @@ name: rust
 
 on:
   push:
+    # branches only: tags are built by rust-release.yml
+    branches: ["**"]
     paths: ["rust/**", ".github/workflows/rust.yml"]
   pull_request:
     paths: ["rust/**", ".github/workflows/rust.yml"]
@@ -38,17 +40,16 @@ jobs:
         run: cargo build --release --locked -p gitext-app
       - name: Build Windows installer
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: bash
         run: |
-          if (-not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) { choco install nsis -y --no-progress }
-          $version = ((cargo pkgid -p gitext-app) -split '[@#]')[-1]
-          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" /V2 "/DVERSION=$version" installer\gitext.nsi
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if [ ! -f "/c/Program Files (x86)/NSIS/makensis.exe" ]; then choco install nsis -y --no-progress; fi
+          version="$(cargo pkgid -p gitext-app | sed 's/.*[@#]//')"
+          ./packaging/package.sh "$version" windows
       - uses: actions/upload-artifact@v4
         with:
           name: gitext-${{ matrix.os }}
           path: |
             rust/target/release/gitext
             rust/target/release/gitext.exe
-            rust/installer/*-setup.exe
+            rust/dist/*
           if-no-files-found: ignore

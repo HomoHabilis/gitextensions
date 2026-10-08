@@ -34,14 +34,41 @@ Runtime dependencies:
 
 Nothing extra is needed on macOS or Windows.
 
+### Releases
+
+`.github/workflows/rust-release.yml` publishes a GitHub release with the packages of the three
+platforms. Add a `## <version>` section to [CHANGELOG.md](CHANGELOG.md), then push a tag:
+
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+or run the workflow from the Actions tab with the version (optionally as a draft). A version
+with a suffix, like `0.2.0-beta.1`, is published as a pre-release. The tag sets the version of
+the binaries. The release contains:
+
+| File | Contents |
+|---|---|
+| `GitExtensions-<version>-setup.exe` | Windows installer, with the Explorer context menu |
+| `gitextensions-<version>-windows-x86_64-portable.zip` | Windows binary |
+| `gitextensions-<version>-macos-universal.dmg` | `Git Extensions.app` for Apple silicon and Intel (ad-hoc signed, not notarized) |
+| `gitextensions-<version>-macos-universal.tar.gz` | macOS binary |
+| `gitextensions-<version>-linux-x86_64.tar.gz` | Linux binary, desktop entry, icon and `install.sh` |
+| `SHA256SUMS.txt` | Checksums |
+
+The release notes (`packaging/release-notes.sh`) are the changelog section of the version, the
+commits since the previous release that changed the Rust port, and the download and
+installation instructions. `packaging/package.sh <version> linux|macos|windows` builds the
+packages locally, into `dist/`.
+
 ### Windows installer and Explorer context menu
 
-`installer/gitext.nsi` builds a Windows installer with [NSIS](https://nsis.sourceforge.io)
-(the CI attaches it to the Windows build artifact):
+`packaging/windows/gitext.nsi` builds a Windows installer with
+[NSIS](https://nsis.sourceforge.io) (the CI attaches it to the Windows build artifact):
 
 ```sh
 cargo build --release -p gitext-app
-makensis /DVERSION=0.1.0 installer/gitext.nsi   # writes installer/GitExtensions-0.1.0-setup.exe
+packaging/package.sh 0.1.0 windows   # writes dist/GitExtensions-0.1.0-setup.exe and a portable zip
 ```
 
 It installs for the current user, without administrator rights, into
