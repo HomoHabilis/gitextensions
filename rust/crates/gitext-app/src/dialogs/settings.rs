@@ -32,6 +32,8 @@ pub struct SettingsDialog {
     tools: Option<[super::tools::ToolEdit; 2]>,
     /// `git version` of the configured git command (not run every frame).
     git_version: Option<(String, String)>,
+    /// Result of the last Explorer menu registration.
+    shell_ext_result: Option<Result<String, String>>,
 }
 
 impl SettingsDialog {
@@ -152,6 +154,10 @@ impl Dialog for SettingsDialog {
                                 }
                             });
                         });
+                        if cfg!(windows) {
+                            ui.add_space(8.0);
+                            shell_ext_ui(ui, s, &mut self.shell_ext_result);
+                        }
                     }
                     1 => {
                         ui.horizontal(|ui| {
@@ -388,6 +394,46 @@ impl Dialog for SettingsDialog {
             });
         });
         keep
+    }
+}
+
+/// The Windows Explorer context menu (port of `ShellExtensionSettingsPage`).
+fn shell_ext_ui(ui: &mut Ui, s: &mut AppSettings, result: &mut Option<Result<String, String>>) {
+    use crate::shell_ext;
+    ui.strong("Windows Explorer context menu");
+    let registered = shell_ext::is_registered();
+    ui.label(RichText::new(if registered { "The Git Extensions menu is shown when right-clicking files and folders." } else { "The Git Extensions menu is not installed." }).small());
+    ui.label("Items in the menu:");
+    egui::Grid::new("shell_ext_items").num_columns(3).show(ui, |ui| {
+        for (n, item) in shell_ext::ITEMS.iter().enumerate() {
+            let mut shown = !s.shell_menu_hidden_items.iter().any(|h| h == item.command);
+            if ui.checkbox(&mut shown, item.text.trim_end_matches('.')).changed() {
+                s.shell_menu_hidden_items.retain(|h| h != item.command);
+                if !shown {
+                    s.shell_menu_hidden_items.push(item.command.to_string());
+                }
+            }
+            if n % 3 == 2 {
+                ui.end_row();
+            }
+        }
+    });
+    ui.horizontal(|ui| {
+        if ui.button(if registered { "Update the menu" } else { "Install the menu" }).clicked() {
+            *result = Some(shell_ext::register(&s.shell_menu_hidden_items).map(|_| "The menu is installed.".to_string()));
+        }
+        if registered && ui.button("Remove the menu").clicked() {
+            *result = Some(shell_ext::unregister().map(|_| "The menu is removed.".to_string()));
+        }
+    });
+    match result {
+        Some(Ok(m)) => {
+            ui.label(RichText::new(m.as_str()).small());
+        }
+        Some(Err(e)) => {
+            ui.label(RichText::new(e.as_str()).small().color(ui.visuals().error_fg_color));
+        }
+        None => {}
     }
 }
 

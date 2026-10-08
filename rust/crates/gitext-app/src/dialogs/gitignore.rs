@@ -99,3 +99,39 @@ impl Dialog for AddToGitIgnoreDialog {
         !cancel
     }
 }
+
+/// Port of `FormAddFiles`: `git add` of a path or pattern.
+pub struct AddFilesDialog {
+    pattern: String,
+    force: bool,
+}
+
+impl AddFilesDialog {
+    pub fn new(pattern: String) -> Self {
+        AddFilesDialog { pattern, force: false }
+    }
+}
+
+impl Dialog for AddFilesDialog {
+    fn title(&self) -> String {
+        "Add files".into()
+    }
+
+    fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
+        ui.label("Files to add (a path or a pattern, e.g. *.txt):");
+        ui.add(egui::TextEdit::singleline(&mut self.pattern).desired_width(400.0).font(egui::TextStyle::Monospace));
+        ui.checkbox(&mut self.force, "Force (also add ignored files)");
+        let (ok, cancel) = ok_cancel(ui, "Add files", !self.pattern.trim().is_empty());
+        if ok {
+            let mut args = gitext_core::GitArgs::new("add");
+            if self.force {
+                args.add("--force");
+            }
+            args.add("--");
+            args.add(self.pattern.trim());
+            cx.run(super::GitRun::new("Add files", args));
+            return false;
+        }
+        !cancel
+    }
+}

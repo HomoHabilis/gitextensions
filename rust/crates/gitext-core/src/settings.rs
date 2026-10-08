@@ -171,6 +171,8 @@ pub struct AppSettings {
     pub terminal: String,
     pub file_manager: String,
     pub user_scripts: Vec<UserScript>,
+    /// Commands hidden from the Windows Explorer context menu.
+    pub shell_menu_hidden_items: Vec<String>,
 
     // Window layout
     pub left_panel_visible: bool,
@@ -260,6 +262,7 @@ impl Default for AppSettings {
             terminal: String::new(),
             file_manager: String::new(),
             user_scripts: Vec::new(),
+            shell_menu_hidden_items: Vec::new(),
             left_panel_visible: true,
             commit_info_position_right: false,
             last_browse_tab: 0,

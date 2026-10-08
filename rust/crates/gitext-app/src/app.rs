@@ -40,6 +40,15 @@ pub enum StartCommand {
     MergeConflicts,
     Search,
     GitIgnore,
+    /// Open a file with the diff tool (run without a window, see `main`).
+    DiffTool(String),
+    /// Reset the changes of paths (`[]`: all changes).
+    ResetChanges(Vec<String>),
+    AddFiles(String),
+    ViewDiff,
+    CheckoutRevision,
+    /// Add (`true`) or remove the Explorer context menu (run without a window, see `main`).
+    ShellExt(bool),
 }
 
 /// A diff / merge tool running in the background.
@@ -240,6 +249,13 @@ impl GitExtApp {
                 None
             }
             StartCommand::GitIgnore => Some(Box::new(gitignore::GitIgnoreDialog::new(false))),
+            StartCommand::ResetChanges(paths) if paths.is_empty() => Some(Box::new(reset::ResetChangesDialog::all())),
+            StartCommand::ResetChanges(paths) => Some(Box::new(reset::ResetChangesDialog::files(paths))),
+            StartCommand::AddFiles(pattern) => Some(Box::new(gitignore::AddFilesDialog::new(pattern))),
+            StartCommand::ViewDiff => Some(Box::new(compare::CompareDialog::new(&data))),
+            StartCommand::CheckoutRevision => Some(Box::new(checkout::CheckoutRevisionDialog::new(ObjectId::ZERO))),
+            // run by `main` without a window
+            StartCommand::DiffTool(_) | StartCommand::ShellExt(_) => None,
         };
         match d {
             Some(d) => self.open_dialog(d),

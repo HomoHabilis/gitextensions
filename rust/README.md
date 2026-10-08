@@ -34,6 +34,40 @@ Runtime dependencies:
 
 Nothing extra is needed on macOS or Windows.
 
+### Windows installer and Explorer context menu
+
+`installer/gitext.nsi` builds a Windows installer with [NSIS](https://nsis.sourceforge.io)
+(the CI attaches it to the Windows build artifact):
+
+```sh
+cargo build --release -p gitext-app
+makensis /DVERSION=0.1.0 installer/gitext.nsi   # writes installer/GitExtensions-0.1.0-setup.exe
+```
+
+It installs for the current user, without administrator rights, into
+`%LOCALAPPDATA%\Programs\GitExtensions`, and adds a Start menu entry, the uninstaller and,
+optionally, a desktop shortcut. Git for Windows is not bundled.
+
+The installer also adds the **Git Extensions** menu to Explorer, like the shell extension of
+Git Extensions. It has three versions:
+
+- **Files:** open with difftool, file history, blame, reset file changes, add files, apply
+  patch, open repository, commit, settings.
+- **Folders:** open repository, commit, pull, push, view stash, view changes, checkout branch
+  or revision, create branch, file history of the folder, reset changes, add files, clone,
+  create new repository, settings.
+- **Folder background:** the same, without the commands about the folder itself.
+
+The original is a COM extension that Explorer loads, and it shows only the commands that fit
+(the repository commands only inside a repository). This port registers static Explorer verbs
+in `HKCU\Software\Classes` instead, which run `gitext -C <path> <command>`. Nothing is loaded
+into Explorer, but the menu cannot know whether a path is inside a repository: a command used
+outside of one offers to create a repository there. On Windows 11 the menu is under
+*Show more options*, like the original.
+
+Without the installer: `gitext shellext install` / `gitext shellext uninstall`, or
+*Settings → General → Windows Explorer context menu*, which also chooses the menu items.
+
 ### Diff and merge tools
 
 *Settings → Git → Diff and merge tools* configures them the way Git Extensions does:

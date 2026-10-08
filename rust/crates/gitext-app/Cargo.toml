@@ -4,6 +4,7 @@ description = "Git Extensions - a cross-platform graphical user interface for gi
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+build = "build.rs"
 
 [[bin]]
 name = "gitext"
@@ -21,6 +22,13 @@ serde_json.workspace = true
 chrono.workspace = true
 regex.workspace = true
 dirs.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+
+[build-dependencies]
+# only used when building for Windows
+embed-resource = "3"
 
 [dev-dependencies]
 tempfile.workspace = true
