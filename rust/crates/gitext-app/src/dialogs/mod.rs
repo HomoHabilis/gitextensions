@@ -28,6 +28,7 @@ pub mod gitignore;
 pub mod goto_commit;
 pub mod init;
 pub mod merge;
+pub mod open_repo;
 pub mod message;
 pub mod patch;
 pub mod process;
@@ -41,6 +42,7 @@ pub mod settings;
 pub mod stash;
 pub mod submodules;
 pub mod tag;
+pub mod tools;
 pub mod verify;
 pub mod worktrees;
 
@@ -55,6 +57,9 @@ pub enum Action {
     OpenDialog(Box<dyn Dialog>),
     /// Runs git commands in a process dialog; `then` actions run on success.
     RunGit(GitRun),
+    /// Starts the diff or merge tool (`git difftool` / `git mergetool` + `args` without the
+    /// command), in the background; failures are reported.
+    RunTool { tool_type: gitext_core::diff_tools::ToolType, args: GitArgs },
     Message { title: String, text: String, error: bool },
     SelectRevision(ObjectId),
     SaveSettings,

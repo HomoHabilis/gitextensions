@@ -42,6 +42,9 @@ pub enum StartCommand {
     GitIgnore,
 }
 
+/// A diff / merge tool running in the background.
+type ToolRun = crate::tasks::Task<gitext_core::exec::GitResult<gitext_core::exec::ExecResult>>;
+
 pub struct GitExtApp {
     pub settings: AppSettings,
     settings_path: Option<PathBuf>,
@@ -57,6 +60,8 @@ pub struct GitExtApp {
     last_title: String,
     /// Repository description for the title, cached per working directory.
     title_description: Option<(std::path::PathBuf, String)>,
+    /// Diff / merge tools started in the background (title, result when the tool exits).
+    tool_runs: Vec<(String, ToolRun)>,
 }
 
 impl GitExtApp {
@@ -64,6 +69,7 @@ impl GitExtApp {
         let settings_path = AppSettings::default_path();
         let settings = settings_path.as_deref().map(AppSettings::load).unwrap_or_default();
         gitext_core::exec::set_git_command(&settings.git_command);
+        gitext_core::exec::set_wsl_git_enabled(settings.wsl_git_enabled);
         let history_path = RepositoryHistory::default_path();
         let history = history_path.as_deref().map(|p| RepositoryHistory::load(p, settings.recent_repositories_history_size)).unwrap_or_default();
         let mut app = GitExtApp {
@@ -80,6 +86,7 @@ impl GitExtApp {
             start: Some(start),
             last_title: String::new(),
             title_description: None,
+            tool_runs: Vec::new(),
         };
         if let Some(path) = repo {
             app.open_repo(&cc.egui_ctx, &path, false);
@@ -116,10 +123,79 @@ impl GitExtApp {
                 self.browse = Some(BrowseView::new(ctx, module, &self.settings));
             }
             Err(e) => {
-                if report_errors {
-                    self.actions.push(Action::Message { title: "Open repository".into(), text: e.to_string(), error: true });
+                if !report_errors {
+                    return;
                 }
+                let text = e.to_string();
+                if let Some(safe_dir) = dubious_ownership_safe_directory(&text) {
+                    // port of UIReporter.ReportDubiousOwnership: offer to trust the repository
+                    let path = path.to_path_buf();
+                    self.open_dialog(Box::new(dialogs::Confirm::new(
+                        "Open repository",
+                        format!(
+                            "{text}\n\nGit refuses to work in a repository owned by another user. Trust this repository?\n\
+                             This runs: git config --global --add safe.directory {safe_dir}"
+                        ),
+                        "Trust and open",
+                        move |cx| {
+                            let r = gitext_core::Executable::git(std::env::temp_dir())
+                                .run_checked(&gitext_core::GitArgs::new("config").arg("--global").arg("--add").arg("safe.directory").arg(&safe_dir));
+                            match r {
+                                Ok(_) => cx.push(Action::OpenRepo(path)),
+                                Err(e) => cx.error("Open repository", e.to_string()),
+                            }
+                        },
+                    )));
+                    return;
+                }
+                let mut text = text;
+                if cfg!(windows) && gitext_core::wsl::is_wsl_path(&path.to_string_lossy()) {
+                    text.push_str(if self.settings.wsl_git_enabled {
+                        "\n\nThis repository is run with the git of the WSL distro: make sure git is installed there \
+                         (sudo apt install git), or turn off \"Use the git of the WSL distro\" in Settings > Git."
+                    } else {
+                        "\n\nTurn on \"Use the git of the WSL distro\" in Settings > Git to run WSL repositories with the git of the distro."
+                    });
+                }
+                self.actions.push(Action::Message { title: "Open repository".into(), text, error: true });
             }
+        }
+    }
+
+    /// Starts the diff / merge tool (port of `OpenWithDifftool` with `RunDetached`): the
+    /// configured tool, or a detected one, or the "no tool" dialog.
+    fn run_tool(&mut self, ctx: &egui::Context, tool_type: gitext_core::diff_tools::ToolType, args: GitArgs) {
+        use gitext_core::diff_tools::{self, ToolConfigStore, ToolLaunch};
+        let Some(m) = self.module() else { return };
+        let exe = m.git();
+        // the git of a WSL distro uses the tools configured in the distro
+        let launch = if exe.wsl_distro.is_empty() { diff_tools::resolve_launch(&ToolConfigStore::new(exe.clone()), tool_type) } else { Some(ToolLaunch::Configured) };
+        let Some(launch) = launch else {
+            self.open_dialog(Box::new(dialogs::tools::NoToolDialog { tool_type }));
+            return;
+        };
+        let args = diff_tools::launch_args(&launch, tool_type, &args);
+        let title = format!("{} tool", if tool_type == diff_tools::ToolType::Diff { "Diff" } else { "Merge" });
+        self.tool_runs.push((title, crate::tasks::Task::spawn(ctx, move || exe.run(&args))));
+    }
+
+    /// Reports diff / merge tools that failed to start.
+    fn poll_tool_runs(&mut self) {
+        let mut finished = Vec::new();
+        self.tool_runs.retain_mut(|(title, task)| match task.try_take() {
+            Some(r) => {
+                finished.push((title.clone(), r));
+                false
+            }
+            None => true,
+        });
+        for (title, r) in finished {
+            let error = match r {
+                Ok(r) if r.success() => continue,
+                Ok(r) => format!("The tool exited with code {}.\n\n{}", r.exit_code, r.all_output().trim()),
+                Err(e) => e.to_string(),
+            };
+            self.actions.push(Action::Message { title, text: error, error: true });
         }
     }
 
@@ -173,6 +249,10 @@ impl GitExtApp {
 
     fn process_actions(&mut self, ctx: &egui::Context) {
         let mut guard = 0;
+        if !self.actions.is_empty() {
+            // dialogs opened here are drawn in the next frame
+            ctx.request_repaint();
+        }
         while !self.actions.is_empty() && guard < 20 {
             guard += 1;
             let actions = std::mem::take(&mut self.actions);
@@ -202,6 +282,7 @@ impl GitExtApp {
                     }
                     Action::OpenDialog(d) => self.open_dialog(d),
                     Action::RunGit(run) => self.open_dialog(Box::new(dialogs::process::ProcessDialog::new(run))),
+                    Action::RunTool { tool_type, args } => self.run_tool(ctx, tool_type, args),
                     Action::Message { title, text, error } => self.open_dialog(Box::new(dialogs::message::MessageDialog { title, text, error })),
                     Action::SelectRevision(id) => {
                         if let Some(b) = &mut self.browse {
@@ -281,11 +362,11 @@ impl GitExtApp {
         }
     }
 
+    /// "Open local repository" (`FormOpenDirectory`).
     fn open_folder_dialog(&mut self) {
         let start = self.module().map(|m| m.work_dir().display().to_string());
-        if let Some(p) = crate::util::pick_folder(start.as_deref()) {
-            self.actions.push(Action::OpenRepo(p.into()));
-        }
+        let recent = self.history.recent.iter().map(|r| r.path.clone()).collect();
+        self.open_dialog(Box::new(dialogs::open_repo::OpenRepoDialog::new(start, recent)));
     }
 
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
@@ -607,6 +688,7 @@ impl eframe::App for GitExtApp {
         if self.start.is_some() && (self.browse.as_ref().is_none_or(|b| !b.data.refs.is_empty() || !b.is_loading())) {
             self.run_start_command();
         }
+        self.poll_tool_runs();
         crate::prof::scope("shortcuts", || self.shortcuts(ctx));
         crate::prof::scope("title", || self.update_title(ctx));
 
@@ -666,3 +748,35 @@ impl eframe::App for GitExtApp {
     }
 }
 
+
+/// The `safe.directory` value git suggests in a "detected dubious ownership" error, if any
+/// (`BugReportInvoker.DubiousOwnershipSecurityConfigString`).
+fn dubious_ownership_safe_directory(error: &str) -> Option<String> {
+    if !error.contains("dubious ownership") {
+        return None;
+    }
+    let line = error.lines().find(|l| l.contains("--add safe.directory"))?;
+    let value = line.split("safe.directory").nth(1)?.trim();
+    let value = value.trim_matches(|c| c == '\'' || c == '"');
+    (!value.is_empty()).then(|| value.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn safe_directory_from_dubious_ownership_error() {
+        let err = "git rev-parse failed with exit code 128:\n\
+            fatal: detected dubious ownership in repository at '//wsl.localhost/Ubuntu/home/jack/repo'\n\
+            '//wsl.localhost/Ubuntu/home/jack/repo' is owned by:\n\
+            \t'S-1-5-21-1'\n\
+            but the current user is:\n\
+            \t'S-1-5-21-2'\n\
+            To add an exception for this directory, call:\n\
+            \n\
+            \tgit config --global --add safe.directory '%(prefix)///wsl.localhost/Ubuntu/home/jack/repo'";
+        assert_eq!(dubious_ownership_safe_directory(err).as_deref(), Some("%(prefix)///wsl.localhost/Ubuntu/home/jack/repo"));
+        assert_eq!(dubious_ownership_safe_directory("fatal: not a git repository"), None);
+    }
+}

@@ -14,7 +14,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Linux is built on the oldest supported Ubuntu: the binary needs the glibc of the
+        # build machine (2.35 for 22.04) or newer, so it runs on Ubuntu 22.04, 24.04 and later.
+        os: [ubuntu-22.04, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:

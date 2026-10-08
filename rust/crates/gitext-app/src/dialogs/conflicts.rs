@@ -60,13 +60,14 @@ impl Dialog for ConflictsDialog {
                     };
                     let mut merge_tool = None;
                     if ui.add_sized(Vec2::new(220.0, 26.0), egui::Button::new("Open in merge tool")).clicked() {
-                        let mut a = GitArgs::new("mergetool").arg("--no-prompt");
-                        if !cx.settings.merge_tool.is_empty() {
-                            a.add(format!("--tool={}", cx.settings.merge_tool));
+                        use gitext_core::diff_tools::{self, ToolConfigStore, ToolLaunch, ToolType};
+                        // the git of a WSL distro uses the tools configured in the distro
+                        let exe = m.git();
+                        let launch = if exe.wsl_distro.is_empty() { diff_tools::resolve_launch(&ToolConfigStore::new(exe), ToolType::Merge) } else { Some(ToolLaunch::Configured) };
+                        match launch {
+                            Some(l) => merge_tool = Some(diff_tools::launch_args(&l, ToolType::Merge, &GitArgs::new("mergetool").arg("--").arg(f.clone()))),
+                            None => cx.open(super::tools::NoToolDialog { tool_type: ToolType::Merge }),
                         }
-                        a.add("--");
-                        a.add(f.clone());
-                        merge_tool = Some(a);
                     }
                     if ui.add_sized(Vec2::new(220.0, 26.0), egui::Button::new("Choose local (ours)")).clicked() {
                         run(vec![GitArgs::new("checkout").arg("--ours").arg("--").arg(&f), GitArgs::new("add").arg("--").arg(&f)], &mut self.generation);

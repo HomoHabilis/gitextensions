@@ -28,8 +28,17 @@ pub struct SettingsDialog {
     global_name: Option<String>,
     global_email: Option<String>,
     global_editor: Option<String>,
-    merge_tool: Option<String>,
-    diff_tool: Option<String>,
+    /// Diff and merge tool editors (loaded when the Git page is first shown).
+    tools: Option<[super::tools::ToolEdit; 2]>,
+    /// `git version` of the configured git command (not run every frame).
+    git_version: Option<(String, String)>,
+}
+
+impl SettingsDialog {
+    /// Opens on a page (index in `PAGES`).
+    pub fn at_page(page: usize) -> Self {
+        SettingsDialog { page: page.min(PAGES.len() - 1), ..Default::default() }
+    }
 }
 
 fn global_get(key: &str) -> String {
@@ -89,6 +98,7 @@ impl Dialog for SettingsDialog {
                             || s.max_revision_graph_commits != cx.settings.max_revision_graph_commits;
                         *cx.settings = s.clone();
                         gitext_core::exec::set_git_command(&s.git_command);
+                        gitext_core::exec::set_wsl_git_enabled(s.wsl_git_enabled);
                         if let Some(n) = &self.global_name {
                             global_set("user.name", n);
                         }
@@ -98,11 +108,13 @@ impl Dialog for SettingsDialog {
                         if let Some(e) = &self.global_editor {
                             global_set("core.editor", e);
                         }
-                        if let Some(t) = &self.merge_tool {
-                            global_set("merge.tool", t);
-                        }
-                        if let Some(t) = &self.diff_tool {
-                            global_set("diff.tool", t);
+                        if let Some(tools) = &mut self.tools {
+                            let store = gitext_core::diff_tools::ToolConfigStore::default();
+                            for t in tools.iter_mut() {
+                                if let Err(e) = t.save(&store) {
+                                    cx.error("Settings", format!("Could not save the {} tool: {e}", t.tool_type.label()));
+                                }
+                            }
                         }
                         cx.push(Action::SaveSettings);
                         cx.push(Action::ApplyTheme);
@@ -248,10 +260,15 @@ impl Dialog for SettingsDialog {
                             ui.label("Git command");
                             ui.text_edit_singleline(&mut s.git_command);
                         });
-                        let version = Executable::new(if s.git_command.is_empty() { "git" } else { &s.git_command }, std::env::temp_dir())
-                            .output(&GitArgs::new("version"))
-                            .unwrap_or_else(|e| e.to_string());
-                        ui.label(RichText::new(version.trim()).small());
+                        if self.git_version.as_ref().is_none_or(|(cmd, _)| *cmd != s.git_command) {
+                            let version = Executable::new(if s.git_command.is_empty() { "git" } else { &s.git_command }, std::env::temp_dir())
+                                .output(&GitArgs::new("version"))
+                                .unwrap_or_else(|e| e.to_string());
+                            self.git_version = Some((s.git_command.clone(), version.trim().to_string()));
+                        }
+                        ui.label(RichText::new(self.git_version.as_ref().map(|(_, v)| v.as_str()).unwrap_or_default()).small());
+                        ui.checkbox(&mut s.wsl_git_enabled, "Use the git of the WSL distro for repositories in WSL (\\\\wsl$\\…, Windows only)")
+                            .on_hover_text("Runs `wsl -d <distro> git` for these repositories: much faster than Windows git on WSL files, and no \"dubious ownership\" errors.");
                         ui.separator();
                         ui.label(RichText::new("Global git configuration").strong());
                         let name = self.global_name.get_or_insert_with(|| global_get("user.name"));
@@ -269,16 +286,19 @@ impl Dialog for SettingsDialog {
                             ui.label("Editor (core.editor)");
                             ui.text_edit_singleline(editor);
                         });
-                        let mt = self.merge_tool.get_or_insert_with(|| global_get("merge.tool"));
-                        ui.horizontal(|ui| {
-                            ui.label("Merge tool (merge.tool)");
-                            ui.text_edit_singleline(mt);
+                        ui.separator();
+                        ui.label(RichText::new("Diff and merge tools").strong());
+                        let tools = self.tools.get_or_insert_with(|| {
+                            let store = gitext_core::diff_tools::ToolConfigStore::default();
+                            [
+                                super::tools::ToolEdit::load(&store, gitext_core::diff_tools::ToolType::Diff),
+                                super::tools::ToolEdit::load(&store, gitext_core::diff_tools::ToolType::Merge),
+                            ]
                         });
-                        let dt = self.diff_tool.get_or_insert_with(|| global_get("diff.tool"));
-                        ui.horizontal(|ui| {
-                            ui.label("Diff tool (diff.tool)");
-                            ui.text_edit_singleline(dt);
-                        });
+                        for t in tools.iter_mut() {
+                            t.ui(ui);
+                            ui.add_space(6.0);
+                        }
                         ui.separator();
                         ui.label(RichText::new("Applications").strong());
                         ui.horizontal(|ui| {

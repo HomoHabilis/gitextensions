@@ -152,15 +152,23 @@ impl GitModule {
             return Err(GitError::Invalid(format!("'{}' is not a directory", path.display())));
         }
         let exe = Executable::git(path);
-        let out = exe.run(&GitArgs::new("rev-parse").args(["--is-bare-repository", "--absolute-git-dir", "--show-toplevel"]))?;
+        let args = GitArgs::new("rev-parse").args(["--is-bare-repository", "--absolute-git-dir", "--show-toplevel"]);
+        let out = exe.run(&args)?;
         if !out.success() {
-            return Err(GitError::Invalid(format!("'{}' is not a git repository", path.display())));
+            let stderr = out.stderr_str();
+            if stderr.trim().is_empty() {
+                return Err(GitError::Invalid(format!("'{}' is not a git repository", path.display())));
+            }
+            // keep git's message: it tells why (not a repository, dubious ownership, no git in
+            // the WSL distro, …)
+            return Err(GitError::Failed { args: args.to_string(), exit_code: out.exit_code, stderr });
         }
         let text = out.stdout_str();
         let mut lines = text.lines();
         let is_bare = lines.next() == Some("true");
-        let git_dir = PathBuf::from(lines.next().unwrap_or_default());
-        let work_dir = if is_bare { git_dir.clone() } else { PathBuf::from(lines.next().unwrap_or_default()) };
+        // paths printed by the git of a WSL distro are converted to \\wsl$\ paths
+        let git_dir = exe.app_path(lines.next().unwrap_or_default());
+        let work_dir = if is_bare { git_dir.clone() } else { exe.app_path(lines.next().unwrap_or_default()) };
         Ok(GitModule { work_dir: normalize_path(&work_dir), git_dir: normalize_path(&git_dir), is_bare })
     }
 
@@ -818,14 +826,23 @@ impl GitModule {
     pub fn superproject(&self) -> Option<PathBuf> {
         let out = self.output(&GitArgs::new("rev-parse").arg("--show-superproject-working-tree")).ok()?;
         let p = out.trim();
-        (!p.is_empty()).then(|| PathBuf::from(p))
+        (!p.is_empty()).then(|| normalize_path(&self.git().app_path(p)))
     }
 
     // ---------------------------------------------------------------- worktrees
 
     pub fn get_worktrees(&self) -> Vec<GitWorktree> {
         let out = self.output(&GitArgs::new("worktree").arg("list").arg("--porcelain").arg("-z")).unwrap_or_default();
-        parse_worktrees(&out)
+        let mut worktrees = parse_worktrees(&out);
+        let exe = self.git();
+        if !exe.wsl_distro.is_empty() {
+            for w in &mut worktrees {
+                let p = exe.app_path(&w.path.replace('\\', "/"));
+                w.is_deleted = !p.exists();
+                w.path = p.display().to_string();
+            }
+        }
+        worktrees
     }
 
     // ---------------------------------------------------------------- reflog

@@ -104,16 +104,105 @@ pub fn open_in_editor(path: &std::path::Path, editor: &str) {
     }
 }
 
+/// Whether the last file dialog could not be shown (no xdg-desktop-portal, zenity or kdialog,
+/// e.g. on WSL): the dialogs then ask to type the path.
+static FILE_DIALOG_UNAVAILABLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn file_dialog_unavailable() -> bool {
+    FILE_DIALOG_UNAVAILABLE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Linux: the dialog of zenity (GNOME) or kdialog (KDE) when installed. They work without the
+/// xdg-desktop-portal that the built-in dialog needs (which WSL and minimal desktops lack).
+/// `None`: no helper; `Some(None)`: cancelled.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn helper_dialog(mode: DialogMode, start: Option<&str>) -> Option<Option<String>> {
+    use gitext_core::diff_tools::find_in_path;
+    let dir = start.filter(|s| std::path::Path::new(s).is_dir()).map(|s| format!("{}/", s.trim_end_matches('/')));
+    let initial = match mode {
+        DialogMode::Save(name) => format!("{}{name}", dir.clone().unwrap_or_default()),
+        _ => dir.clone().unwrap_or_default(),
+    };
+    let mut cmd = if find_in_path("zenity").is_some() {
+        let mut c = std::process::Command::new("zenity");
+        c.arg("--file-selection");
+        match mode {
+            DialogMode::Folder => {
+                c.arg("--directory");
+            }
+            DialogMode::Save(_) => {
+                c.arg("--save").arg("--confirm-overwrite");
+            }
+            DialogMode::Open => {}
+        }
+        if !initial.is_empty() {
+            c.arg(format!("--filename={initial}"));
+        }
+        c
+    } else if find_in_path("kdialog").is_some() {
+        let mut c = std::process::Command::new("kdialog");
+        c.arg(match mode {
+            DialogMode::Folder => "--getexistingdirectory",
+            DialogMode::Open => "--getopenfilename",
+            DialogMode::Save(_) => "--getsavefilename",
+        });
+        c.arg(if initial.is_empty() { "." } else { initial.as_str() });
+        c
+    } else {
+        return None;
+    };
+    let out = cmd.stderr(std::process::Stdio::null()).output().ok()?;
+    match out.status.code() {
+        Some(0) => {
+            let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            Some((!p.is_empty()).then_some(p))
+        }
+        Some(1) => Some(None),
+        _ => None,
+    }
+}
+
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+fn helper_dialog(_mode: DialogMode, _start: Option<&str>) -> Option<Option<String>> {
+    None
+}
+
+#[derive(Clone, Copy)]
+#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
+enum DialogMode<'a> {
+    Folder,
+    Open,
+    Save(&'a str),
+}
+
+/// Runs the built-in (portal) dialog; a "cancel" faster than a person can click means that no
+/// dialog was shown.
+fn native_dialog(f: impl FnOnce() -> Option<std::path::PathBuf>) -> Option<String> {
+    let started = std::time::Instant::now();
+    let r = f().map(|p| p.display().to_string());
+    let unavailable = cfg!(all(unix, not(target_os = "macos"))) && r.is_none() && started.elapsed() < std::time::Duration::from_millis(250);
+    FILE_DIALOG_UNAVAILABLE.store(unavailable, std::sync::atomic::Ordering::Relaxed);
+    r
+}
+
 /// Picks a folder with the native dialog.
 pub fn pick_folder(start: Option<&str>) -> Option<String> {
+    if let Some(r) = helper_dialog(DialogMode::Folder, start) {
+        FILE_DIALOG_UNAVAILABLE.store(false, std::sync::atomic::Ordering::Relaxed);
+        return r;
+    }
     let mut d = rfd::FileDialog::new();
     if let Some(s) = start.filter(|s| std::path::Path::new(s).is_dir()) {
         d = d.set_directory(s);
     }
-    d.pick_folder().map(|p| p.display().to_string())
+    native_dialog(|| d.pick_folder())
 }
 
 pub fn pick_file(start: Option<&str>, filter: Option<(&str, &[&str])>) -> Option<String> {
+    if let Some(r) = helper_dialog(DialogMode::Open, start) {
+        FILE_DIALOG_UNAVAILABLE.store(false, std::sync::atomic::Ordering::Relaxed);
+        return r;
+    }
     let mut d = rfd::FileDialog::new();
     if let Some(s) = start.filter(|s| std::path::Path::new(s).is_dir()) {
         d = d.set_directory(s);
@@ -121,15 +210,19 @@ pub fn pick_file(start: Option<&str>, filter: Option<(&str, &[&str])>) -> Option
     if let Some((name, ext)) = filter {
         d = d.add_filter(name, ext);
     }
-    d.pick_file().map(|p| p.display().to_string())
+    native_dialog(|| d.pick_file())
 }
 
 pub fn save_file(start: Option<&str>, name: &str) -> Option<String> {
+    if let Some(r) = helper_dialog(DialogMode::Save(name), start) {
+        FILE_DIALOG_UNAVAILABLE.store(false, std::sync::atomic::Ordering::Relaxed);
+        return r;
+    }
     let mut d = rfd::FileDialog::new().set_file_name(name);
     if let Some(s) = start.filter(|s| std::path::Path::new(s).is_dir()) {
         d = d.set_directory(s);
     }
-    d.save_file().map(|p| p.display().to_string())
+    native_dialog(|| d.save_file())
 }
 
 #[cfg(test)]

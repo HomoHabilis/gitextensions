@@ -66,7 +66,7 @@ pub fn strip_ansi(line: &str) -> String {
     RE.get_or_init(|| Regex::new(ESC).unwrap()).replace_all(line, "").into_owned()
 }
 
-/// Unescapes git's octal escaped file names (`\303\244.txt` → `ä.txt`). A run of escapes with
+/// Unescapes git's octal escaped file names (`\303\244.txt` > `ä.txt`). A run of escapes with
 /// a value above `\377` is kept unchanged (port of `GitModule.UnescapeOctalCodePoints`).
 pub fn unescape_octal_code_points(s: &str) -> String {
     static RE: OnceLock<Regex> = OnceLock::new();

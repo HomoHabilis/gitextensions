@@ -165,6 +165,13 @@ pub fn git_command() -> String {
     git_command_path().lock().unwrap().clone()
 }
 
+static WSL_GIT_ENABLED: AtomicBool = AtomicBool::new(true);
+
+/// Whether repositories on WSL paths are run with the git of the distro (`AppSettings.WslGitEnabled`).
+pub fn set_wsl_git_enabled(enabled: bool) {
+    WSL_GIT_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
 /// Lines (or progress updates terminated by `\r`) emitted by a streaming process.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OutputEvent {
@@ -208,21 +215,70 @@ pub struct Executable {
     pub file_name: String,
     pub working_dir: PathBuf,
     pub env: Vec<(String, String)>,
+    /// The WSL distro whose git runs the commands (repository on a `\\wsl$\` path), or empty.
+    pub wsl_distro: String,
 }
 
 impl Executable {
+    /// Git in `working_dir`: the configured git, or the git of the distro for a WSL path on
+    /// Windows (port of `GitExecutor`).
     pub fn git(working_dir: impl Into<PathBuf>) -> Self {
-        Executable { file_name: git_command(), working_dir: working_dir.into(), env: Vec::new() }
+        let working_dir = working_dir.into();
+        let wsl_distro = if cfg!(windows) && WSL_GIT_ENABLED.load(Ordering::Relaxed) {
+            crate::wsl::distro(&working_dir.to_string_lossy())
+        } else {
+            String::new()
+        };
+        Executable { file_name: git_command(), working_dir, env: Vec::new(), wsl_distro }
+    }
+
+    /// Git of a WSL distro, whatever the platform (for tests).
+    pub fn wsl_git(working_dir: impl Into<PathBuf>, distro: &str) -> Self {
+        Executable { file_name: "git".into(), working_dir: working_dir.into(), env: Vec::new(), wsl_distro: distro.to_string() }
     }
 
     pub fn new(file_name: impl Into<String>, working_dir: impl Into<PathBuf>) -> Self {
-        Executable { file_name: file_name.into(), working_dir: working_dir.into(), env: Vec::new() }
+        Executable { file_name: file_name.into(), working_dir: working_dir.into(), env: Vec::new(), wsl_distro: String::new() }
+    }
+
+    /// Converts a path of the app to the path git sees (`/home/…` for a WSL distro).
+    pub fn path_for_git(&self, path: &str) -> String {
+        crate::wsl::path_for_git(path, &self.wsl_distro)
+    }
+
+    /// Converts a path printed by git to a path of the app.
+    pub fn app_path(&self, path: &str) -> PathBuf {
+        PathBuf::from(crate::wsl::windows_path(path, &self.wsl_distro))
+    }
+
+    /// The program and arguments actually started.
+    pub fn command_line(&self, args: &[String]) -> (String, Vec<String>) {
+        if self.wsl_distro.is_empty() {
+            return (self.file_name.clone(), args.to_vec());
+        }
+        // `--cd` because the working directory is not always passed to the distro; `--exec`
+        // bypasses the login shell, which would re-parse the arguments (as GitExecutor does).
+        let dir = self.path_for_git(&self.working_dir.to_string_lossy());
+        let mut v = vec!["-d".to_string(), self.wsl_distro.clone(), "--cd".to_string(), dir, "--exec".to_string(), "git".to_string()];
+        v.extend(args.iter().map(|a| crate::wsl::convert_arg(a, &self.wsl_distro)));
+        ("wsl".to_string(), v)
+    }
+
+    /// Name shown in the command log.
+    fn display_name(&self) -> String {
+        if self.wsl_distro.is_empty() {
+            self.file_name.clone()
+        } else {
+            format!("wsl -d {} git", self.wsl_distro)
+        }
     }
 
     fn command(&self, args: &[String]) -> Command {
-        let mut cmd = Command::new(&self.file_name);
+        let (program, args) = self.command_line(args);
+        let mut cmd = Command::new(program);
         cmd.args(args);
-        if !self.working_dir.as_os_str().is_empty() && self.working_dir.is_dir() {
+        // the distro gets the directory with --cd (a \\wsl$\ working directory is not needed)
+        if self.wsl_distro.is_empty() && !self.working_dir.as_os_str().is_empty() && self.working_dir.is_dir() {
             cmd.current_dir(&self.working_dir);
         }
         // Never block on an interactive terminal prompt; credentials go through askpass helpers.
@@ -231,6 +287,13 @@ impl Executable {
         cmd.env_remove("GIT_WORK_TREE");
         for (k, v) in &self.env {
             cmd.env(k, v);
+        }
+        if !self.wsl_distro.is_empty() {
+            // forward the variables to the distro (WslUtil.ForwardEnvironmentVariableToWsl)
+            let mut names: Vec<String> = std::env::var("WSLENV").ok().filter(|v| !v.is_empty()).into_iter().collect();
+            names.push("GIT_TERMINAL_PROMPT".into());
+            names.extend(self.env.iter().map(|(k, _)| k.clone()));
+            cmd.env("WSLENV", names.join(":"));
         }
         #[cfg(windows)]
         {
@@ -244,7 +307,7 @@ impl Executable {
     /// Runs the process to completion, capturing output. Optional `stdin` input.
     pub fn run_with_input(&self, args: &GitArgs, stdin: Option<&[u8]>) -> GitResult<ExecResult> {
         let display = args.to_string();
-        let log_index = log_start(&self.file_name, &display, &self.working_dir);
+        let log_index = log_start(&self.display_name(), &display, &self.working_dir);
         let started = Instant::now();
         let mut cmd = self.command(args.as_slice());
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -289,7 +352,7 @@ impl Executable {
 
     /// Starts the process with piped stdout (stderr discarded) for incremental parsing.
     pub fn spawn_raw(&self, args: &GitArgs) -> GitResult<RawProcess> {
-        log_start(&self.file_name, &args.to_string(), &self.working_dir);
+        log_start(&self.display_name(), &args.to_string(), &self.working_dir);
         let mut cmd = self.command(args.as_slice());
         cmd.stdout(Stdio::piped()).stderr(Stdio::null()).stdin(Stdio::null());
         let mut child = cmd.spawn()?;
@@ -300,7 +363,7 @@ impl Executable {
     /// Starts the process and streams its output line by line.
     pub fn spawn_streaming(&self, args: &GitArgs) -> GitResult<RunningProcess> {
         let display = args.to_string();
-        let log_index = log_start(&self.file_name, &display, &self.working_dir);
+        let log_index = log_start(&self.display_name(), &display, &self.working_dir);
         let started = Instant::now();
         let mut cmd = self.command(args.as_slice());
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null());
@@ -370,6 +433,24 @@ fn stream_lines(mut reader: impl Read, mut emit: impl FnMut(String, bool)) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wsl_command_line() {
+        let exe = Executable::wsl_git(r"\\wsl.localhost\Ubuntu-22.04\home\jack\repo", "Ubuntu-22.04");
+        let args: Vec<String> = ["apply", "--cached", "C:/Users/jack/AppData/Local/Temp/p.patch"].iter().map(|s| s.to_string()).collect();
+        let (program, v) = exe.command_line(&args);
+        assert_eq!(program, "wsl");
+        assert_eq!(
+            v,
+            ["-d", "Ubuntu-22.04", "--cd", "/home/jack/repo", "--exec", "git", "apply", "--cached", "/mnt/c/Users/jack/AppData/Local/Temp/p.patch"]
+        );
+        assert_eq!(exe.app_path("/home/jack/repo/.git"), PathBuf::from(r"\\wsl$\Ubuntu-22.04\home\jack\repo\.git"));
+        assert_eq!(exe.display_name(), "wsl -d Ubuntu-22.04 git");
+        // not a WSL repository: unchanged
+        let exe = Executable::new("git", "/tmp");
+        assert_eq!(exe.command_line(&args), ("git".to_string(), args.clone()));
+        assert_eq!(exe.app_path("/tmp/x"), PathBuf::from("/tmp/x"));
+    }
 
     #[test]
     fn runs_git_version_and_logs_command() {

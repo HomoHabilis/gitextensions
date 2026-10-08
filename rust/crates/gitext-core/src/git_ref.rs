@@ -49,7 +49,7 @@ pub mod ref_name {
         }
     }
 
-    /// `master` → `refs/heads/master`; full refs and hashes are returned as-is.
+    /// `master` > `refs/heads/master`; full refs and hashes are returned as-is.
     pub fn get_full_branch_name(branch: &str) -> String {
         let branch = branch.trim();
         if branch.is_empty() || branch.starts_with(REFS_PREFIX) || ObjectId::is_valid(branch) {
@@ -58,7 +58,7 @@ pub mod ref_name {
         format!("{REFS_HEADS_PREFIX}{branch}")
     }
 
-    /// `branch` → `refs/remotes/<remote>/branch`; full refs and hashes are returned as-is.
+    /// `branch` > `refs/remotes/<remote>/branch`; full refs and hashes are returned as-is.
     pub fn get_full_remote_name(branch: &str, remote: &str) -> String {
         let branch = branch.trim();
         if branch.is_empty() || branch.starts_with(REFS_PREFIX) || ObjectId::is_valid(branch) {

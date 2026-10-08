@@ -654,10 +654,7 @@ impl BrowseView {
                 crate::util::open_with_system(&p.parent().unwrap_or(m.work_dir()).display().to_string());
             }
             DiffCommand::ExternalDiff { first, second, file } => {
-                let mut args = GitArgs::new("difftool").arg("--no-prompt");
-                if !settings.diff_tool.is_empty() {
-                    args.add(format!("--tool={}", settings.diff_tool));
-                }
+                let mut args = GitArgs::new("difftool").arg("--find-renames").arg("--find-copies");
                 if second == ObjectId::INDEX {
                     args.add("--cached");
                 } else if second != ObjectId::WORK_TREE {
@@ -666,7 +663,7 @@ impl BrowseView {
                 }
                 args.add("--");
                 args.add(file);
-                let _ = m.git().spawn_streaming(&args);
+                actions.push(Action::RunTool { tool_type: gitext_core::diff_tools::ToolType::Diff, args });
             }
             DiffCommand::AddToGitIgnore(files) => actions.push(Action::OpenDialog(Box::new(gitignore::AddToGitIgnoreDialog::new(files)))),
             DiffCommand::StagePatch { patch, reverse } => {

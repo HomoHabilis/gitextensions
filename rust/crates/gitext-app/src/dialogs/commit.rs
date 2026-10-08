@@ -528,8 +528,8 @@ impl CommitDialog {
             }
             "open" => crate::util::open_in_editor(&m.work_dir().join(&first), &cx.settings.editor),
             "difftool" => {
-                let args = gitext_core::GitArgs::new("difftool").arg("--no-prompt").arg_if(staged, "--cached").arg("--").arg(first);
-                let _ = m.git().spawn_streaming(&args);
+                let args = gitext_core::GitArgs::new("difftool").arg("--find-renames").arg("--find-copies").arg_if(staged, "--cached").arg("--").arg(first);
+                cx.push(Action::RunTool { tool_type: gitext_core::diff_tools::ToolType::Diff, args });
             }
             "history" => cx.open(super::file_history::FileHistoryDialog::new(first)),
             "blame" => cx.open(super::blame::BlameDialog::new(first, ObjectId::ZERO)),

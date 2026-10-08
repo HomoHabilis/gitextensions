@@ -77,6 +77,9 @@ pub struct UserScript {
 pub struct AppSettings {
     // General
     pub git_command: String,
+    /// Run repositories on `\\wsl$\` paths with the git of the distro (Windows only,
+    /// `WslGitEnabled`).
+    pub wsl_git_enabled: bool,
     pub theme: Theme,
     pub ui_scale: f32,
     pub font_size: f32,
@@ -179,6 +182,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         AppSettings {
             git_command: "git".into(),
+            wsl_git_enabled: true,
             theme: Theme::System,
             ui_scale: 1.0,
             font_size: 13.5,

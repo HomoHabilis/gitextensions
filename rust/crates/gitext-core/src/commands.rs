@@ -627,7 +627,7 @@ pub fn push_all(remote: &str, force: ForcePushOptions, track: bool, recursive_su
         .arg(to_posix_path(remote).trim())
 }
 
-/// A local → remote branch mapping for [`push_multiple`].
+/// A local > remote branch mapping for [`push_multiple`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitPushAction {
     pub local: String,

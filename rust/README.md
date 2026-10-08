@@ -16,9 +16,49 @@ cargo run --release -p gitext-app -- --help  # all command-line verbs
 The binary is called `gitext`. It needs `git` on the `PATH`; a different executable can be set
 in *Settings → Git*.
 
-Runtime dependencies on Linux: OpenGL (Mesa), `libxkbcommon-x11` (X11) or a Wayland
-compositor, and an xdg-desktop-portal for the native file dialogs. Nothing extra is needed on
-macOS or Windows.
+### Linux
+
+One build runs on Ubuntu 22.04, 24.04 and newer, as long as it is built on the oldest
+release it must run on. A binary needs the glibc of the machine it was built on or newer, and
+the CI builds on Ubuntu 22.04 (glibc 2.35). A binary built on Ubuntu 24.04 also runs on 22.04.
+It prints `weak version 'GLIBC_2.39' not found` at startup, which is harmless: the Rust standard
+library falls back when the newer functions are missing. Build on 22.04 to avoid the message.
+
+Runtime dependencies:
+
+- **Graphics:** OpenGL (Mesa), plus `libxkbcommon-x11` (X11) or a Wayland compositor.
+- **File dialogs:** zenity (GNOME) or kdialog (KDE) when installed, otherwise the
+  xdg-desktop-portal. Without either, as on WSL, type the path in the *Open local repository*
+  dialog, or install zenity: `sudo apt install zenity`.
+- **Diff and merge tool:** Meld is recommended (`sudo apt install meld`) and is not bundled.
+
+Nothing extra is needed on macOS or Windows.
+
+### Diff and merge tools
+
+*Settings → Git → Diff and merge tools* configures them the way Git Extensions does:
+`diff.guitool` / `merge.guitool` and `difftool.<tool>.path|cmd` / `mergetool.<tool>.path|cmd`
+in the global git config.
+
+- **Supported tools:** WinMerge, Meld, KDiff3, Beyond Compare, P4Merge, VS Code, the
+  TortoiseGit tools, Sublime Merge, DiffMerge, Araxis, SemanticMerge and vsdiffmerge.
+- **Detect** finds them in the usual install locations and on the `PATH`.
+- **Browse…** picks the executable, and the command line is filled in for the selected tool.
+
+When the configured tool is not installed, another installed tool is used instead, so a
+WinMerge configuration falls back to Meld on Linux. When no tool is installed, a dialog
+explains how to install one.
+
+### WSL repositories (Windows)
+
+Repositories under `\\wsl$\<distro>\…` or `\\wsl.localhost\<distro>\…` are run with the git
+of the distro (`wsl -d <distro> --cd <dir> --exec git …`), as Git Extensions does. This is much
+faster than Windows git on WSL files, and avoids its "detected dubious ownership" refusal. Git
+must be installed in the distro, and *Settings → Git* can turn this off.
+
+For other repositories that git refuses as "owned by someone else", the app offers to add them
+to `safe.directory`. Diff and merge tools of WSL repositories are those configured in the
+distro.
 
 The settings are stored as JSON in the platform config directory (`~/.config/GitExtensions`
 on Linux, `%APPDATA%\GitExtensions` on Windows, `~/Library/Application Support/GitExtensions`
