@@ -36,15 +36,17 @@ Nothing extra is needed on macOS or Windows.
 
 ### Releases
 
-`.github/workflows/rust-release.yml` publishes a GitHub release with the packages of the three
-platforms. Add a `## <version>` section to [CHANGELOG.md](CHANGELOG.md), then push a tag:
+The *Build & Release* workflow (`.github/workflows/rust-release.yml`) publishes a GitHub
+release with the packages of the three platforms. Either push a tag:
 
 ```sh
-git tag v0.2.0 && git push origin v0.2.0
+git tag -a v0.2.0 -m "What is new in 0.2.0" && git push origin v0.2.0
 ```
 
-or run the workflow from the Actions tab with the version (optionally as a draft). A version
-with a suffix, like `0.2.0-beta.1`, is published as a pre-release. The tag sets the version of
+or, in the Actions tab, choose *Build & Release* → *Run workflow*, pick the branch and type a
+tag name: the tag is created on the head of that branch (optionally as a draft release). The
+*Run workflow* button only appears once the workflow is on the default branch. A tag with a
+suffix, like `v0.2.0-rc1`, is published as a pre-release. The tag sets the version of
 the binaries. The release contains:
 
 | File | Contents |
@@ -56,9 +58,10 @@ the binaries. The release contains:
 | `gitextensions-<version>-linux-x86_64.tar.gz` | Linux binary, desktop entry, icon and `install.sh` |
 | `SHA256SUMS.txt` | Checksums |
 
-The release notes (`packaging/release-notes.sh`) are the changelog section of the version, the
-commits since the previous release that changed the Rust port, and the download and
-installation instructions. `packaging/package.sh <version> linux|macos|windows` builds the
+The release notes (`packaging/release-notes.sh`) start with the message of the annotated tag,
+or else the `## <version>` section of [CHANGELOG.md](CHANGELOG.md), followed by the commits
+since the previous release that changed the Rust port, and the download and installation
+instructions. `packaging/package.sh <version> linux|macos|windows` builds the
 packages locally, into `dist/`.
 
 ### Windows installer and Explorer context menu

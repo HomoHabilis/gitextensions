@@ -1,20 +1,25 @@
-name: rust-release
+name: Build & Release
 
 # Builds the Rust port for Linux, macOS and Windows and publishes a GitHub release with the
-# packages and release notes (rust/CHANGELOG.md + commits since the previous release).
+# packages and the release notes.
 #
-# Release by pushing a tag:     git tag v0.2.0 && git push origin v0.2.0
-# or from the Actions tab:      "Run workflow" with the version (the tag is created at the
-#                               selected branch). A version with a suffix (0.2.0-beta.1) is
-#                               published as a pre-release.
+# Release by pushing a tag:     git tag -a v0.2.0 -m "notes…" && git push origin v0.2.0
+# or from the Actions tab:      "Run workflow" with a tag name: the tag is created on the
+#                               commit that was built (the head of the selected branch).
+# A tag with a suffix (v0.2.0-rc1) is published as a pre-release. The tag sets the version of
+# the binaries and the installer.
+#
+# Release notes, first match wins: the message of an annotated tag, the "## <version>" section
+# of rust/CHANGELOG.md, the commits since the previous release. Then the download table and
+# installation instructions (rust/packaging/release-notes.sh).
 
 on:
   push:
     tags: ["v[0-9]*"]
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version to release, without the v (e.g. 0.2.0 or 0.2.0-beta.1)"
+      tag:
+        description: "Release tag to create, e.g. v0.2.0 (v0.2.0-rc1 = pre-release)"
         required: true
       draft:
         description: "Create a draft release (publish it from the Releases page)"
@@ -38,15 +43,16 @@ jobs:
     steps:
       - id: v
         env:
-          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = "push" ]; then
             version="${GITHUB_REF_NAME#v}"
           else
-            version="${INPUT_VERSION#v}"
+            version="$(echo "$INPUT_TAG" | xargs)"
+            version="${version#v}"
           fi
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::'$version' is not a version like 1.2.3 or 1.2.3-beta.1"
+            echo "::error::The release tag must look like v1.2.3 or v1.2.3-rc1, not '$version'"
             exit 1
           fi
           prerelease=false
@@ -129,6 +135,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # actions/checkout turns a pushed annotated tag into a plain one: fetch it again for its
+      # message. A tag that does not exist yet (Run workflow) is created with the release.
+      - name: Fetch the tag with its message
+        run: |
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null \
+            || echo "Tag $TAG is not on GitHub yet: it is created with the release"
       - uses: actions/download-artifact@v4
         with:
           pattern: release-*

@@ -1,8 +1,8 @@
 # Changelog
 
-The notes of each release come from the section of its version below (`## <version>`), followed
-by the list of commits since the previous release. Add a section before tagging a release;
-without one, the release notes only list the commits.
+The notes of each release come from the message of its annotated tag or, without one, from the
+section of its version below (`## <version>`), followed by the list of commits since the
+previous release. Without either, the release notes only list the commits.
 
 ## 0.1.0
 

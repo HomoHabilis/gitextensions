@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Writes the release notes of <version> to stdout (run in the git checkout, at the release commit):
 #   release-notes.sh <version> [tag]
-# The notes are the "## <version>" section of CHANGELOG.md, the commits since the previous
-# release tag that changed the Rust port, and the downloads and installation instructions.
+# The description is the message of the annotated tag <tag> if there is one, else the
+# "## <version>" section of CHANGELOG.md. Then come the commits since the previous release tag
+# that changed the Rust port, and the downloads and installation instructions.
 set -euo pipefail
 
 version="$1"
@@ -20,7 +21,12 @@ previous="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude "$tag" HE
 range="${previous:+$previous..}HEAD"
 commits="$(git log "$range" --no-merges --format='- %s (%h)' -- "$root" "$root/../.github/workflows/rust.yml" "$root/../.github/workflows/rust-release.yml")"
 
-if [ -n "$section" ]; then
+if [ "$(git cat-file -t "refs/tags/$tag" 2>/dev/null)" = tag ]; then
+    message="$(git for-each-ref --format='%(contents)' "refs/tags/$tag")"
+    signature="$(git for-each-ref --format='%(contents:signature)' "refs/tags/$tag")"
+    message="${message%"$signature"}"
+    printf '%s\n\n' "$message"
+elif [ -n "$section" ]; then
     printf '%s\n\n' "$(echo "$section" | sed -e '/./,$!d')"
 fi
 
