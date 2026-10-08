@@ -1,0 +1,14 @@
+[package]
+name = "gitext-graph"
+description = "Revision graph layout engine of the Git Extensions Rust port (port of GitUI RevisionGrid.Graph)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gitext-core.workspace = true
+regex.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+fastrand.workspace = true
