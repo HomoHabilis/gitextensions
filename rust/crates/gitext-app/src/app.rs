@@ -375,42 +375,42 @@ impl GitExtApp {
         let data = self.browse.as_ref().map(|b| b.data.clone()).unwrap_or_default();
         let head = data.head;
         let mut open: Vec<Box<dyn Dialog>> = Vec::new();
-        egui::menu::bar(ui, |ui| {
+        egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("Start", |ui| {
                 if ui.button("Open…").clicked() {
                     self.open_folder_dialog();
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Clone repository…").clicked() {
                     open.push(Box::new(clone::CloneDialog::new(None, &self.settings)));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Create new repository…").clicked() {
                     open.push(Box::new(init::InitDialog::new(None)));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 ui.menu_button("Recent repositories", |ui| {
                     for r in self.history.recent.clone() {
                         if ui.button(&r.path).clicked() {
                             self.actions.push(Action::OpenRepo(PathBuf::from(&r.path)));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                     }
                     ui.separator();
                     if ui.button("Clear recent repositories").clicked() {
                         self.history.recent.retain(|r| r.anchor != RepositoryAnchor::None);
                         self.save_history();
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                 });
                 ui.separator();
                 if ui.add_enabled(has_repo, egui::Button::new("Close (go to Dashboard)")).clicked() {
                     self.actions.push(Action::CloseRepo);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Exit").clicked() {
                     self.actions.push(Action::Exit);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             });
             if ui.button("Dashboard").clicked() {
@@ -420,58 +420,58 @@ impl GitExtApp {
                 ui.menu_button("Repository", |ui| {
                     if ui.button("Refresh  (F5)").clicked() {
                         self.actions.push(Action::Refresh);
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.button("File explorer").clicked() {
                         if let Some(m) = self.module() {
                             crate::util::open_with_system(&m.work_dir().display().to_string());
                         }
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.button("Terminal").clicked() {
                         if let Some(m) = self.module() {
                             crate::util::open_terminal(m.work_dir(), &self.settings.terminal);
                         }
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     ui.separator();
                     if ui.button("Manage remotes…").clicked() {
                         open.push(Box::new(remotes::RemotesDialog::default()));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.button("Manage submodules…").clicked() {
                         open.push(Box::new(submodules::SubmodulesDialog::default()));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.button("Manage worktrees…").clicked() {
                         open.push(Box::new(worktrees::WorktreesDialog::default()));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     ui.separator();
                     if ui.button("Edit .gitignore…").clicked() {
                         open.push(Box::new(gitignore::GitIgnoreDialog::new(false)));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.button("Edit .git/info/exclude…").clicked() {
                         open.push(Box::new(gitignore::GitIgnoreDialog::new(true)));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.button("Edit .gitattributes…").clicked() {
                         open.push(Box::new(editor::FileEditorDialog::work_file(".gitattributes", "Edit .gitattributes")));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.button("Edit .mailmap…").clicked() {
                         open.push(Box::new(editor::FileEditorDialog::work_file(".mailmap", "Edit .mailmap")));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     ui.menu_button("Git maintenance", |ui| {
                         if ui.button("Compress git database").clicked() {
                             self.actions.push(Action::RunGit(GitRun::new("Compress git database", GitArgs::new("gc").arg("--prune")).keep_open()));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("Recover lost objects…").clicked() {
                             open.push(Box::new(verify::VerifyDialog::default()));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("Delete index.lock").clicked() {
                             if let Some(m) = self.module() {
@@ -486,29 +486,29 @@ impl GitExtApp {
                                 };
                                 self.actions.push(Action::Message { title: "Delete index.lock".into(), text, error: false });
                             }
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("Edit .git/config…").clicked() {
                             if let Some(m) = self.module() {
                                 open.push(Box::new(editor::FileEditorDialog::path(m.git_dir().join("config"), "Edit .git/config")));
                             }
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                     });
                     if ui.button("Sparse working copy…").clicked() {
                         open.push(Box::new(editor::SparseCheckoutDialog::default()));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.button("Repository settings (git config)…").clicked() {
                         open.push(Box::new(settings::GitConfigDialog::default()));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                 });
                 ui.menu_button("Commands", |ui| {
                     let mut item = |ui: &mut egui::Ui, label: &str, d: &mut dyn FnMut() -> Box<dyn Dialog>| {
                         if ui.button(label).clicked() {
                             open.push(d());
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                     };
                     item(ui, "Commit…", &mut || Box::new(commit::CommitDialog::default()));
@@ -593,25 +593,25 @@ impl GitExtApp {
             ui.menu_button("Tools", |ui| {
                 if ui.button("Git command log…").clicked() {
                     open.push(Box::new(command_log::CommandLogDialog));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Settings…").clicked() {
                     open.push(Box::new(settings::SettingsDialog::default()));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             });
             ui.menu_button("Help", |ui| {
                 if ui.button("User manual").clicked() {
                     crate::util::open_with_system("https://git-extensions-documentation.readthedocs.io/");
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Command line help…").clicked() {
                     open.push(Box::new(about::CommandLineHelpDialog));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("About Git Extensions…").clicked() {
                     open.push(Box::new(about::AboutDialog));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             });
         });

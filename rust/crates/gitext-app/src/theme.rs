@@ -177,8 +177,8 @@ fn dark_visuals() -> Visuals {
     v.faint_bg_color = Color32::from_rgb(0x23, 0x25, 0x2a);
     v.selection.bg_fill = Color32::from_rgb(0x2b, 0x4f, 0x80);
     v.hyperlink_color = Color32::from_rgb(0x6c, 0xb6, 0xff);
-    v.window_rounding = egui::Rounding::same(8.0);
-    v.menu_rounding = egui::Rounding::same(6.0);
+    v.window_corner_radius = egui::CornerRadius::same(8);
+    v.menu_corner_radius = egui::CornerRadius::same(6);
     v.widgets.noninteractive.bg_stroke.color = Color32::from_rgb(0x34, 0x37, 0x3e);
     v.widgets.noninteractive.fg_stroke.color = Color32::from_gray(0xd6);
     v.widgets.inactive.fg_stroke.color = Color32::from_gray(0xe2);
@@ -199,8 +199,8 @@ fn light_visuals() -> Visuals {
     v.widgets.noninteractive.fg_stroke.color = Color32::from_gray(0x24);
     v.widgets.inactive.fg_stroke.color = Color32::from_gray(0x1c);
     v.widgets.inactive.weak_bg_fill = Color32::from_rgb(0xea, 0xec, 0xf0);
-    v.window_rounding = egui::Rounding::same(8.0);
-    v.menu_rounding = egui::Rounding::same(6.0);
+    v.window_corner_radius = egui::CornerRadius::same(8);
+    v.menu_corner_radius = egui::CornerRadius::same(6);
     v.striped = true;
     v
 }

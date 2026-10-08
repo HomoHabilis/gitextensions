@@ -177,7 +177,7 @@ impl DiffViewer {
                     painter.rect_filled(rect, 0.0, palette.diff_selected_bg);
                 }
                 if self.find_match == Some(i) {
-                    painter.rect_stroke(rect.shrink(0.5), 0.0, egui::Stroke::new(1.0_f32, palette.warning));
+                    painter.rect_stroke(rect.shrink(0.5), 0.0, egui::Stroke::new(1.0_f32, palette.warning), egui::StrokeKind::Middle);
                 }
                 let mut x = rect.left() + 4.0;
                 if show_line_numbers {
@@ -226,12 +226,12 @@ impl DiffViewer {
                         let enabled = *c == ViewerCommand::CopyPatch || self.has_change_selection();
                         if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
                             command = Some(*c);
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                     }
                     if ui.button("Find…").clicked() {
                         self.find_open = true;
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                 });
             }

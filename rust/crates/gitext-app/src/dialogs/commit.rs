@@ -227,7 +227,7 @@ impl Dialog for CommitDialog {
                     ] {
                         if ui.button(label).clicked() {
                             menu_cmd = Some((key, names.clone()));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                     }
                 });
@@ -267,7 +267,7 @@ impl Dialog for CommitDialog {
                 for (label, key) in [("Unstage", "unstage"), ("Open", "open"), ("File history", "history"), ("Blame", "blame"), ("Copy path", "copy")] {
                     if ui.button(label).clicked() {
                         menu_cmd = Some((key, names.clone()));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                 }
             });
@@ -297,7 +297,7 @@ impl Dialog for CommitDialog {
                     for t in cx.settings.commit_templates.clone() {
                         if ui.button(&t.name).clicked() {
                             self.message = t.text.clone();
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                     }
                 });
@@ -307,7 +307,7 @@ impl Dialog for CommitDialog {
                             let first = msg.lines().next().unwrap_or_default().to_string();
                             if ui.button(first).clicked() {
                                 self.message = msg.clone();
-                                ui.close_menu();
+                                ui.close_kind(egui::UiKind::Menu);
                             }
                         }
                     });

@@ -172,7 +172,7 @@ impl BrowseView {
                 let mut item = |ui: &mut Ui, label: &str, a: PullAction| {
                     if ui.button(label).clicked() {
                         actions.push(Action::OpenDialog(Box::new(dialogs::pull::PullDialog::new(&self.data, Some(a)))));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                 };
                 item(ui, "Pull - merge", PullAction::Merge);
@@ -183,7 +183,7 @@ impl BrowseView {
                 ui.separator();
                 if ui.button("Open pull dialog…").clicked() {
                     actions.push(Action::OpenDialog(Box::new(dialogs::pull::PullDialog::new(&self.data, None))));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             });
             let push_label = if ahead > 0 { format!("⬆ Push ({ahead})") } else { "⬆ Push".into() };
@@ -193,24 +193,24 @@ impl BrowseView {
             ui.menu_button("☰ Stash", |ui| {
                 if ui.button("Stash changes").clicked() {
                     actions.push(Action::RunGit(GitRun::new("Stash", commands::stash_save(settings.show_untracked_files, false, None, &[]))));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Stash staged changes").clicked() {
                     actions.push(Action::RunGit(GitRun::new("Stash staged", GitArgs::new("stash").arg("push").arg("--staged"))));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.add_enabled(!self.data.stashes.is_empty(), egui::Button::new("Stash pop")).clicked() {
                     actions.push(Action::RunGit(GitRun::new("Stash pop", GitArgs::new("stash").arg("pop")).conflicts()));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 ui.separator();
                 if ui.button("Manage stashes…").clicked() {
                     actions.push(Action::OpenDialog(Box::new(dialogs::stash::StashDialog::default())));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Create a stash with message…").clicked() {
                     actions.push(Action::OpenDialog(Box::new(dialogs::stash::CreateStashDialog::default())));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             });
             ui.separator();

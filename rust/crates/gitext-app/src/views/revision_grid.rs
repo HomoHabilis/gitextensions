@@ -661,6 +661,9 @@ impl RevisionGrid {
         let mut focus_clicked = false;
         let author_email = self.user_email.clone();
 
+        // No vertical gap between rows: the graph lines of adjacent rows must touch.
+        let item_spacing = ui.spacing().item_spacing;
+        ui.spacing_mut().item_spacing.y = 0.0;
         let mut table = TableBuilder::new(ui)
             .striped(false)
             .resizable(true)
@@ -804,11 +807,12 @@ impl RevisionGrid {
                     resp.context_menu(|ui| {
                         if let Some(c) = revision_context_menu(ui, &rev, data, settings) {
                             context = Some(c);
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                     });
                 });
             });
+        ui.spacing_mut().item_spacing = item_spacing;
 
         if first_visible != usize::MAX {
             self.visible = VisibleRowRange { from_index: first_visible, count: last_visible - first_visible + 1 };
@@ -898,7 +902,7 @@ pub fn ref_label(ui: &mut Ui, r: &GitRef, palette: &Palette, current_branch: Opt
     let rect = rect.shrink2(Vec2::new(0.0, 0.5));
     ui.painter().rect_filled(rect, 4.0, fill);
     if is_current {
-        ui.painter().rect_stroke(rect, 4.0, Stroke::new(1.0_f32, palette.lanes[2]));
+        ui.painter().rect_stroke(rect, 4.0, Stroke::new(1.0_f32, palette.lanes[2]), egui::StrokeKind::Middle);
     }
     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, palette.label_text);
     resp.on_hover_text(r.complete_name.as_str())
@@ -937,7 +941,7 @@ pub fn paint_graph(ui: &Ui, rect: Rect, prims: &[Primitive], palette: &Palette, 
                     let r = Rect::from_center_size(c, Vec2::splat(*size));
                     painter.rect_filled(r, 1.5, color);
                     if *outline {
-                        painter.rect_stroke(r.expand(1.5), 2.0, Stroke::new(2.0_f32, palette.node_outline));
+                        painter.rect_stroke(r.expand(1.5), 2.0, Stroke::new(2.0_f32, palette.node_outline), egui::StrokeKind::Middle);
                     }
                 } else {
                     painter.circle_filled(c, size / 2.0, color);
@@ -987,7 +991,7 @@ pub fn revision_context_menu(ui: &mut Ui, rev: &GitRevision, data: &RepoData, se
             for b in branches.iter().chain(remote_branches.iter()) {
                 if ui.button(&b.name).clicked() {
                     cmd = Some(GridCommand::CheckoutBranch(b.name.clone()));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             }
         });
@@ -1007,7 +1011,7 @@ pub fn revision_context_menu(ui: &mut Ui, rev: &GitRevision, data: &RepoData, se
             for b in &branches {
                 if ui.button(&b.name).clicked() {
                     cmd = Some(GridCommand::RenameBranch(b.name.clone()));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             }
         });
@@ -1015,7 +1019,7 @@ pub fn revision_context_menu(ui: &mut Ui, rev: &GitRevision, data: &RepoData, se
             for b in &branches {
                 if ui.button(&b.name).clicked() {
                     cmd = Some(GridCommand::PushBranch(b.name.clone()));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             }
         });
@@ -1025,7 +1029,7 @@ pub fn revision_context_menu(ui: &mut Ui, rev: &GitRevision, data: &RepoData, se
             for b in branches.iter().chain(remote_branches.iter()) {
                 if ui.button(&b.name).clicked() {
                     cmd = Some(GridCommand::DeleteBranch(b.complete_name.clone()));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             }
         });
@@ -1035,7 +1039,7 @@ pub fn revision_context_menu(ui: &mut Ui, rev: &GitRevision, data: &RepoData, se
             for t in &tags {
                 if ui.button(&t.name).clicked() {
                     cmd = Some(GridCommand::DeleteTag(t.name.clone()));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             }
         });
@@ -1057,15 +1061,15 @@ pub fn revision_context_menu(ui: &mut Ui, rev: &GitRevision, data: &RepoData, se
     ui.menu_button("Advanced", |ui| {
         if ui.button("Create a fixup commit").clicked() {
             cmd = Some(GridCommand::FixupCommit(id, "fixup"));
-            ui.close_menu();
+            ui.close_kind(egui::UiKind::Menu);
         }
         if ui.button("Create a squash commit").clicked() {
             cmd = Some(GridCommand::FixupCommit(id, "squash"));
-            ui.close_menu();
+            ui.close_kind(egui::UiKind::Menu);
         }
         if ui.button("Create an amend commit").clicked() {
             cmd = Some(GridCommand::FixupCommit(id, "amend"));
-            ui.close_menu();
+            ui.close_kind(egui::UiKind::Menu);
         }
     });
     ui.separator();
@@ -1080,7 +1084,7 @@ pub fn revision_context_menu(ui: &mut Ui, rev: &GitRevision, data: &RepoData, se
         let mut copy = |label: String, value: String| {
             if ui.button(label).clicked() {
                 cmd = Some(GridCommand::CopyToClipboard(value));
-                ui.close_menu();
+                ui.close_kind(egui::UiKind::Menu);
             }
         };
         copy(format!("Commit hash  {}", id.to_short_string()), id.to_string());
@@ -1095,15 +1099,15 @@ pub fn revision_context_menu(ui: &mut Ui, rev: &GitRevision, data: &RepoData, se
     ui.menu_button("Navigate", |ui| {
         if ui.button("Go to parent").clicked() {
             cmd = Some(GridCommand::NavigateToParent);
-            ui.close_menu();
+            ui.close_kind(egui::UiKind::Menu);
         }
         if ui.button("Go to child").clicked() {
             cmd = Some(GridCommand::NavigateToChild);
-            ui.close_menu();
+            ui.close_kind(egui::UiKind::Menu);
         }
         if ui.button("Go to commit…").clicked() {
             cmd = Some(GridCommand::GoToCommit);
-            ui.close_menu();
+            ui.close_kind(egui::UiKind::Menu);
         }
     });
     if ui.button("Compare selected commits").clicked() {
@@ -1126,15 +1130,15 @@ pub fn revision_context_menu(ui: &mut Ui, rev: &GitRevision, data: &RepoData, se
         ui.menu_button("Bisect", |ui| {
             if ui.button("Mark as good").clicked() {
                 cmd = Some(GridCommand::BisectGood);
-                ui.close_menu();
+                ui.close_kind(egui::UiKind::Menu);
             }
             if ui.button("Mark as bad").clicked() {
                 cmd = Some(GridCommand::BisectBad);
-                ui.close_menu();
+                ui.close_kind(egui::UiKind::Menu);
             }
             if ui.button("Skip").clicked() {
                 cmd = Some(GridCommand::BisectSkip);
-                ui.close_menu();
+                ui.close_kind(egui::UiKind::Menu);
             }
         });
     }
@@ -1143,7 +1147,7 @@ pub fn revision_context_menu(ui: &mut Ui, rev: &GitRevision, data: &RepoData, se
             for (i, s) in settings.user_scripts.iter().enumerate() {
                 if ui.button(&s.name).clicked() {
                     cmd = Some(GridCommand::RunScript(i, id));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             }
         });

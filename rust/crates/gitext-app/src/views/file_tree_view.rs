@@ -131,11 +131,11 @@ impl FileTreeView {
                     r.header_response.context_menu(|ui| {
                         if ui.button("File history").clicked() {
                             *cmd = Some(DiffCommand::FileHistory(full.clone()));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("Filter commits by this path").clicked() {
                             *cmd = Some(DiffCommand::FilterPath(full.clone()));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                     });
                 }
@@ -157,35 +157,35 @@ impl FileTreeView {
                     r.context_menu(|ui| {
                         if ui.button("Blame").clicked() {
                             *cmd = Some(DiffCommand::Blame { file: full.clone(), rev });
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("File history").clicked() {
                             *cmd = Some(DiffCommand::FileHistory(full.clone()));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("Open this revision (temp file)").clicked() {
                             *cmd = Some(DiffCommand::OpenRevisionFile { rev, file: full.clone() });
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("Open working directory file").clicked() {
                             *cmd = Some(DiffCommand::OpenWorkFile(full.clone()));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("Save as…").clicked() {
                             *cmd = Some(DiffCommand::SaveAs { rev, file: full.clone() });
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("Reset file to this revision…").clicked() {
                             *cmd = Some(DiffCommand::ResetFileTo { rev, files: vec![full.clone()] });
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("Filter commits by this path").clicked() {
                             *cmd = Some(DiffCommand::FilterPath(full.clone()));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("Copy path").clicked() {
                             *cmd = Some(DiffCommand::CopyPaths(vec![full.clone()]));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                     });
                 }

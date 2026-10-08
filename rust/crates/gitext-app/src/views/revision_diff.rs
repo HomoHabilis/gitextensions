@@ -149,74 +149,74 @@ impl RevisionDiffView {
                 if is_work_tree {
                     if ui.button("Stage").clicked() {
                         cmd = Some(DiffCommand::Stage(names.clone()));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.button("Reset file changes…").clicked() {
                         cmd = Some(DiffCommand::ResetWorkFiles(names.clone()));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.button("Add to .gitignore…").clicked() {
                         cmd = Some(DiffCommand::AddToGitIgnore(names.clone()));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                 } else if is_index && ui.button("Unstage").clicked() {
                     cmd = Some(DiffCommand::Unstage(names.clone()));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if !second.is_artificial() {
                     if ui.button("Reset file(s) to this revision…").clicked() {
                         cmd = Some(DiffCommand::ResetFileTo { rev: second, files: names.clone() });
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     if let Some(f) = first.filter(|f| !f.is_artificial()) {
                         if ui.button("Reset file(s) to parent revision…").clicked() {
                             cmd = Some(DiffCommand::ResetFileTo { rev: f, files: names.clone() });
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                     }
                 }
                 ui.separator();
                 if ui.button("Open working directory file").clicked() {
                     cmd = Some(DiffCommand::OpenWorkFile(first_name.clone()));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if !second.is_artificial() && ui.button("Open this revision (temp file)").clicked() {
                     cmd = Some(DiffCommand::OpenRevisionFile { rev: second, file: first_name.clone() });
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if !second.is_artificial() && ui.button("Save as…").clicked() {
                     cmd = Some(DiffCommand::SaveAs { rev: second, file: first_name.clone() });
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Open with external difftool").clicked() {
                     cmd = Some(DiffCommand::ExternalDiff { first, second, file: first_name.clone() });
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 ui.separator();
                 if ui.button("Blame").clicked() {
                     cmd = Some(DiffCommand::Blame { file: first_name.clone(), rev: second });
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("File history").clicked() {
                     cmd = Some(DiffCommand::FileHistory(first_name.clone()));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if !second.is_artificial() && ui.button("Show in file tree").clicked() {
                     cmd = Some(DiffCommand::ShowInFileTree { rev: second, file: first_name.clone() });
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Filter commits by this path").clicked() {
                     cmd = Some(DiffCommand::FilterPath(first_name.clone()));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 ui.separator();
                 if ui.button("Copy path(s)").clicked() {
                     cmd = Some(DiffCommand::CopyPaths(names.clone()));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Open containing folder").clicked() {
                     cmd = Some(DiffCommand::OpenContainingFolder(first_name.clone()));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             });
             if resp.double_clicked.is_some() {

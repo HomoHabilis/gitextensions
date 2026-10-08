@@ -181,7 +181,7 @@ impl FileList {
                             if item.is_submodule {
                                 text = format!("{text} (submodule{})", if item.is_dirty { ", dirty" } else { "" });
                             }
-                            let label = ui.add(egui::SelectableLabel::new(selected, text));
+                            let label = ui.add(egui::Button::selectable(selected, text));
                             label
                         })
                         .inner;

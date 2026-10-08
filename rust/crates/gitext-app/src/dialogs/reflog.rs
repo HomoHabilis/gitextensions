@@ -53,21 +53,21 @@ impl Dialog for ReflogDialog {
                             r.context_menu(|ui| {
                                 if ui.button("Select in revision grid").clicked() {
                                     cx.push(Action::SelectRevision(it.object_id));
-                                    ui.close_menu();
+                                    ui.close_kind(egui::UiKind::Menu);
                                 }
                                 if ui.button("Create branch here…").clicked() {
                                     cx.open(super::branch::CreateBranchDialog::new(it.object_id));
-                                    ui.close_menu();
+                                    ui.close_kind(egui::UiKind::Menu);
                                 }
                                 if ui.button("Reset current branch here…").clicked() {
                                     if let Some(d) = cx.data {
                                         cx.open(super::reset::ResetBranchDialog::new(d, it.object_id));
                                     }
-                                    ui.close_menu();
+                                    ui.close_kind(egui::UiKind::Menu);
                                 }
                                 if ui.button("Copy hash").clicked() {
                                     cx.push(Action::Copy(it.object_id.to_string()));
-                                    ui.close_menu();
+                                    ui.close_kind(egui::UiKind::Menu);
                                 }
                             });
                             ui.label(RichText::new(&it.selector).monospace());

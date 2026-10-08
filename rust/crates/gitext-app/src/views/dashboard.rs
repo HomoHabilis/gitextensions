@@ -89,18 +89,18 @@ impl Dashboard {
                         resp.context_menu(|ui| {
                             if ui.button("Open").clicked() {
                                 *cmd = Some(DashboardCommand::Open(PathBuf::from(&path)));
-                                ui.close_menu();
+                                ui.close_kind(egui::UiKind::Menu);
                             }
                             let pinned = r.anchor == RepositoryAnchor::AnchoredInTop;
                             if ui.button(if pinned { "Unpin" } else { "Pin to top" }).clicked() {
                                 *cmd = Some(DashboardCommand::Pin(path.clone(), !pinned));
-                                ui.close_menu();
+                                ui.close_kind(egui::UiKind::Menu);
                             }
                             ui.menu_button("Move to category", |ui| {
                                 for c in history.categories() {
                                     if ui.button(&c).clicked() {
                                         *cmd = Some(DashboardCommand::SetCategory(path.clone(), Some(c.clone())));
-                                        ui.close_menu();
+                                        ui.close_kind(egui::UiKind::Menu);
                                     }
                                 }
                                 ui.horizontal(|ui| {
@@ -108,17 +108,17 @@ impl Dashboard {
                                     if ui.button("Add").clicked() && !self.new_category.trim().is_empty() {
                                         *cmd = Some(DashboardCommand::SetCategory(path.clone(), Some(self.new_category.trim().to_string())));
                                         self.new_category.clear();
-                                        ui.close_menu();
+                                        ui.close_kind(egui::UiKind::Menu);
                                     }
                                 });
                             });
                             if ui.button("Show in folder").clicked() {
                                 *cmd = Some(DashboardCommand::ShowInFolder(path.clone()));
-                                ui.close_menu();
+                                ui.close_kind(egui::UiKind::Menu);
                             }
                             if ui.button("Remove from list").clicked() {
                                 *cmd = Some(DashboardCommand::RemoveRecent(path.clone()));
-                                ui.close_menu();
+                                ui.close_kind(egui::UiKind::Menu);
                             }
                         });
                         ui.add_space(4.0);
@@ -147,7 +147,7 @@ impl Dashboard {
                         resp.inner.context_menu(|ui| {
                             if ui.button("Remove from category").clicked() {
                                 cmd = Some(DashboardCommand::SetCategory(path.clone(), None));
-                                ui.close_menu();
+                                ui.close_kind(egui::UiKind::Menu);
                             }
                         });
                     }

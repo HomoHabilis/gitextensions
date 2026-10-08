@@ -85,7 +85,7 @@ impl LeftPanel {
             header.header_response.context_menu(|ui| {
                 if ui.button("Create branch…").clicked() {
                     cmd = Some(LeftCommand::CreateBranch(data.head));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             });
 
@@ -104,15 +104,15 @@ impl LeftPanel {
                     resp.header_response.on_hover_text(&remote.fetch_url).context_menu(|ui| {
                         if ui.button(format!("Fetch {}", remote.name)).clicked() {
                             cmd = Some(LeftCommand::FetchRemote(remote.name.clone()));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button(format!("Prune {}", remote.name)).clicked() {
                             cmd = Some(LeftCommand::PruneRemote(remote.name.clone()));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("Manage remotes…").clicked() {
                             cmd = Some(LeftCommand::ManageRemotes);
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                     });
                 }
@@ -120,7 +120,7 @@ impl LeftPanel {
             header.header_response.context_menu(|ui| {
                 if ui.button("Manage remotes…").clicked() {
                     cmd = Some(LeftCommand::ManageRemotes);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             });
 
@@ -135,23 +135,23 @@ impl LeftPanel {
                     r.context_menu(|ui| {
                         if ui.button("Checkout…").clicked() {
                             cmd = Some(LeftCommand::Checkout(t.name.clone()));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("Create branch here…").clicked() {
                             cmd = Some(LeftCommand::CreateBranch(t.object_id));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("Merge into current branch…").clicked() {
                             cmd = Some(LeftCommand::Merge(t.name.clone()));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("Push tag…").clicked() {
                             cmd = Some(LeftCommand::PushTag(t.name.clone()));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("Delete tag…").clicked() {
                             cmd = Some(LeftCommand::DeleteTag(t.name.clone()));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                     });
                 }
@@ -168,15 +168,15 @@ impl LeftPanel {
                     r.context_menu(|ui| {
                         if ui.button("Apply").clicked() {
                             cmd = Some(LeftCommand::ApplyStash(name.clone()));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("Pop").clicked() {
                             cmd = Some(LeftCommand::PopStash(name.clone()));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button("Drop…").clicked() {
                             cmd = Some(LeftCommand::DropStash(name.clone()));
-                            ui.close_menu();
+                            ui.close_kind(egui::UiKind::Menu);
                         }
                     });
                 }
@@ -184,7 +184,7 @@ impl LeftPanel {
             header.header_response.context_menu(|ui| {
                 if ui.button("Stash changes").clicked() {
                     cmd = Some(LeftCommand::CreateStash);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             });
 
@@ -205,15 +205,15 @@ impl LeftPanel {
                         r.context_menu(|ui| {
                             if ui.button("Open").clicked() {
                                 cmd = Some(LeftCommand::OpenSubmodule(s.path.clone()));
-                                ui.close_menu();
+                                ui.close_kind(egui::UiKind::Menu);
                             }
                             if ui.button("Update").clicked() {
                                 cmd = Some(LeftCommand::UpdateSubmodule(s.path.clone()));
-                                ui.close_menu();
+                                ui.close_kind(egui::UiKind::Menu);
                             }
                             if ui.button("Synchronize").clicked() {
                                 cmd = Some(LeftCommand::SyncSubmodule(s.path.clone()));
-                                ui.close_menu();
+                                ui.close_kind(egui::UiKind::Menu);
                             }
                         });
                     }
@@ -221,7 +221,7 @@ impl LeftPanel {
                 header.header_response.context_menu(|ui| {
                     if ui.button("Manage submodules…").clicked() {
                         cmd = Some(LeftCommand::ManageSubmodules);
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                 });
             }
@@ -243,11 +243,11 @@ impl LeftPanel {
                         r.context_menu(|ui| {
                             if ui.button("Open").clicked() {
                                 cmd = Some(LeftCommand::OpenWorktree(w.path.clone()));
-                                ui.close_menu();
+                                ui.close_kind(egui::UiKind::Menu);
                             }
                             if !w.is_main && ui.button("Remove…").clicked() {
                                 cmd = Some(LeftCommand::RemoveWorktree(w.path.clone()));
-                                ui.close_menu();
+                                ui.close_kind(egui::UiKind::Menu);
                             }
                         });
                     }
@@ -255,7 +255,7 @@ impl LeftPanel {
                 header.header_response.context_menu(|ui| {
                     if ui.button("Manage worktrees…").clicked() {
                         cmd = Some(LeftCommand::ManageWorktrees);
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                 });
             }
@@ -315,56 +315,56 @@ impl LeftPanel {
                 if remote {
                     if ui.button("Checkout as local branch…").clicked() {
                         *cmd = Some(LeftCommand::CheckoutRemote(name.clone()));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                 } else if !is_current && ui.button("Checkout").clicked() {
                     *cmd = Some(LeftCommand::Checkout(name.clone()));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if !is_current {
                     if ui.button(format!("Merge into {current}…")).clicked() {
                         *cmd = Some(LeftCommand::Merge(name.clone()));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.button(format!("Rebase {current} on this…")).clicked() {
                         *cmd = Some(LeftCommand::Rebase(name.clone()));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                 }
                 if ui.button("Create branch here…").clicked() {
                     *cmd = Some(LeftCommand::CreateBranch(r.object_id));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Show only this branch").clicked() {
                     *cmd = Some(LeftCommand::FilterBranch(r.complete_name.clone()));
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 ui.separator();
                 if remote {
                     if ui.button("Delete remote branch…").clicked() {
                         *cmd = Some(LeftCommand::DeleteRemoteBranch(name.clone()));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                 } else {
                     if ui.button("Push…").clicked() {
                         *cmd = Some(LeftCommand::Push(name.clone()));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     if is_current && ui.button("Pull…").clicked() {
                         *cmd = Some(LeftCommand::Pull);
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.button("Set upstream…").clicked() {
                         *cmd = Some(LeftCommand::SetUpstream(name.clone()));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.button("Rename…").clicked() {
                         *cmd = Some(LeftCommand::Rename(name.clone()));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     if !is_current && ui.button("Delete…").clicked() {
                         *cmd = Some(LeftCommand::Delete(r.complete_name.clone()));
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                 }
             });

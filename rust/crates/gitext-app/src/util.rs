@@ -51,7 +51,7 @@ pub fn short_date(unix: i64) -> String {
 
 /// Copies text to the clipboard.
 pub fn copy_to_clipboard(ctx: &egui::Context, text: impl Into<String>) {
-    ctx.output_mut(|o| o.copied_text = text.into());
+    ctx.copy_text(text.into());
 }
 
 /// Opens a path or URL with the system handler.
