@@ -1,0 +1,2 @@
+# Keep test inputs byte-identical on every platform (no CRLF conversion).
+* -text

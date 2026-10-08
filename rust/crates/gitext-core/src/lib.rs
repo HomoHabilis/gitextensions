@@ -32,3 +32,5 @@ pub mod app_title;
 pub mod commit_message;
 pub mod repo_history;
 pub mod settings;
+pub mod file_tree;
+pub mod url_util;

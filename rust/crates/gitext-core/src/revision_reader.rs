@@ -28,6 +28,7 @@ pub enum RevisionSortOrder {
 
 /// Parses `git log -z --pretty=format:<log_format()>` output.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct RevisionParser {
     pub has_reflog_selector: bool,
     pub has_notes: bool,
@@ -36,11 +37,6 @@ pub struct RevisionParser {
     pub parse_errors: usize,
 }
 
-impl Default for RevisionParser {
-    fn default() -> Self {
-        RevisionParser { has_reflog_selector: false, has_notes: false, oldest_body: 0, parse_errors: 0 }
-    }
-}
 
 /// The `--pretty=format:` string.
 pub fn log_format(has_reflog_selector: bool, has_notes: bool) -> String {

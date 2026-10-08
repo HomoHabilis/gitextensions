@@ -163,10 +163,8 @@ mod tests {
 
     fn test(expected: &str, args: &[Option<&str>]) {
         let mut b = GitArgs::empty();
-        for a in args {
-            if let Some(a) = a {
-                b.add(*a);
-            }
+        for a in args.iter().flatten() {
+            b.add(*a);
         }
         assert_eq!(b.to_string(), expected);
     }

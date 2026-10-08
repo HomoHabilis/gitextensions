@@ -222,7 +222,7 @@ impl Executable {
     fn command(&self, args: &[String]) -> Command {
         let mut cmd = Command::new(&self.file_name);
         cmd.args(args);
-        if self.working_dir.as_os_str().len() > 0 && self.working_dir.is_dir() {
+        if !self.working_dir.as_os_str().is_empty() && self.working_dir.is_dir() {
             cmd.current_dir(&self.working_dir);
         }
         // Never block on an interactive terminal prompt; credentials go through askpass helpers.

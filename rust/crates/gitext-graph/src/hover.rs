@@ -72,7 +72,7 @@ impl HoverHighlight {
 
         let is_in_branch_group = |r: &GitRef| git_ref.is_tracking_remote(Some(r)) || r.is_tracking_remote(Some(git_ref));
         let has_group_ref = |graph: &RevisionGraph, n: NodeIdx| {
-            graph.store.nodes[n].revision.as_ref().is_some_and(|rev| rev.refs.iter().any(|r| is_in_branch_group(r)))
+            graph.store.nodes[n].revision.as_ref().is_some_and(|rev| rev.refs.iter().any(&is_in_branch_group))
         };
 
         if add_id_and_parents(graph, row_index, &mut visible_ids).is_none() {

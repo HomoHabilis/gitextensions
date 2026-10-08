@@ -292,7 +292,7 @@ impl GitModule {
     /// All refs with tracking information (port of `GetRefs`).
     pub fn get_refs(&self) -> GitResult<Vec<GitRef>> {
         let out = self.output(&GitArgs::new("for-each-ref").arg(
-            "--format=%(objectname)%00%(*objectname)%00%(refname)%00%(upstream:remotename)%00%(upstream)",
+            "--format=%(objectname)%00%(*objectname)%00%(refname)%00%(upstream:remotename)%00%(upstream:remoteref)",
         ))?;
         let current = self.current_branch();
         let mut refs = parse_refs(&out);

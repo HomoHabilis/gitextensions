@@ -342,12 +342,11 @@ pub fn create_partial_patch(diff: &str, selected: &[usize], reverse: bool) -> Op
                         last_kept_was_dropped_add = true;
                     }
                 }
-                DiffLineKind::NoNewline => {
-                    if !last_kept_was_dropped_add {
+                DiffLineKind::NoNewline
+                    if !last_kept_was_dropped_add => {
                         hunk_text.push_str(&l.text);
                         hunk_text.push('\n');
                     }
-                }
                 _ => {}
             }
             i += 1;

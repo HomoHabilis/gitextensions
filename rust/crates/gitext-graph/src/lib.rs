@@ -11,7 +11,7 @@ pub mod model;
 pub mod render;
 
 pub use graph::{RevisionGraph, RevisionGraphConfig, MAX_LANES};
-pub use model::{Lane, LaneSharing, NodeIdx, Row, SegIdx, Store};
+pub use model::{Lane, LaneSharing, NodeIdx, Row, SegIdx, Store, LANE_COLOR_COUNT};
 pub use render::{draw_row, Brush, Metrics, Point, Primitive, RevisionGraphDrawStyle};
 
 #[cfg(test)]
