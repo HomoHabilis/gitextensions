@@ -14,3 +14,21 @@ pub use revision::GitRevision;
 pub mod summary;
 #[doc(hidden)]
 pub mod testing;
+pub mod args;
+pub mod exec;
+pub mod revision_reader;
+
+pub use args::GitArgs;
+pub use exec::{Executable, GitError, GitResult};
+pub mod commands;
+pub mod status;
+pub mod patch;
+pub mod blame;
+pub mod tree;
+pub mod branch_name;
+pub mod module;
+pub use module::GitModule;
+pub mod app_title;
+pub mod commit_message;
+pub mod repo_history;
+pub mod settings;
