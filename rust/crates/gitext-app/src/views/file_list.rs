@@ -1,5 +1,7 @@
 //! Port of `FileStatusList`: list of changed files, flat or as a folder tree.
 
+use std::collections::HashSet;
+
 use egui::{RichText, Sense, Ui, Vec2};
 use gitext_core::file_tree::{create_tree_sorted_by_path, NodeTag, TreeNode};
 use gitext_core::status::GitItemStatus;
@@ -15,6 +17,47 @@ pub struct FileList {
     anchor: Option<usize>,
     /// Item names of the last frame, to keep the selection when the list changes.
     last_names: Vec<String>,
+    /// The sorted tree of the last frame, rebuilt when the items, filter or mode change.
+    layout: Option<Layout>,
+    /// Paths of the folders collapsed in the tree mode.
+    collapsed: HashSet<String>,
+}
+
+struct Layout {
+    filter: String,
+    tree_mode: bool,
+    /// The items in display order.
+    order: Vec<usize>,
+    /// The rows shown: the items, and the folders in the tree mode except inside collapsed ones.
+    rows: Vec<Row>,
+}
+
+struct Row {
+    depth: usize,
+    text: String,
+    kind: RowKind,
+}
+
+enum RowKind {
+    Item(usize),
+    /// A folder, with its path and the items below it.
+    Folder(String, Vec<usize>),
+}
+
+/// Appends the rows of `nodes` (`visible` maps the tree's item indexes to the items).
+fn add_rows(rows: &mut Vec<Row>, nodes: &[TreeNode], visible: &[usize], collapsed: &HashSet<String>, depth: usize) {
+    for node in nodes {
+        match &node.tag {
+            NodeTag::Folder(path) => {
+                let items = node.items().iter().map(|&i| visible[i]).collect();
+                rows.push(Row { depth, text: node.text.clone(), kind: RowKind::Folder(path.clone(), items) });
+                if !collapsed.contains(path) {
+                    add_rows(rows, &node.nodes, visible, collapsed, depth + 1);
+                }
+            }
+            NodeTag::Item(i) => rows.push(Row { depth, text: node.text.clone(), kind: RowKind::Item(visible[*i]) }),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -58,15 +101,36 @@ impl FileList {
 
     /// Keeps the selection by name when the items change.
     fn sync(&mut self, items: &[GitItemStatus]) -> bool {
-        let names: Vec<String> = items.iter().map(|i| i.name.clone()).collect();
-        if names == self.last_names {
+        if items.len() == self.last_names.len() && items.iter().zip(&self.last_names).all(|(i, n)| i.name == *n) {
             return false;
         }
+        let names: Vec<String> = items.iter().map(|i| i.name.clone()).collect();
         let old: Vec<String> = self.selected.iter().filter_map(|&i| self.last_names.get(i).cloned()).collect();
         self.selected = old.iter().filter_map(|n| names.iter().position(|m| m == n)).collect();
         self.last_names = names;
         self.anchor = self.selected.first().copied();
+        self.layout = None;
         true
+    }
+
+    /// Sorts and filters the items when they, the filter or the mode changed.
+    fn update_layout(&mut self, items: &[GitItemStatus]) {
+        if self.layout.as_ref().is_some_and(|l| l.filter == self.filter && l.tree_mode == self.tree_mode) {
+            return;
+        }
+        let filter = self.filter.to_lowercase();
+        let visible: Vec<usize> = (0..items.len()).filter(|&i| filter.is_empty() || items[i].name.to_lowercase().contains(&filter)).collect();
+        let tree = if visible.len() == items.len() {
+            create_tree_sorted_by_path(items, !self.tree_mode, true)
+        } else {
+            let filtered: Vec<GitItemStatus> = visible.iter().map(|&i| items[i].clone()).collect();
+            create_tree_sorted_by_path(&filtered, !self.tree_mode, true)
+        };
+        // map back to the original indexes
+        let order: Vec<usize> = tree.items().iter().map(|&i| visible[i]).collect();
+        let mut rows = Vec::new();
+        add_rows(&mut rows, &tree.nodes, &visible, &self.collapsed, 0);
+        self.layout = Some(Layout { filter: self.filter.clone(), tree_mode: self.tree_mode, order, rows });
     }
 
     fn click(&mut self, index: usize, order: &[usize], ui: &Ui) {
@@ -101,12 +165,10 @@ impl FileList {
             resp.selection_changed = true;
         }
 
-        let filter = self.filter.to_lowercase();
-        let visible: Vec<usize> = (0..items.len()).filter(|&i| filter.is_empty() || items[i].name.to_lowercase().contains(&filter)).collect();
-        let filtered: Vec<GitItemStatus> = visible.iter().map(|&i| items[i].clone()).collect();
-        let tree = create_tree_sorted_by_path(&filtered, !self.tree_mode, true);
-        // map back to the original indexes
-        let order: Vec<usize> = tree.items().iter().map(|&i| visible[i]).collect();
+        self.update_layout(items);
+        // taken for the frame so that the rows can update the selection
+        let layout = self.layout.take().expect("layout");
+        let order = &layout.order;
 
         // keyboard navigation
         let list_id = ui.make_persistent_id(id);
@@ -127,83 +189,103 @@ impl FileList {
         }
         resp.has_focus = has_focus;
 
-        egui::ScrollArea::both().id_salt(id).auto_shrink([false, false]).show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 1.0;
-            if items.is_empty() {
+        let area = egui::ScrollArea::both().id_salt(id).auto_shrink([false, false]);
+        if items.is_empty() {
+            area.show(ui, |ui| {
                 ui.label(RichText::new("No changes").italics().color(palette.muted));
+            });
+        } else {
+            // only the rows in view are laid out
+            ui.spacing_mut().item_spacing.y = 1.0;
+            let row_h = ui.spacing().interact_size.y;
+            let indent = ui.spacing().indent;
+            let mut toggled = None;
+            area.show_rows(ui, row_h, layout.rows.len(), |ui, range| {
+                ui.spacing_mut().item_spacing.y = 1.0;
+                for row in &layout.rows[range] {
+                    match &row.kind {
+                        RowKind::Item(index) => self.show_item(ui, *index, row.depth as f32 * indent, &row.text, items, order, &palette, &mut resp, &mut menu, list_id),
+                        RowKind::Folder(path, sub) => {
+                            let open = !self.collapsed.contains(path);
+                            let r = ui
+                                .horizontal(|ui| {
+                                    ui.add_space(row.depth as f32 * indent);
+                                    let text = RichText::new(format!("{} 🗀 {}", if open { "⏷" } else { "⏵" }, row.text)).color(palette.muted);
+                                    ui.add(egui::Button::new(text).frame(false))
+                                })
+                                .inner;
+                            if r.clicked() {
+                                toggled = Some(path.clone());
+                            }
+                            r.context_menu(|ui| menu(ui, sub));
+                        }
+                    }
+                }
+            });
+            if let Some(path) = toggled {
+                if !self.collapsed.remove(&path) {
+                    self.collapsed.insert(path);
+                }
+                self.layout = None;
+                return resp;
             }
-            self.show_nodes(ui, &tree.nodes, &visible, items, &order, &palette, &mut resp, &mut menu, list_id, 0);
-        });
+        }
+        if self.layout.is_none() {
+            self.layout = Some(layout);
+        }
         resp
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn show_nodes(
+    fn show_item(
         &mut self,
         ui: &mut Ui,
-        nodes: &[TreeNode],
-        visible: &[usize],
+        index: usize,
+        indent: f32,
+        name: &str,
         items: &[GitItemStatus],
         order: &[usize],
         palette: &Palette,
         resp: &mut FileListResponse,
         menu: &mut impl FnMut(&mut Ui, &[usize]),
         list_id: egui::Id,
-        depth: usize,
     ) {
-        for node in nodes {
-            match &node.tag {
-                NodeTag::Folder(path) => {
-                    let header = egui::CollapsingHeader::new(RichText::new(format!("🗀 {}", node.text)).color(palette.muted))
-                        .id_salt((list_id, path))
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            self.show_nodes(ui, &node.nodes, visible, items, order, palette, resp, menu, list_id, depth + 1);
-                        });
-                    header.header_response.context_menu(|ui| {
-                        let sub: Vec<usize> = node.items().iter().map(|&i| visible[i]).collect();
-                        menu(ui, &sub);
-                    });
+        let item = &items[index];
+        let selected = self.selected.contains(&index);
+        let r = ui
+            .horizontal(|ui| {
+                ui.add_space(indent);
+                status_badge(ui, item, palette);
+                let mut text = name.to_string();
+                if let Some(old) = &item.old_name {
+                    if item.is_renamed || item.is_copied {
+                        text = format!("{text}  (from {old})");
+                    }
                 }
-                NodeTag::Item(i) => {
-                    let index = visible[*i];
-                    let item = &items[index];
-                    let selected = self.selected.contains(&index);
-                    let r = ui
-                        .horizontal(|ui| {
-                            status_badge(ui, item, palette);
-                            let mut text = node.text.clone();
-                            if let Some(old) = &item.old_name {
-                                if item.is_renamed || item.is_copied {
-                                    text = format!("{text}  (from {old})");
-                                }
-                            }
-                            if item.is_submodule {
-                                text = format!("{text} (submodule{})", if item.is_dirty { ", dirty" } else { "" });
-                            }
-                            let label = ui.add(egui::Button::selectable(selected, text));
-                            label
-                        })
-                        .inner;
-                    let r = r.on_hover_text(item.description());
-                    if r.clicked() {
-                        ui.memory_mut(|m| m.request_focus(list_id));
-                        self.click(index, order, ui);
-                        resp.selection_changed = true;
-                    }
-                    if r.double_clicked() {
-                        resp.double_clicked = Some(index);
-                    }
-                    if r.secondary_clicked() && !selected {
-                        self.selected = vec![index];
-                        self.anchor = Some(index);
-                        resp.selection_changed = true;
-                    }
-                    let sel = self.selected.clone();
-                    r.context_menu(|ui| menu(ui, &sel));
+                if item.is_submodule {
+                    text = format!("{text} (submodule{})", if item.is_dirty { ", dirty" } else { "" });
                 }
-            }
+                ui.add(egui::Button::selectable(selected, text))
+            })
+            .inner;
+        let r = r.on_hover_ui(|ui| {
+            ui.label(item.description());
+        });
+        if r.clicked() {
+            ui.memory_mut(|m| m.request_focus(list_id));
+            self.click(index, order, ui);
+            resp.selection_changed = true;
         }
+        if r.double_clicked() {
+            resp.double_clicked = Some(index);
+        }
+        if r.secondary_clicked() && !selected {
+            self.selected = vec![index];
+            self.anchor = Some(index);
+            resp.selection_changed = true;
+        }
+        let sel = self.selected.clone();
+        r.context_menu(|ui| menu(ui, &sel));
     }
 
     /// Filter box and view mode toggle.
