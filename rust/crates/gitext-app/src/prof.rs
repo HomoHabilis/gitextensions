@@ -27,6 +27,10 @@ pub fn scope<R>(name: &'static str, f: impl FnOnce() -> R) -> R {
 
 /// Prints the frame breakdown if the frame took longer than 16 ms.
 pub fn end_frame(total: Duration) {
+    if total > Duration::from_millis(30) {
+        // also in release builds on Windows, which have no console
+        gitext_core::exec::log_event(format!("slow frame {} ms", total.as_millis()));
+    }
     if !enabled() {
         return;
     }

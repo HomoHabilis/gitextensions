@@ -98,6 +98,10 @@ impl CommandLogEntry {
     /// One-line description (port of `CommandLogEntry.ToString`).
     pub fn column_line(&self) -> String {
         let start: chrono::DateTime<chrono::Local> = self.start.into();
+        if self.file_name.is_empty() {
+            // a mark from the UI (see [`log_event`])
+            return format!("{}  -------- {}", start.format("%H:%M:%S%.3f"), self.arguments);
+        }
         let duration = self.duration.map(|d| format!("{:>6}ms", d.as_millis())).unwrap_or_else(|| "running".to_string());
         let exit = self.exit_code.map(|c| c.to_string()).unwrap_or_default();
         format!("{} {} {:>3} {} {}", start.format("%H:%M:%S%.3f"), duration, exit, self.file_name, self.arguments)
@@ -118,6 +122,24 @@ pub fn command_log_entries() -> Vec<CommandLogEntry> {
 
 pub fn clear_command_log() {
     command_log().lock().unwrap().clear();
+}
+
+/// Adds a mark to the command log, such as when a commit is selected or its diff shown, so that
+/// the log tells where the time goes between the git commands.
+pub fn log_event(text: impl Into<String>) {
+    let mut log = command_log().lock().unwrap();
+    if log.len() >= MAX_LOG_ENTRIES {
+        log.remove(0);
+    }
+    log.push(CommandLogEntry {
+        file_name: String::new(),
+        arguments: text.into(),
+        working_dir: String::new(),
+        start: SystemTime::now(),
+        duration: None,
+        exit_code: Some(0),
+        is_on_main_thread: true,
+    });
 }
 
 fn log_start(file_name: &str, args: &str, working_dir: &Path) -> usize {

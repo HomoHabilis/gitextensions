@@ -208,6 +208,8 @@ pub struct RevisionDiffView {
     pub viewer: DiffViewer,
     pub parent_index: usize,
     last_key: Option<(Option<ObjectId>, ObjectId)>,
+    /// Whether the file list of `last_key` was shown (logged in the command log).
+    files_shown: bool,
     cache: SharedCache,
     prefetch: Option<Task<()>>,
 }
@@ -305,6 +307,7 @@ impl RevisionDiffView {
         let key = (first, second);
         if self.last_key != Some(key) {
             self.last_key = Some(key);
+            self.files_shown = false;
             self.list.clear();
         }
 
@@ -337,6 +340,10 @@ impl RevisionDiffView {
             });
             return None;
         };
+        if !self.files_shown {
+            self.files_shown = true;
+            gitext_core::exec::log_event(format!("diff tab: files of {} shown", second.to_short_string()));
+        }
         let files = match files {
             Ok(f) => f,
             Err(e) => {
@@ -469,6 +476,7 @@ impl RevisionDiffView {
                     match content {
                         Some(content) => {
                             let key = ShownKey { files: Arc::clone(&files), index, first, second, combined, opts: opts.clone() };
+                            gitext_core::exec::log_event(format!("diff tab: diff of {} shown", f.name));
                             self.shown = Some((key, Arc::clone(&content)));
                             content
                         }

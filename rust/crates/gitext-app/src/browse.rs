@@ -439,6 +439,9 @@ impl BrowseView {
         egui::CentralPanel::default().show_inside(ui, |ui| {
             let events = crate::prof::scope("grid", || self.grid.ui(ui, settings, &self.data));
             if events.selection_changed {
+                if let Some(id) = self.grid.selected_revision() {
+                    gitext_core::exec::log_event(format!("selected {}", id.to_short_string()));
+                }
                 self.diff.list.clear();
                 // the tabs are drawn before the grid: draw again now to load the new selection
                 ctx.request_repaint();
