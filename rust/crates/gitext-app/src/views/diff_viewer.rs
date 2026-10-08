@@ -160,6 +160,10 @@ impl DiffViewer {
         let mut hovered_line = None;
         let mut secondary = None;
         let mut drag_line = None;
+        // No vertical gap between rows: the backgrounds of adjacent changed lines must touch.
+        // show_rows also adds item_spacing.y to its row stride, so zero it before the call.
+        let item_spacing = ui.spacing().item_spacing;
+        ui.spacing_mut().item_spacing.y = 0.0;
         area.show_rows(ui, row_h, count, |ui, range| {
             let width = content_w.max(ui.available_width());
             ui.set_min_width(width);
@@ -233,6 +237,7 @@ impl DiffViewer {
                 });
             }
         });
+        ui.spacing_mut().item_spacing = item_spacing;
         let _ = hovered_line;
         if let Some(l) = drag_line {
             if let Some(s) = self.drag_start {
