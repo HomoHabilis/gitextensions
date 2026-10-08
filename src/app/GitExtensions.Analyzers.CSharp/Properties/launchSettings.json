@@ -1,8 +1,0 @@
-{
-  "profiles": {
-    "GitExtensions.Analyzers.CSharp": {
-      "commandName": "DebugRoslynComponent",
-      "targetProject": "..\\GitUI\\GitUI.csproj"
-    }
-  }
-}

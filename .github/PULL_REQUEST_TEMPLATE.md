@@ -8,7 +8,7 @@ Fixes #
 -
 -
 
-## Screenshots <!-- Include variants with higher scaling, e.g. 150% or 200%. Remove this section if PR does not change UI -->
+## Screenshots <!-- Include the light and dark themes and higher scaling, e.g. 150% or 200%, if relevant. Remove this section if PR does not change UI -->
 
 ### Before
 
@@ -26,8 +26,10 @@ Fixes #
 
 ## Test environment(s) <!-- Remove any that don't apply -->
 
-- GIT <!-- Add version 2.11 or above -->
-- Windows <!-- Add version 7 SP1 or above -->
+- git <!-- Add version -->
+- Windows <!-- Add version, e.g. 11 24H2 -->
+- macOS <!-- Add version -->
+- Linux <!-- Add distribution and version, X11 or Wayland -->
 
 <!-- Mention language, UI scaling, or anything else that might be relevant -->
 

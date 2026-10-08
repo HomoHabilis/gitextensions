@@ -8,17 +8,16 @@ body:
         Thanks for taking the time to fill out this bug report!
 
         ⚠️ Review existing issues to see whether someone else has already reported your issue.
-        📖 Please also read [CONTRIBUTING.md](https://github.com/gitextensions/gitextensions/blob/master/CONTRIBUTING.md).
+        📖 Please also read [CONTRIBUTING.md](https://github.com/HomoHabilis/gitextensions/blob/master/CONTRIBUTING.md).
   - type: textarea
     id: about
     attributes:
       label: Environment
-      description: Use _Help > About_ in Git Extensions to copy this information to the clipboard automatically.
+      description: _Help > About_ in Git Extensions shows the Git Extensions and git versions.
       value: |
         - GitExtensions version:
         - GIT version: 
-        - OS version: 
-        - .NET version: 
+        - OS (Windows / macOS / Linux distribution) and version: 
     validations:
       required: true
   - type: textarea
@@ -50,7 +49,7 @@ body:
     id: diagnostics
     attributes:
       label: Diagnostics
-      description: If relevant, as described at https://github.com/gitextensions/gitextensions/wiki/Diagnosing-problems.
+      description: If relevant, the failing git command from *Tools → Git command log*, or for slowness the stderr output of `gitext` started with `GITEXT_PROFILE=1`.
     validations:
       required: false
   - type: markdown
