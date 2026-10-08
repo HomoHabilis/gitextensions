@@ -126,6 +126,14 @@ fn load_diff(m: &GitModule, first: Option<ObjectId>, second: ObjectId, combined:
         return ViewerContent::Diff(d);
     }
     let result = if combined { m.get_combined_diff(second, &f.name) } else { m.get_file_diff(first, second, &f.name, f.old_name.as_deref(), opts) };
+    diff_content(m, second, f, result.map_err(|e| e.to_string()))
+}
+
+/// What to show for the diff of `f`.
+fn diff_content(m: &GitModule, second: ObjectId, f: &GitItemStatus, result: Result<String, String>) -> ViewerContent {
+    if f.is_submodule {
+        return ViewerContent::Diff(result.unwrap_or_default());
+    }
     match result {
         Ok(d) if d.contains("Binary files") && !d.contains("\n@@") => ViewerContent::Binary(format!("Binary file {} changed", f.name)),
         Ok(d) if d.trim().is_empty() => {
@@ -136,13 +144,32 @@ fn load_diff(m: &GitModule, first: Option<ObjectId>, second: ObjectId, combined:
             }
         }
         Ok(d) => ViewerContent::Diff(d),
-        Err(e) => ViewerContent::Empty(e.to_string()),
+        Err(e) => ViewerContent::Empty(e),
     }
 }
+
 
 /// Loads the files of a commit and the diff of its first file (the one shown when the commit is
 /// selected) into the cache. Returns the files.
 fn load_into_cache(cache: &SharedCache, m: &GitModule, first: Option<ObjectId>, second: ObjectId, combined: bool, opts: &DiffOptions) -> Result<Files, String> {
+    // the files and the first diff from one git process: starting a process is slow on Windows.
+    // git is stopped once the first diff is read, rather than producing the diffs of all files.
+    if let (false, Some(parent)) = (combined, first) {
+        if let Ok((files, patches)) = m.get_diff_files_with_patches(parent, second, opts, 0) {
+            let contents: Vec<(String, Content)> = files
+                .iter()
+                .zip(patches)
+                .map(|(f, p)| (diff_key(first, second, f, opts, combined), Arc::new(diff_content(m, second, f, Ok(p)))))
+                .collect();
+            let files = Arc::new(files);
+            let mut c = cache.lock().unwrap();
+            for (key, content) in contents {
+                c.diffs.insert(key, content);
+            }
+            c.files.insert((first, second, combined), Arc::clone(&files));
+            return Ok(files);
+        }
+    }
     let files = Arc::new(load_files(m, first, second, combined)?);
     if let Some(f) = files.first() {
         let key = diff_key(first, second, f, opts, combined);
@@ -502,6 +529,42 @@ mod tests {
         let out = Command::new("git").current_dir(dir).args(args).output().unwrap();
         assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
         String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// Time and git processes until a commit's files and first diff are loaded, against loading
+    /// the files then the diff as before. Run in a repository with history:
+    /// `GITEXT_BENCH_REPO=<path> cargo test --release -p gitext-app load_latency -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn load_latency() {
+        let Some(repo) = std::env::var_os("GITEXT_BENCH_REPO") else { return };
+        let module = GitModule::open(repo).unwrap();
+        let opts = diff_options(&AppSettings::default());
+        let out = module.git().output(&gitext_core::GitArgs::new("rev-list").args(["--no-merges", "--max-count=8", "--skip=2000", "--parents", "HEAD"])).unwrap();
+        let count = || gitext_core::exec::command_log_entries().len();
+        for line in out.lines() {
+            let ids: Vec<ObjectId> = line.split(' ').filter_map(ObjectId::try_parse).collect();
+            let (second, first) = (ids[0], Some(ids[1]));
+            let (n, t) = (count(), Instant::now());
+            let files = load_files(&module, first, second, false).unwrap();
+            let _ = load_diff(&module, first, second, false, &files[0], &opts);
+            let (before, before_n) = (t.elapsed(), count() - n);
+            let cache = SharedCache::default();
+            let (n, t) = (count(), Instant::now());
+            let files = load_into_cache(&cache, &module, first, second, false, &opts).unwrap();
+            let (after, after_n) = (t.elapsed(), count() - n);
+            let cached = cache.lock().unwrap().diffs.entries.len();
+            eprintln!(
+                "{}: {} files | before {:.1} ms, {} git | after {:.1} ms, {} git, {} diffs cached",
+                second.to_short_string(),
+                files.len(),
+                before.as_secs_f64() * 1000.0,
+                before_n,
+                after.as_secs_f64() * 1000.0,
+                after_n,
+                cached
+            );
+        }
     }
 
     /// Per-frame cost of showing an already loaded diff. Run with

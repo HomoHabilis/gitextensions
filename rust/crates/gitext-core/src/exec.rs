@@ -350,6 +350,52 @@ impl Executable {
         Ok(self.run_checked(args)?.stdout_str())
     }
 
+    /// Runs the process capturing stdout (stderr discarded), and stops it early when `stop`
+    /// returns true for the output read so far. Returns the output and whether it is complete.
+    pub fn run_until(&self, args: &GitArgs, mut stop: impl FnMut(&[u8]) -> bool) -> GitResult<(Vec<u8>, bool)> {
+        let display = args.to_string();
+        let log_index = log_start(&self.display_name(), &display, &self.working_dir);
+        let started = Instant::now();
+        let mut cmd = self.command(args.as_slice());
+        cmd.stdout(Stdio::piped()).stderr(Stdio::null()).stdin(Stdio::null());
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                log_end(log_index, &display, started, -1);
+                return Err(GitError::Io(e));
+            }
+        };
+        let mut stdout = child.stdout.take().unwrap();
+        let mut out = Vec::new();
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut complete = true;
+        loop {
+            match stdout.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => out.extend_from_slice(&buf[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    log_end(log_index, &display, started, -1);
+                    return Err(GitError::Io(e));
+                }
+            }
+            if stop(&out) {
+                complete = false;
+                let _ = child.kill();
+                break;
+            }
+        }
+        drop(stdout);
+        let exit_code = child.wait()?.code().unwrap_or(-1);
+        log_end(log_index, &display, started, exit_code);
+        if complete && exit_code != 0 {
+            return Err(GitError::Failed { args: display, exit_code, stderr: String::new() });
+        }
+        Ok((out, complete))
+    }
+
     /// Starts the process with piped stdout (stderr discarded) for incremental parsing.
     pub fn spawn_raw(&self, args: &GitArgs) -> GitResult<RawProcess> {
         log_start(&self.display_name(), &args.to_string(), &self.working_dir);
