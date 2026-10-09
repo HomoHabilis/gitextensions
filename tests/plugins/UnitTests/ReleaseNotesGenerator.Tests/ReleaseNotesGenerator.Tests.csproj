@@ -1,8 +1,0 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\..\..\src\plugins\ReleaseNotesGenerator\GitExtensions.Plugins.ReleaseNotesGenerator.csproj" />
-    <ProjectReference Include="..\..\..\CommonTestUtils\CommonTestUtils.csproj" />
-  </ItemGroup>
-
-</Project>

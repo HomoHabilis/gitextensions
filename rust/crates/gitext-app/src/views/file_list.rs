@@ -21,6 +21,10 @@ pub struct FileList {
     layout: Option<Layout>,
     /// Paths of the folders collapsed in the tree mode.
     collapsed: HashSet<String>,
+    /// Whether the arrow keys move the selection (the list was clicked last).
+    has_focus: bool,
+    /// Scroll the selected item into view on the next frame.
+    scroll_to_selected: bool,
 }
 
 struct Layout {
@@ -170,41 +174,64 @@ impl FileList {
         let layout = self.layout.take().expect("layout");
         let order = &layout.order;
 
-        // keyboard navigation
-        let list_id = ui.make_persistent_id(id);
-        let has_focus = ui.memory(|m| m.has_focus(list_id));
+        // keyboard navigation (egui only keeps focus on widgets, so the list tracks its own like the revision grid)
+        let has_focus = self.has_focus && !ui.ctx().wants_keyboard_input();
         if has_focus && !order.is_empty() {
-            let (up, down) = ui.input(|i| (i.key_pressed(egui::Key::ArrowUp), i.key_pressed(egui::Key::ArrowDown)));
-            if up || down {
-                let cur = self.selected.last().and_then(|s| order.iter().position(|x| x == s));
-                let next = match cur {
-                    Some(p) if up => p.saturating_sub(1),
-                    Some(p) => (p + 1).min(order.len() - 1),
-                    None => 0,
-                };
-                self.selected = vec![order[next]];
-                self.anchor = Some(order[next]);
-                resp.selection_changed = true;
+            let (up, down, home, end) = ui.input(|i| {
+                (i.key_pressed(egui::Key::ArrowUp), i.key_pressed(egui::Key::ArrowDown), i.key_pressed(egui::Key::Home), i.key_pressed(egui::Key::End))
+            });
+            if up || down || home || end {
+                // the items shown (the tree mode hides the items of collapsed folders)
+                let shown: Vec<usize> = layout.rows.iter().filter_map(|r| if let RowKind::Item(i) = r.kind { Some(i) } else { None }).collect();
+                if !shown.is_empty() {
+                    let cur = self.selected.last().and_then(|s| shown.iter().position(|x| x == s));
+                    let next = match cur {
+                        _ if home => 0,
+                        _ if end => shown.len() - 1,
+                        Some(p) if up => p.saturating_sub(1),
+                        Some(p) => (p + 1).min(shown.len() - 1),
+                        None => 0,
+                    };
+                    if self.selected != [shown[next]] {
+                        self.selected = vec![shown[next]];
+                        self.anchor = Some(shown[next]);
+                        self.scroll_to_selected = true;
+                        resp.selection_changed = true;
+                    }
+                }
             }
         }
         resp.has_focus = has_focus;
 
         let area = egui::ScrollArea::both().id_salt(id).auto_shrink([false, false]);
-        if items.is_empty() {
+        let inner_rect = if items.is_empty() {
             area.show(ui, |ui| {
                 ui.label(RichText::new("No changes").italics().color(palette.muted));
-            });
+            })
+            .inner_rect
         } else {
             // only the rows in view are laid out
             ui.spacing_mut().item_spacing.y = 1.0;
             let row_h = ui.spacing().interact_size.y;
             let indent = ui.spacing().indent;
             let mut toggled = None;
-            area.show_rows(ui, row_h, layout.rows.len(), |ui, range| {
+            // the row to bring into view, which may be outside the rows laid out
+            let scroll_row = self
+                .scroll_to_selected
+                .then(|| self.selected.last().and_then(|s| layout.rows.iter().position(|r| matches!(r.kind, RowKind::Item(i) if i == *s))))
+                .flatten();
+            self.scroll_to_selected = false;
+            let out = area.show_rows(ui, row_h, layout.rows.len(), |ui, range| {
                 ui.spacing_mut().item_spacing.y = 1.0;
+                if let Some(row) = scroll_row {
+                    let row_step = row_h + ui.spacing().item_spacing.y;
+                    let top = ui.cursor().top() + (row as f32 - range.start as f32) * row_step;
+                    let rect = egui::Rect::from_min_size(egui::pos2(ui.cursor().left(), top), Vec2::new(1.0, row_h));
+                    ui.scroll_to_rect(rect, None);
+                }
                 for row in &layout.rows[range] {
                     match &row.kind {
-                        RowKind::Item(index) => self.show_item(ui, *index, row.depth as f32 * indent, &row.text, items, order, &palette, &mut resp, &mut menu, list_id),
+                        RowKind::Item(index) => self.show_item(ui, *index, row.depth as f32 * indent, &row.text, items, order, &palette, &mut resp, &mut menu),
                         RowKind::Folder(path, sub) => {
                             let open = !self.collapsed.contains(path);
                             let r = ui
@@ -227,8 +254,13 @@ impl FileList {
                     self.collapsed.insert(path);
                 }
                 self.layout = None;
+                self.has_focus = true;
                 return resp;
             }
+            out.inner_rect
+        };
+        if ui.input(|i| i.pointer.any_pressed()) {
+            self.has_focus = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| inner_rect.contains(p));
         }
         if self.layout.is_none() {
             self.layout = Some(layout);
@@ -248,7 +280,6 @@ impl FileList {
         palette: &Palette,
         resp: &mut FileListResponse,
         menu: &mut impl FnMut(&mut Ui, &[usize]),
-        list_id: egui::Id,
     ) {
         let item = &items[index];
         let selected = self.selected.contains(&index);
@@ -272,7 +303,6 @@ impl FileList {
             ui.label(item.description());
         });
         if r.clicked() {
-            ui.memory_mut(|m| m.request_focus(list_id));
             self.click(index, order, ui);
             resp.selection_changed = true;
         }
@@ -300,5 +330,55 @@ impl FileList {
                 ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("Filter files…").desired_width(ui.available_width()));
             });
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gitext_core::status::StagedStatus;
+
+    fn key(k: egui::Key) -> egui::Event {
+        egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() }
+    }
+
+    /// The arrow keys move over the rows shown, also those not laid out (only the rows in view
+    /// are), and the selected row is scrolled into view.
+    #[test]
+    fn arrow_keys_move_over_all_rows() {
+        let items: Vec<GitItemStatus> = (0..300).map(|i| GitItemStatus::from_status_character(StagedStatus::None, &format!("f{i:03}.txt"), 'M')).collect();
+        let ctx = egui::Context::default();
+        let mut list = FileList { has_focus: true, ..Default::default() };
+        let area_id = std::cell::Cell::new(None);
+        let time = std::cell::Cell::new(0.0);
+        let frame = |list: &mut FileList, events: Vec<egui::Event>| {
+            // a second per frame, so that scroll animations end
+            time.set(time.get() + 1.0);
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0))), events, time: Some(time.get()), ..Default::default() };
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    area_id.set(Some(ui.make_persistent_id(egui::Id::new("test"))));
+                    list.ui(ui, "test", &items, |_, _| {});
+                });
+            });
+        };
+        frame(&mut list, vec![]);
+        frame(&mut list, vec![key(egui::Key::ArrowDown)]);
+        assert_eq!(list.selected, [0]);
+        frame(&mut list, vec![key(egui::Key::ArrowDown)]);
+        assert_eq!(list.selected, [1]);
+        frame(&mut list, vec![key(egui::Key::End)]);
+        assert_eq!(list.selected, [299]);
+        for _ in 0..3 {
+            frame(&mut list, vec![]);
+        }
+        // scrolled to the bottom: the last row is in view
+        let offset = egui::scroll_area::State::load(&ctx, area_id.get().unwrap()).unwrap().offset.y;
+        let row_step = ctx.style().spacing.interact_size.y + 1.0;
+        assert!(offset > 250.0 * row_step, "offset {offset}");
+        frame(&mut list, vec![key(egui::Key::ArrowUp)]);
+        assert_eq!(list.selected, [298]);
+        frame(&mut list, vec![key(egui::Key::Home)]);
+        assert_eq!(list.selected, [0]);
     }
 }

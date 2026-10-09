@@ -58,6 +58,11 @@ pub struct FileTreeView {
     all_files: Loader<ObjectId, Vec<String>>,
     /// Expand to this path on the next frame.
     pub reveal: Option<String>,
+    /// The files shown in the last frame, in order, for the arrow keys.
+    shown_files: Vec<String>,
+    /// Whether the arrow keys move the selection (the tree was clicked last).
+    has_focus: bool,
+    scroll_to_selected: bool,
 }
 
 impl FileTreeView {
@@ -87,9 +92,11 @@ impl FileTreeView {
         let m = module.clone();
         self.tree.request_latest(ui.ctx(), tree_rev, move || build_tree(m.ls_tree_all(tree_rev).unwrap_or_default()));
         let mut cmd = None;
+        self.handle_keys(ui);
         egui::SidePanel::left("filetree_tree").resizable(true).default_width(300.0).show_inside(ui, |ui| {
             ui.add(egui::TextEdit::singleline(&mut self.find).hint_text("🔍 Find file…").desired_width(f32::INFINITY));
-            egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+            self.shown_files.clear();
+            let out = egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
                 if self.find.trim().is_empty() {
                     self.dir_ui(ui, module, tree_rev, "", &palette, &mut cmd, 0);
                 } else {
@@ -103,14 +110,21 @@ impl FileTreeView {
                             let needle = self.find.to_lowercase();
                             let hits: Vec<String> = files.iter().filter(|f| f.to_lowercase().contains(&needle)).take(500).cloned().collect();
                             for f in hits {
-                                if ui.selectable_label(self.selected.as_deref() == Some(f.as_str()), &f).clicked() {
+                                let r = ui.selectable_label(self.selected.as_deref() == Some(f.as_str()), &f);
+                                self.scroll_if_selected(&r, &f);
+                                if r.clicked() {
                                     self.selected = Some(f.clone());
                                 }
+                                self.shown_files.push(f);
                             }
                         }
                     }
                 }
             });
+            self.scroll_to_selected = false;
+            if ui.input(|i| i.pointer.any_pressed()) {
+                self.has_focus = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| out.inner_rect.contains(p));
+            }
         });
 
         if let Some(path) = self.selected.clone() {
@@ -143,6 +157,36 @@ impl FileTreeView {
             });
         }
         cmd
+    }
+
+    /// Up/down move the selection over the files shown in the last frame, like the tree view of the original.
+    fn handle_keys(&mut self, ui: &Ui) {
+        if !self.has_focus || self.shown_files.is_empty() || ui.ctx().wants_keyboard_input() {
+            return;
+        }
+        let (up, down, home, end) = ui.input(|i| {
+            (i.key_pressed(egui::Key::ArrowUp), i.key_pressed(egui::Key::ArrowDown), i.key_pressed(egui::Key::Home), i.key_pressed(egui::Key::End))
+        });
+        if !(up || down || home || end) {
+            return;
+        }
+        let last = self.shown_files.len() - 1;
+        let cur = self.selected.as_ref().and_then(|s| self.shown_files.iter().position(|f| f == s));
+        let next = match cur {
+            _ if home => 0,
+            _ if end => last,
+            Some(p) if up => p.saturating_sub(1),
+            Some(p) => (p + 1).min(last),
+            None => 0,
+        };
+        self.selected = Some(self.shown_files[next].clone());
+        self.scroll_to_selected = true;
+    }
+
+    fn scroll_if_selected(&self, r: &egui::Response, path: &str) {
+        if self.scroll_to_selected && self.selected.as_deref() == Some(path) {
+            r.scroll_to_me(None);
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -191,6 +235,8 @@ impl FileTreeView {
                     let icon = if item.object_type == GitObjectType::Commit { "⊞" } else { "🗋" };
                     let selected = self.selected.as_deref() == Some(full.as_str());
                     let r = ui.selectable_label(selected, format!("{icon} {}", item.name));
+                    self.scroll_if_selected(&r, &full);
+                    self.shown_files.push(full.clone());
                     if self.reveal.as_deref() == Some(full.as_str()) {
                         r.scroll_to_me(Some(egui::Align::Center));
                         self.selected = Some(full.clone());

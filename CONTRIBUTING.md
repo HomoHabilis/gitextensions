@@ -1,75 +1,42 @@
-﻿# Contributing to Git Extensions
+# Contributing to Git Extensions (Rust port)
 
-:exclamation: As of 23 January 2019 all submissions to this project must be done under [The Developer Certificate of Origin](contributors.txt). You must sign it with your pull request, if you've not done so before.
+Contributions are welcome: ideas, bug reports, bug fixes and new features.
 
-Git Extensions is a project with a long history, made possible by [hundreds of contributors](https://github.com/gitextensions/gitextensions/graphs/contributors).
+## Reporting issues
 
-We welcome contributions including:
+Search the [issue tracker](https://github.com/HomoHabilis/gitextensions/issues?q=), including
+closed issues, before creating a new one. Include the steps to reproduce, screenshots, and
+the versions of Git Extensions (*Help → About*), git and your operating system.
 
-- Ideas for improvements
-- Bug reports
-- Bug fixes
-- New features
+Problems that also happen in the original Windows application can be reported to
+[gitextensions/gitextensions](https://github.com/gitextensions/gitextensions/issues).
 
-To help the project maintainers be as effective as possible, please follow the simple guidelines below.
+## Pull requests
 
-## Reporting Issues
+The code is under [`rust/`](rust); [rust/README.md](rust/README.md) describes its layout.
+Before submitting, run the tests from `rust/`:
 
-[Search the issue tracker](https://github.com/gitextensions/gitextensions/issues?&q=) for an
-existing or closely related issue before creating a new one. Be sure to include closed issues
-in your search.
-
-If an open issue already exists, read through the discussion. If you can add something helpful, do so.
-Add a 👍 if you'd like to see it prioritized. Subscribe to the issue for updates.
-
-If a closed issue already exists and the issue was addressed, you may like to try one of the
-[CI builds](https://github.com/gitextensions/gitextensions/wiki/Canary-Builds).
-
-If no issue exists, create one. Complete the template, and add any further information that
-could be relevant such as steps to reproduce, stack traces, screenshots, git/OS version, etc.
-
-## Pull Requests
-
-Want to contribute some code? Great! In addition to the regular GitHub Pull Request workflow,
-you'll want to browse our [wiki](https://github.com/gitextensions/gitextensions/wiki).
-
-Good places to start contributing include:
-
-- Open [bugs](https://github.com/gitextensions/gitextensions/labels/%3Abeetle%3A%20type%3A%20bug)
-- Open issues marked [good first issue](https://github.com/gitextensions/gitextensions/labels/%3Anerd_face%3A%20good%20first%20issue)
-- Open issues marked [up-for-grabs](https://github.com/gitextensions/gitextensions/labels/up-for-grabs)
-
-It's a good idea to mention that you're picking something up by commenting on its issue.
-
-If no issue exists, create one before making a PR. This creates the opportunity to discuss
-the issue before you spend time on its implementation. You will likely be more effective
-this way, and have a greater chance of satisfaction in the end.
-
-Pull requests will be reviewed by one or more team members. To improve the chance of your
-pull request being merged, your contribution should be as easy to review as possible.
-Specifically:
-
-- Be focused in scope
-- Be comprised of clear commits (use interactive rebase to tidy things up if needed)
-- Include a clear description of the changes and why they should be made
-- Be accompanied by unit tests
-- Be consistent with the current code style
-  Most style guides etc are referred to in [Copilot instructions](https://github.com/gitextensions/gitextensions/blob/master/.github/copilot-instructions.md).
-
-When filing a pull request, you should be prepared to answer questions about your changes
-and to perform additional work on the changes in response to review feedback.
-
-[Learn how we deal with translations](https://github.com/gitextensions/gitextensions/wiki/Translations).
-
-## Git Blame
-
-This repository includes a `.git-blame-ignore-revs` file that lists commits with
-large-scale, non-functional changes (e.g. formatting, namespace style). GitHub's
-blame view can use this file. To enable the same behavior locally, run this once per clone:
-
+```sh
+cargo test --workspace
 ```
-git config blame.ignoreRevsFile .git-blame-ignore-revs
-```
+
+The `rust` GitHub Actions workflow runs the tests and builds the binaries on Linux, macOS and
+Windows for every pull request that changes `rust/`.
+
+To make a pull request easy to review:
+
+- Keep it focused on one change.
+- Use clear commits. Fixup and squash commits are rejected by the `Git Checks` workflow, so
+  squash them before merging.
+- Describe the change and why it should be made.
+- Add tests for parsing and repository operations (`gitext-core`) and for the revision graph
+  (`gitext-graph`).
+- Follow the style of the surrounding code. The code is not formatted with `cargo fmt`, so
+  do not reformat lines you do not change.
+
+When behaviour should match the original application, compare with the C# code in
+[gitextensions/gitextensions](https://github.com/gitextensions/gitextensions) or in this
+repository's history before the C# code was removed.
 
 ## Conduct
 
