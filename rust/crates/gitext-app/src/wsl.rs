@@ -7,16 +7,17 @@ fn running_in_wsl() -> bool {
         || std::fs::read_to_string("/proc/sys/kernel/osrelease").is_ok_and(|r| r.to_ascii_lowercase().contains("microsoft"))
 }
 
-/// Makes the GTK tools started from the application (meld, gitk...) use X11 under WSL.
+/// Under WSL, makes the application and the tools it starts (meld, gitk...) use X11 instead
+/// of Wayland.
 ///
-/// On WSLg's Wayland compositor GTK can fail to create cursors, which makes meld abort while
-/// mapping its window ("Gdk.Cursor.new_for_display returned NULL"); the abort can leave the
-/// compositor with an invisible mouse pointer for every window. Through XWayland GTK falls back
-/// to the X core cursors instead. A `GDK_BACKEND` set by the user is kept.
-/// Must run before other threads are started (it changes the process environment).
-pub fn prefer_x11_for_gtk_tools() {
+/// WSLg's Wayland compositor drops the application's connection while its window opens
+/// ("Connection reset by peer"), and GTK tools on it can fail to create cursors, which makes
+/// meld abort and can leave the mouse pointer invisible. Through XWayland both work, and the
+/// window gets the title bar of WSLg. Must run before other threads are started (it changes
+/// the process environment).
+pub fn prefer_x11() {
     #[cfg(target_os = "linux")]
-    if running_in_wsl() && std::env::var_os("GDK_BACKEND").is_none() && std::env::var_os("DISPLAY").is_some() {
-        std::env::set_var("GDK_BACKEND", "x11");
+    if running_in_wsl() && std::env::var_os("DISPLAY").is_some() {
+        std::env::remove_var("WAYLAND_DISPLAY");
     }
 }
