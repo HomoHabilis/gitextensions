@@ -1329,7 +1329,6 @@ dependencies = [
  "embed-resource",
  "gitext-core",
  "gitext-graph",
- "libc",
  "regex",
  "rfd",
  "serde",
