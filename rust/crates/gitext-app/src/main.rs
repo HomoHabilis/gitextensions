@@ -15,6 +15,7 @@ mod dialogs;
 mod prof;
 mod repo;
 mod shell_ext;
+mod startup_window;
 mod tasks;
 mod theme;
 mod util;
@@ -63,7 +64,7 @@ fn main() -> eframe::Result<()> {
         }
         _ => {}
     }
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Git Extensions")
             .with_app_id("gitextensions")
@@ -71,10 +72,14 @@ fn main() -> eframe::Result<()> {
             .with_min_inner_size([720.0, 460.0]),
         ..Default::default()
     };
+    let maximize = startup_window::defer_maximize(&mut options);
     eframe::run_native(
         "Git Extensions",
         options,
-        Box::new(move |cc| Ok(Box::new(app::GitExtApp::new(cc, repo, command)))),
+        Box::new(move |cc| {
+            let startup_window = startup_window::StartupWindow::new(cc, &maximize);
+            Ok(Box::new(app::GitExtApp::new(cc, repo, command, startup_window)))
+        }),
     )
 }
 
