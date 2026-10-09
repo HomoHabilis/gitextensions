@@ -1,19 +1,15 @@
 * text=auto
-*.xml diff -text
+*.rs text diff=rust
 *.patch diff -text
 *.blame diff -text
-*.xlf text
-*.cs text diff=csharp
-*.sln text eol=crlf
-*.targets text eol=crlf
+*.xml diff -text
 *.bat text eol=crlf
 *.cmd text eol=crlf
 *.yml text eol=lf
 *.sh text eol=lf
-*.py text eol=lf
 .gitattributes text eol=lf
 
-# Used in unit tests - try text diff
+# Approval files of the ported tests (rust/testdata) must keep their exact bytes
 *.bin binary diff=text
 *RevisionReaderTests.*.approved.* binary diff=text
 *DoAutoCRLF*.approved.* binary diff=text

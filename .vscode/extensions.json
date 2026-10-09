@@ -1,11 +1,8 @@
 {
     "recommendations": [
-            "ms-vscode.cpptools",
-            "ms-dotnettools.csharp",
-            "pmiossec.vscode-gitextensions",
-            "VisualStudioExptTeam.vscodeintellicode",
-            "shd101wyy.markdown-preview-enhanced",
-            "ms-vscode.Theme-MarkdownKit",
-            "DavidAnson.vscode-markdownlint"
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "vadimcn.vscode-lldb",
+        "DavidAnson.vscode-markdownlint"
     ]
 }

@@ -130,6 +130,10 @@ each part of the window, to stderr. This helps when reporting slowness in a larg
 
 ## Layout
 
+The C# projects named in this table and below are those of the original application, in
+[gitextensions/gitextensions](https://github.com/gitextensions/gitextensions). They were removed
+from this repository and remain in its history.
+
 | Crate | Contents | C# origin |
 |---|---|---|
 | `crates/gitext-core` | Object ids, refs, revisions, `git log` parsing, status/diff/patch/blame parsing, building git command lines, running git, repository operations, settings, recent repositories | `GitCommands`, `GitExtensions.Extensibility`, `GitUIPluginInterfaces`, the parsing parts of `GitUI` |

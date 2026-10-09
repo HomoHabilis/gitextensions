@@ -1,15 +1,21 @@
 name: rust
 
 on:
+  # Pull requests are built by the pull_request event; a push to a PR branch would build the
+  # same commit again, so pushes are built only on master (tags are built by rust-release.yml).
   push:
-    # branches only: tags are built by rust-release.yml
-    branches: ["**"]
+    branches: [master]
     paths: ["rust/**", ".github/workflows/rust.yml"]
   pull_request:
     paths: ["rust/**", ".github/workflows/rust.yml"]
 
 permissions:
   contents: read
+
+# A new push to a pull request cancels the build of its previous commit.
+concurrency:
+  group: rust-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
