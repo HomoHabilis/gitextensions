@@ -71,10 +71,12 @@ pub struct GitExtApp {
     title_description: Option<(std::path::PathBuf, String)>,
     /// Diff / merge tools started in the background (title, result when the tool exits).
     tool_runs: Vec<(String, ToolRun)>,
+    /// Hides the window until its first frames are painted (Windows); `None` once shown.
+    startup_window: Option<crate::startup_window::StartupWindow>,
 }
 
 impl GitExtApp {
-    pub fn new(cc: &eframe::CreationContext<'_>, repo: Option<PathBuf>, start: StartCommand) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, repo: Option<PathBuf>, start: StartCommand, startup_window: crate::startup_window::StartupWindow) -> Self {
         let settings_path = AppSettings::default_path();
         let settings = settings_path.as_deref().map(AppSettings::load).unwrap_or_default();
         gitext_core::exec::set_git_command(&settings.git_command);
@@ -96,6 +98,7 @@ impl GitExtApp {
             last_title: String::new(),
             title_description: None,
             tool_runs: Vec::new(),
+            startup_window: Some(startup_window),
         };
         if let Some(path) = repo {
             app.open_repo(&cc.egui_ctx, &path, false);
@@ -698,6 +701,9 @@ impl eframe::App for GitExtApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         crate::prof::start_frame(frame.info().cpu_usage);
         let _frame_timer = crate::prof::FrameTimer::start();
+        if self.startup_window.as_mut().is_some_and(|w| w.on_frame(ctx)) {
+            self.startup_window = None;
+        }
         if !self.theme_applied {
             crate::theme::apply(ctx, self.settings.theme, self.settings.ui_scale, self.settings.font_size, self.settings.monospace_font_size);
             self.theme_applied = true;

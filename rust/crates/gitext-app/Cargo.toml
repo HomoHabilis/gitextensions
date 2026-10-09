@@ -25,6 +25,7 @@ dirs.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
+raw-window-handle = "0.6"
 
 [build-dependencies]
 # only used when building for Windows
