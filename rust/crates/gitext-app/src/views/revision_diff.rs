@@ -83,6 +83,11 @@ impl Default for DiffCache {
 
 type SharedCache = Arc<Mutex<DiffCache>>;
 
+/// A context menu entry showing its key.
+fn menu_item(ui: &mut Ui, label: &str, key: &str) -> bool {
+    ui.add(egui::Button::new(label).shortcut_text(key)).clicked()
+}
+
 fn cacheable(first: Option<ObjectId>, second: ObjectId) -> bool {
     !second.is_artificial() && first.is_none_or(|f| !f.is_artificial())
 }
@@ -368,11 +373,11 @@ impl RevisionDiffView {
                 let names: Vec<String> = sel.iter().filter_map(|&i| files.get(i)).map(|f| f.name.clone()).collect();
                 let Some(first_name) = names.first().cloned() else { return };
                 if is_work_tree {
-                    if ui.button("Stage").clicked() {
+                    if menu_item(ui, "Stage", "S") {
                         cmd = Some(DiffCommand::Stage(names.clone()));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.button("Reset file changes…").clicked() {
+                    if menu_item(ui, "Reset file changes…", "R") {
                         cmd = Some(DiffCommand::ResetWorkFiles(names.clone()));
                         ui.close_kind(egui::UiKind::Menu);
                     }
@@ -380,12 +385,12 @@ impl RevisionDiffView {
                         cmd = Some(DiffCommand::AddToGitIgnore(names.clone()));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                } else if is_index && ui.button("Unstage").clicked() {
+                } else if is_index && menu_item(ui, "Unstage", "U") {
                     cmd = Some(DiffCommand::Unstage(names.clone()));
                     ui.close_kind(egui::UiKind::Menu);
                 }
                 if !second.is_artificial() {
-                    if ui.button("Reset file(s) to this revision…").clicked() {
+                    if menu_item(ui, "Reset file(s) to this revision…", "R") {
                         cmd = Some(DiffCommand::ResetFileTo { rev: second, files: names.clone() });
                         ui.close_kind(egui::UiKind::Menu);
                     }
@@ -397,11 +402,11 @@ impl RevisionDiffView {
                     }
                 }
                 ui.separator();
-                if ui.button("Open working directory file").clicked() {
+                if menu_item(ui, "Open working directory file", "F4") {
                     cmd = Some(DiffCommand::OpenWorkFile(first_name.clone()));
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if !second.is_artificial() && ui.button("Open this revision (temp file)").clicked() {
+                if !second.is_artificial() && menu_item(ui, "Open this revision (temp file)", "Ctrl+F3") {
                     cmd = Some(DiffCommand::OpenRevisionFile { rev: second, file: first_name.clone() });
                     ui.close_kind(egui::UiKind::Menu);
                 }
@@ -409,24 +414,24 @@ impl RevisionDiffView {
                     cmd = Some(DiffCommand::SaveAs { rev: second, file: first_name.clone() });
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if ui.button("Open with external difftool").clicked() {
+                if menu_item(ui, "Open with external difftool", "F3") {
                     cmd = Some(DiffCommand::ExternalDiff { first, second, file: first_name.clone() });
                     ui.close_kind(egui::UiKind::Menu);
                 }
                 ui.separator();
-                if ui.button("Blame").clicked() {
+                if menu_item(ui, "Blame", "B") {
                     cmd = Some(DiffCommand::Blame { file: first_name.clone(), rev: second });
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if ui.button("File history").clicked() {
+                if menu_item(ui, "File history", "H") {
                     cmd = Some(DiffCommand::FileHistory(first_name.clone()));
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if !second.is_artificial() && ui.button("Show in file tree").clicked() {
+                if !second.is_artificial() && menu_item(ui, "Show in file tree", "T") {
                     cmd = Some(DiffCommand::ShowInFileTree { rev: second, file: first_name.clone() });
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if ui.button("Filter commits by this path").clicked() {
+                if menu_item(ui, "Filter commits by this path", "F") {
                     cmd = Some(DiffCommand::FilterPath(first_name.clone()));
                     ui.close_kind(egui::UiKind::Menu);
                 }
@@ -440,6 +445,49 @@ impl RevisionDiffView {
                     ui.close_kind(egui::UiKind::Menu);
                 }
             });
+            // the keys of the file list (`RevisionDiffControl` hotkeys)
+            let names: Vec<String> = self.list.selected_items(&files).iter().map(|f| f.name.clone()).collect();
+            if resp.has_focus && cmd.is_none() {
+                if let Some(first_name) = names.first().cloned() {
+                    use crate::views::{plain_key, shortcut};
+                    use egui::{Key, Modifiers};
+                    let ctx = ui.ctx().clone();
+                    if is_work_tree && plain_key(&ctx, Key::S) {
+                        cmd = Some(DiffCommand::Stage(names.clone()));
+                    } else if is_index && plain_key(&ctx, Key::U) {
+                        cmd = Some(DiffCommand::Unstage(names.clone()));
+                    } else if plain_key(&ctx, Key::R) {
+                        if second.is_artificial() {
+                            cmd = Some(DiffCommand::ResetWorkFiles(names.clone()));
+                        } else {
+                            cmd = Some(DiffCommand::ResetFileTo { rev: second, files: names.clone() });
+                        }
+                    } else if plain_key(&ctx, Key::H) {
+                        cmd = Some(DiffCommand::FileHistory(first_name));
+                    } else if plain_key(&ctx, Key::B) {
+                        cmd = Some(DiffCommand::Blame { file: first_name, rev: second });
+                    } else if plain_key(&ctx, Key::F3) {
+                        cmd = Some(DiffCommand::ExternalDiff { first, second, file: first_name });
+                    } else if plain_key(&ctx, Key::F4) {
+                        cmd = Some(DiffCommand::OpenWorkFile(first_name));
+                    } else if !second.is_artificial() && shortcut(&ctx, Modifiers::COMMAND, Key::F3) {
+                        cmd = Some(DiffCommand::OpenRevisionFile { rev: second, file: first_name });
+                    } else if !second.is_artificial() && plain_key(&ctx, Key::T) {
+                        cmd = Some(DiffCommand::ShowInFileTree { rev: second, file: first_name });
+                    } else if plain_key(&ctx, Key::F) {
+                        cmd = Some(DiffCommand::FilterPath(first_name));
+                    }
+                }
+                if parents.len() > 1 {
+                    if crate::views::shortcut(ui.ctx(), egui::Modifiers::COMMAND, egui::Key::ArrowLeft) {
+                        self.parent_index = 0;
+                        ui.ctx().request_repaint();
+                    } else if crate::views::shortcut(ui.ctx(), egui::Modifiers::COMMAND, egui::Key::ArrowRight) {
+                        self.parent_index = parents.len() - 1;
+                        ui.ctx().request_repaint();
+                    }
+                }
+            }
             if resp.double_clicked.is_some() {
                 if let Some(f) = files.get(resp.double_clicked.unwrap()) {
                     cmd = Some(if is_work_tree { DiffCommand::OpenWorkFile(f.name.clone()) } else { DiffCommand::Blame { file: f.name.clone(), rev: second } });
@@ -523,7 +571,7 @@ impl RevisionDiffView {
                             cmd = Some(DiffCommand::ResetPatch(p));
                         }
                     }
-                    ViewerCommand::CopyPatch => {}
+                    ViewerCommand::CopyPatch | ViewerCommand::AddToCommitMessage => {}
                 }
             }
         }

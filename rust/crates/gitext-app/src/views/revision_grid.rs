@@ -151,7 +151,7 @@ pub struct RevisionGrid {
     hovered_label: Option<(usize, String)>,
     visible: VisibleRowRange,
     lane_columns: i32,
-    has_focus: bool,
+    pub has_focus: bool,
     user_email: String,
 }
 

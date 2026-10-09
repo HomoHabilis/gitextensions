@@ -1,6 +1,6 @@
 //! Port of `FormCommit`: stage/unstage files and lines, write the message and commit.
 
-use egui::{RichText, Ui, Vec2};
+use egui::{Key, Modifiers, RichText, Ui, Vec2};
 use gitext_core::commands::{CommitOptions, UntrackedFilesMode};
 use gitext_core::commit_message::{format_commit_message, CommitMessageManager};
 use gitext_core::module::DiffOptions;
@@ -13,6 +13,53 @@ use crate::tasks::{Loader, Task};
 use crate::theme::Palette;
 use crate::views::diff_viewer::{content_from_bytes, DiffViewer, ViewerCommand, ViewerContent};
 use crate::views::file_list::FileList;
+use crate::views::{plain_key, shortcut};
+
+/// The context menu entries of the unstaged files: label, command, key.
+const UNSTAGED_MENU: &[(&str, &str, Option<(Modifiers, Key)>)] = &[
+    ("Stage", "stage", Some((Modifiers::NONE, Key::S))),
+    ("Reset file changes…", "reset", Some((Modifiers::NONE, Key::R))),
+    ("Delete file…", "delete", Some((Modifiers::NONE, Key::Delete))),
+    ("Add to .gitignore…", "ignore", None),
+    ("Assume unchanged", "assume", None),
+    ("Skip worktree", "skip", None),
+    ("Edit file", "open", Some((Modifiers::NONE, Key::F4))),
+    ("Open", "open_with", Some((Modifiers::SHIFT, Key::F4))),
+    ("Open with difftool", "difftool", Some((Modifiers::NONE, Key::F3))),
+    ("File history", "history", Some((Modifiers::NONE, Key::H))),
+    ("Blame", "blame", Some((Modifiers::NONE, Key::B))),
+    ("Copy path", "copy", None),
+];
+
+/// The context menu entries of the staged files.
+const STAGED_MENU: &[(&str, &str, Option<(Modifiers, Key)>)] = &[
+    ("Unstage", "unstage", Some((Modifiers::NONE, Key::U))),
+    ("Reset file changes…", "reset", Some((Modifiers::NONE, Key::R))),
+    ("Edit file", "open", Some((Modifiers::NONE, Key::F4))),
+    ("Open", "open_with", Some((Modifiers::SHIFT, Key::F4))),
+    ("Open with difftool", "difftool", Some((Modifiers::NONE, Key::F3))),
+    ("File history", "history", Some((Modifiers::NONE, Key::H))),
+    ("Blame", "blame", Some((Modifiers::NONE, Key::B))),
+    ("Copy path", "copy", None),
+];
+
+/// Shows the file context menu `entries`; returns the command clicked.
+fn file_menu(ui: &mut Ui, entries: &[(&str, &'static str, Option<(Modifiers, Key)>)]) -> Option<&'static str> {
+    let mut cmd = None;
+    for &(label, key, shortcut) in entries {
+        let text = shortcut.map(|(m, k)| ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(m, k))).unwrap_or_default();
+        if ui.add(egui::Button::new(label).shortcut_text(text)).clicked() {
+            cmd = Some(key);
+            ui.close_kind(egui::UiKind::Menu);
+        }
+    }
+    cmd
+}
+
+/// The command of the key pressed in a file list with the keyboard focus.
+fn file_key(ui: &Ui, entries: &[(&str, &'static str, Option<(Modifiers, Key)>)]) -> Option<&'static str> {
+    entries.iter().find_map(|&(_, key, s)| s.filter(|&(m, k)| shortcut(ui.ctx(), m, k)).map(|_| key))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum Side {
@@ -45,6 +92,13 @@ pub struct CommitDialog {
     error: Option<String>,
     show_untracked: bool,
     template_text: Option<String>,
+    /// The status of the browse window last seen, to reload when it changes (e.g. files were
+    /// reset by another dialog or changed on disk).
+    repo_status: Option<Vec<GitItemStatus>>,
+}
+
+fn message_id() -> egui::Id {
+    egui::Id::new("commit_message_text")
 }
 
 impl CommitDialog {
@@ -178,9 +232,17 @@ impl Dialog for CommitDialog {
         let unstaged: Vec<GitItemStatus> = items.iter().filter(|s| s.staged == StagedStatus::WorkTree).cloned().collect();
         let staged: Vec<GitItemStatus> = items.iter().filter(|s| s.staged == StagedStatus::Index).cloned().collect();
 
-        if ui.input(|i| i.key_pressed(egui::Key::F5)) {
-            self.refresh();
+        if let Some(d) = cx.data {
+            if self.repo_status.as_ref() != Some(&d.status) {
+                if self.repo_status.is_some() {
+                    self.refresh();
+                }
+                self.repo_status = Some(d.status.clone());
+            }
         }
+        self.unstaged.keep_position = true;
+        self.staged.keep_position = true;
+        self.shortcuts(ui, cx, &m, &unstaged);
 
         egui::SidePanel::left("commit_files").resizable(true).default_width(380.0).width_range(220.0..=800.0).show_inside(ui, |ui| {
             let total_h = ui.available_height();
@@ -188,13 +250,13 @@ impl Dialog for CommitDialog {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(format!("Unstaged ({})", unstaged.len())).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("⬇⬇ Stage all").clicked() {
+                    if ui.button("⬇⬇ Stage all").on_hover_text("Ctrl+S").clicked() {
                         if let Err(e) = m.stage_all() {
                             cx.error("Stage", e.to_string());
                         }
                         self.refresh();
                     }
-                    if ui.add_enabled(!self.unstaged.selected.is_empty(), egui::Button::new("⬇ Stage")).clicked() {
+                    if ui.add_enabled(!self.unstaged.selected.is_empty(), egui::Button::new("⬇ Stage")).on_hover_text("S").clicked() {
                         let files: Vec<String> = self.unstaged.selected_items(&unstaged).iter().map(|s| s.name.clone()).collect();
                         self.do_stage(&m, files, true, cx);
                     }
@@ -211,27 +273,17 @@ impl Dialog for CommitDialog {
             let mut menu_cmd: Option<(&'static str, Vec<String>)> = None;
             ui.allocate_ui(Vec2::new(ui.available_width(), total_h * 0.5 - 70.0), |ui| {
                 let r = self.unstaged.ui(ui, "commit_unstaged", &unstaged, |ui, sel| {
-                    let names: Vec<String> = sel.iter().filter_map(|&i| unstaged.get(i)).map(|f| f.name.clone()).collect();
-                    for (label, key) in [
-                        ("Stage", "stage"),
-                        ("Reset file changes…", "reset"),
-                        ("Delete file…", "delete"),
-                        ("Add to .gitignore…", "ignore"),
-                        ("Assume unchanged", "assume"),
-                        ("Skip worktree", "skip"),
-                        ("Open", "open"),
-                        ("Open with difftool", "difftool"),
-                        ("File history", "history"),
-                        ("Blame", "blame"),
-                        ("Copy path", "copy"),
-                    ] {
-                        if ui.button(label).clicked() {
-                            menu_cmd = Some((key, names.clone()));
-                            ui.close_kind(egui::UiKind::Menu);
-                        }
+                    if let Some(key) = file_menu(ui, UNSTAGED_MENU) {
+                        menu_cmd = Some((key, sel.iter().filter_map(|&i| unstaged.get(i)).map(|f| f.name.clone()).collect()));
                     }
                 });
-                if r.selection_changed {
+                if r.has_focus && !self.unstaged.selected.is_empty() {
+                    if let Some(key) = file_key(ui, UNSTAGED_MENU) {
+                        menu_cmd = Some((key, self.unstaged.selected_items(&unstaged).iter().map(|f| f.name.clone()).collect()));
+                    }
+                }
+                // (also reported when the list changed and has no selection)
+                if r.selection_changed && !self.unstaged.selected.is_empty() {
                     self.side = Side::Unstaged;
                     self.staged.clear();
                 }
@@ -255,7 +307,7 @@ impl Dialog for CommitDialog {
                         }
                         self.refresh();
                     }
-                    if ui.add_enabled(!self.staged.selected.is_empty(), egui::Button::new("⬆ Unstage")).clicked() {
+                    if ui.add_enabled(!self.staged.selected.is_empty(), egui::Button::new("⬆ Unstage")).on_hover_text("U").clicked() {
                         let files: Vec<String> = self.staged.selected_items(&staged).iter().map(|s| s.name.clone()).collect();
                         self.do_stage(&m, files, false, cx);
                     }
@@ -263,15 +315,16 @@ impl Dialog for CommitDialog {
             });
             let mut menu_cmd: Option<(&'static str, Vec<String>)> = None;
             let r = self.staged.ui(ui, "commit_staged", &staged, |ui, sel| {
-                let names: Vec<String> = sel.iter().filter_map(|&i| staged.get(i)).map(|f| f.name.clone()).collect();
-                for (label, key) in [("Unstage", "unstage"), ("Open", "open"), ("File history", "history"), ("Blame", "blame"), ("Copy path", "copy")] {
-                    if ui.button(label).clicked() {
-                        menu_cmd = Some((key, names.clone()));
-                        ui.close_kind(egui::UiKind::Menu);
-                    }
+                if let Some(key) = file_menu(ui, STAGED_MENU) {
+                    menu_cmd = Some((key, sel.iter().filter_map(|&i| staged.get(i)).map(|f| f.name.clone()).collect()));
                 }
             });
-            if r.selection_changed {
+            if r.has_focus && !self.staged.selected.is_empty() {
+                if let Some(key) = file_key(ui, STAGED_MENU) {
+                    menu_cmd = Some((key, self.staged.selected_items(&staged).iter().map(|f| f.name.clone()).collect()));
+                }
+            }
+            if r.selection_changed && !self.staged.selected.is_empty() {
                 self.side = Side::Staged;
                 self.unstaged.clear();
             }
@@ -361,12 +414,13 @@ impl Dialog for CommitDialog {
             egui::ScrollArea::vertical().max_height(text_h).id_salt("commit_msg_scroll").show(ui, |ui| {
                 ui.add_sized(
                     Vec2::new(ui.available_width(), text_h),
-                    egui::TextEdit::multiline(&mut self.message).font(egui::TextStyle::Monospace).hint_text("Commit message (first line: summary)").desired_rows(8),
+                    egui::TextEdit::multiline(&mut self.message)
+                        .id(message_id())
+                        .font(egui::TextStyle::Monospace)
+                        .hint_text("Commit message (first line: summary)")
+                        .desired_rows(8),
                 );
             });
-            if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter)) && self.busy.is_none() {
-                self.start_commit(cx, &m, false);
-            }
             ui.horizontal(|ui| {
                 let branch = cx.current_branch().unwrap_or_else(|| "(no branch)".into());
                 let committable = !staged.is_empty() || self.amend || cx.data.is_some_and(|d| d.state.merging);
@@ -375,7 +429,7 @@ impl Dialog for CommitDialog {
                     ui.label("Committing…");
                 } else {
                     let label = if self.amend { "Amend commit" } else { "Commit" };
-                    if ui.add_enabled(committable, egui::Button::new(RichText::new(format!("✔ {label}")).strong())).on_hover_text("Ctrl+Enter").clicked() {
+                    if ui.add_enabled(committable, egui::Button::new(RichText::new(format!("✔ {label}")).strong())).on_hover_text("Ctrl+Enter in the message").clicked() {
                         self.start_commit(cx, &m, false);
                     }
                     if ui.add_enabled(committable, egui::Button::new(format!("{label} & push"))).clicked() {
@@ -446,12 +500,14 @@ impl Dialog for CommitDialog {
                 ui.label(RichText::new(&f.name).strong());
             }
             let menu = if staged_side {
-                vec![ViewerCommand::UnstageSelectedLines, ViewerCommand::CopyPatch]
+                vec![ViewerCommand::UnstageSelectedLines, ViewerCommand::AddToCommitMessage, ViewerCommand::CopyPatch]
             } else {
-                vec![ViewerCommand::StageSelectedLines, ViewerCommand::ResetSelectedLines, ViewerCommand::CopyPatch]
+                vec![ViewerCommand::StageSelectedLines, ViewerCommand::ResetSelectedLines, ViewerCommand::AddToCommitMessage, ViewerCommand::CopyPatch]
             };
             if let Some(c) = self.viewer.ui(ui, &content, cx.settings.show_line_numbers, &menu) {
-                if let ViewerContent::Diff(d) = &content {
+                if c == ViewerCommand::AddToCommitMessage {
+                    self.add_to_message(&self.viewer.selected_text());
+                } else if let ViewerContent::Diff(d) = &content {
                     let sel = self.viewer.selected_lines();
                     match c {
                         ViewerCommand::StageSelectedLines | ViewerCommand::UnstageSelectedLines => {
@@ -476,7 +532,7 @@ impl Dialog for CommitDialog {
                                 self.refresh();
                             }
                         }
-                        ViewerCommand::CopyPatch => {}
+                        ViewerCommand::CopyPatch | ViewerCommand::AddToCommitMessage => {}
                     }
                 }
             }
@@ -496,6 +552,99 @@ impl Dialog for CommitDialog {
 }
 
 impl CommitDialog {
+    /// The keys of the whole dialog (`FormCommit` hotkeys); runs before the widgets so that the
+    /// message box does not take them.
+    fn shortcuts(&mut self, ui: &Ui, cx: &mut Cx, m: &GitModule, unstaged: &[GitItemStatus]) {
+        let ctx = ui.ctx().clone();
+        let message_focused = ctx.memory(|mem| mem.has_focus(message_id()));
+        let focus = |this: &mut Self, list: Option<Side>, viewer: bool| {
+            this.unstaged.set_focus(list == Some(Side::Unstaged));
+            this.staged.set_focus(list == Some(Side::Staged));
+            this.viewer.set_focus(viewer);
+            if let Some(id) = ctx.memory(|mem| mem.focused()) {
+                ctx.memory_mut(|mem| mem.surrender_focus(id));
+            }
+        };
+        if plain_key(ui.ctx(), Key::F5) {
+            self.refresh();
+        }
+        if shortcut(ui.ctx(), Modifiers::COMMAND, Key::Enter) && self.busy.is_none() {
+            if message_focused {
+                self.start_commit(cx, m, false);
+            } else {
+                ctx.memory_mut(|mem| mem.request_focus(message_id()));
+            }
+        }
+        if shortcut(ui.ctx(), Modifiers::COMMAND, Key::S) && !unstaged.is_empty() {
+            if let Err(e) = m.stage_all() {
+                cx.error("Stage", e.to_string());
+            }
+            self.refresh();
+            cx.push(Action::RefreshStatus);
+        }
+        if shortcut(ui.ctx(), Modifiers::COMMAND, Key::Num1) {
+            focus(self, Some(Side::Unstaged), false);
+        }
+        if shortcut(ui.ctx(), Modifiers::COMMAND, Key::Num2) {
+            focus(self, None, true);
+        }
+        if shortcut(ui.ctx(), Modifiers::COMMAND, Key::Num3) {
+            focus(self, Some(Side::Staged), false);
+        }
+        if shortcut(ui.ctx(), Modifiers::COMMAND, Key::Num4) {
+            focus(self, None, false);
+            ctx.memory_mut(|mem| mem.request_focus(message_id()));
+        }
+        if !self.viewer.has_focus(&ctx) && shortcut(ui.ctx(), Modifiers::COMMAND, Key::F) {
+            focus(self, None, false);
+            self.unstaged.focus_filter();
+        }
+        if shortcut(ui.ctx(), Modifiers::COMMAND, Key::B) {
+            if let Some(d) = cx.data {
+                cx.open(super::branch::CreateBranchDialog::new(d.head));
+            }
+        }
+        // next / previous file of the current list; Alt+arrows move between changes in the diff
+        let next = shortcut(ui.ctx(), Modifiers::COMMAND, Key::N);
+        let previous = shortcut(ui.ctx(), Modifiers::COMMAND, Key::P);
+        let (alt_next, alt_previous) = if self.viewer.has_focus(&ctx) {
+            (false, false)
+        } else {
+            (
+                shortcut(ui.ctx(), Modifiers::ALT, Key::ArrowDown) || shortcut(ui.ctx(), Modifiers::ALT, Key::ArrowRight),
+                shortcut(ui.ctx(), Modifiers::ALT, Key::ArrowUp) || shortcut(ui.ctx(), Modifiers::ALT, Key::ArrowLeft),
+            )
+        };
+        if next || previous || alt_next || alt_previous {
+            if message_focused {
+                self.side = Side::Staged;
+            }
+            let backwards = previous || alt_previous;
+            let moved = match self.side {
+                Side::Unstaged => self.unstaged.select_next(backwards),
+                Side::Staged => self.staged.select_next(backwards),
+            };
+            if moved {
+                match self.side {
+                    Side::Unstaged => self.staged.clear(),
+                    Side::Staged => self.unstaged.clear(),
+                }
+            }
+        }
+    }
+
+    /// Appends `text` to the commit message (`AddSelectionToCommitMessage`).
+    fn add_to_message(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        if !self.message.is_empty() && !self.message.ends_with('\n') {
+            self.message.push('\n');
+        }
+        self.message.push_str(text);
+        self.message.push('\n');
+    }
+
     fn file_command(&mut self, key: &str, names: Vec<String>, m: &GitModule, cx: &mut Cx, staged: bool) {
         let first = names.first().cloned().unwrap_or_default();
         match key {
@@ -527,6 +676,7 @@ impl CommitDialog {
                 self.refresh();
             }
             "open" => crate::util::open_in_editor(&m.work_dir().join(&first), &cx.settings.editor),
+            "open_with" => crate::util::open_with_system(&m.work_dir().join(&first).display().to_string()),
             "difftool" => {
                 let args = gitext_core::GitArgs::new("difftool").arg("--find-renames").arg("--find-copies").arg_if(staged, "--cached").arg("--").arg(first);
                 cx.push(Action::RunTool { tool_type: gitext_core::diff_tools::ToolType::Diff, args });
@@ -536,5 +686,111 @@ impl CommitDialog {
             "copy" => cx.push(Action::Copy(names.join("\n"))),
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gitext_core::repo_history::RepositoryHistory;
+    use gitext_core::settings::AppSettings;
+    use std::process::Command;
+
+    fn git(dir: &std::path::Path, args: &[&str]) -> String {
+        let out = Command::new("git").current_dir(dir).args(args).output().unwrap();
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    struct Harness {
+        ctx: egui::Context,
+        module: GitModule,
+        settings: AppSettings,
+        history: RepositoryHistory,
+        dialog: CommitDialog,
+    }
+
+    impl Harness {
+        fn frame(&mut self, events: Vec<egui::Event>) {
+            let modifiers = events.iter().find_map(|e| if let egui::Event::Key { modifiers, .. } = e { Some(*modifiers) } else { None }).unwrap_or_default();
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 800.0))), events, modifiers, ..Default::default() };
+            let mut actions = Vec::new();
+            let ctx = self.ctx.clone();
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let mut cx = Cx { ctx, module: Some(&self.module), data: None, settings: &mut self.settings, history: &mut self.history, actions: &mut actions, selected: &[] };
+                    self.dialog.ui(ui, &mut cx);
+                });
+            });
+        }
+
+        /// Draws frames until the file lists show `unstaged` and `staged` files.
+        fn wait_for(&mut self, unstaged: usize, staged: usize) {
+            for _ in 0..500 {
+                self.frame(vec![]);
+                let items = self.dialog.status.value.clone().and_then(|r| r.ok()).unwrap_or_default();
+                let count = |s: StagedStatus| items.iter().filter(|i| i.staged == s).count();
+                if self.dialog.status.value.is_some() && count(StagedStatus::WorkTree) == unstaged && count(StagedStatus::Index) == staged {
+                    self.frame(vec![]);
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            panic!("the status did not reach {unstaged} unstaged / {staged} staged files");
+        }
+
+        fn press(&mut self, key: egui::Key, modifiers: Modifiers) {
+            self.frame(vec![egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }]);
+        }
+    }
+
+    /// S stages the selected unstaged file and selects the next one, U unstages, Ctrl+S stages all.
+    #[test]
+    fn stage_and_unstage_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        git(d, &["init", "-q"]);
+        git(d, &["config", "user.email", "a@b"]);
+        git(d, &["config", "user.name", "a"]);
+        for f in ["a.txt", "b.txt", "c.txt"] {
+            std::fs::write(d.join(f), "1\n").unwrap();
+        }
+        git(d, &["add", "."]);
+        git(d, &["commit", "-q", "-m", "init"]);
+        for f in ["a.txt", "b.txt", "c.txt"] {
+            std::fs::write(d.join(f), "2\n").unwrap();
+        }
+        let mut h = Harness { ctx: egui::Context::default(), module: GitModule::open(d).unwrap(), settings: AppSettings::default(), history: Default::default(), dialog: CommitDialog::default() };
+        h.wait_for(3, 0);
+
+        h.dialog.unstaged.selected = vec![0];
+        h.dialog.unstaged.set_focus(true);
+        h.press(egui::Key::S, Modifiers::NONE);
+        assert_eq!(git(d, &["diff", "--cached", "--name-only"]), "a.txt\n");
+        h.wait_for(2, 1);
+        let names = |h: &Harness, l: &FileList| {
+            let items = h.dialog.status.value.clone().and_then(|r| r.ok()).unwrap_or_default();
+            let side = if std::ptr::eq(l, &h.dialog.unstaged) { StagedStatus::WorkTree } else { StagedStatus::Index };
+            let items: Vec<GitItemStatus> = items.into_iter().filter(|i| i.staged == side).collect();
+            l.selected_items(&items).iter().map(|i| i.name.clone()).collect::<Vec<_>>()
+        };
+        assert_eq!(names(&h, &h.dialog.unstaged), ["b.txt"], "the next file is selected");
+
+        // a letter typed into the commit message does not stage, even though the list was clicked last
+        h.ctx.memory_mut(|m| m.request_focus(message_id()));
+        h.frame(vec![]);
+        h.frame(vec![egui::Event::Text("s".into())]);
+        h.press(egui::Key::S, Modifiers::NONE);
+        assert_eq!(git(d, &["diff", "--cached", "--name-only"]), "a.txt\n");
+        h.ctx.memory_mut(|m| m.surrender_focus(message_id()));
+        h.dialog.unstaged.set_focus(false);
+
+        h.dialog.staged.selected = vec![0];
+        h.dialog.staged.set_focus(true);
+        h.press(egui::Key::U, Modifiers::NONE);
+        assert_eq!(git(d, &["diff", "--cached", "--name-only"]), "");
+        h.wait_for(3, 0);
+
+        h.press(egui::Key::S, Modifiers::COMMAND);
+        assert_eq!(git(d, &["diff", "--cached", "--name-only"]), "a.txt\nb.txt\nc.txt\n");
     }
 }

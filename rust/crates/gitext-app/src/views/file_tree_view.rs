@@ -61,7 +61,7 @@ pub struct FileTreeView {
     /// The files shown in the last frame, in order, for the arrow keys.
     shown_files: Vec<String>,
     /// Whether the arrow keys move the selection (the tree was clicked last).
-    has_focus: bool,
+    pub has_focus: bool,
     scroll_to_selected: bool,
 }
 
@@ -122,9 +122,7 @@ impl FileTreeView {
                 }
             });
             self.scroll_to_selected = false;
-            if ui.input(|i| i.pointer.any_pressed()) {
-                self.has_focus = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| out.inner_rect.contains(p));
-            }
+            crate::views::track_focus(ui, out.inner_rect, &mut self.has_focus);
         });
 
         if let Some(path) = self.selected.clone() {

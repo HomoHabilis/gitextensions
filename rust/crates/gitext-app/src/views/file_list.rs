@@ -25,6 +25,13 @@ pub struct FileList {
     has_focus: bool,
     /// Scroll the selected item into view on the next frame.
     scroll_to_selected: bool,
+    /// When the selected items leave the list (e.g. staged), select the item that takes their
+    /// place, like the commit dialog of Git Extensions.
+    pub keep_position: bool,
+    /// The display position of the selection that left the list, to select on the next layout.
+    lost_position: Option<usize>,
+    /// Put the text cursor into the filter box on the next frame.
+    focus_filter: bool,
 }
 
 struct Layout {
@@ -96,6 +103,41 @@ impl FileList {
         self.anchor = None;
     }
 
+    /// Gives the list the keyboard focus (or takes it away).
+    pub fn set_focus(&mut self, focus: bool) {
+        self.has_focus = focus;
+    }
+
+    /// Puts the text cursor into the filter box (shown by [`Self::toolbar`]).
+    pub fn focus_filter(&mut self) {
+        self.focus_filter = true;
+    }
+
+    /// The items shown, in display order (the tree mode hides the items of collapsed folders).
+    fn shown(layout: &Layout) -> Vec<usize> {
+        layout.rows.iter().filter_map(|r| if let RowKind::Item(i) = r.kind { Some(i) } else { None }).collect()
+    }
+
+    /// Selects the next (or previous) item shown, wrapping around (`SelectNextItem`).
+    pub fn select_next(&mut self, backwards: bool) -> bool {
+        let Some(layout) = &self.layout else { return false };
+        let shown = Self::shown(layout);
+        if shown.is_empty() {
+            return false;
+        }
+        let n = shown.len();
+        let next = match self.selected.last().and_then(|s| shown.iter().position(|x| x == s)) {
+            Some(p) if backwards => (p + n - 1) % n,
+            Some(p) => (p + 1) % n,
+            None if backwards => n - 1,
+            None => 0,
+        };
+        self.selected = vec![shown[next]];
+        self.anchor = Some(shown[next]);
+        self.scroll_to_selected = true;
+        true
+    }
+
     pub fn select_first(&mut self, items: &[GitItemStatus]) {
         if !items.is_empty() {
             self.selected = vec![0];
@@ -110,7 +152,11 @@ impl FileList {
         }
         let names: Vec<String> = items.iter().map(|i| i.name.clone()).collect();
         let old: Vec<String> = self.selected.iter().filter_map(|&i| self.last_names.get(i).cloned()).collect();
+        let old_position = self.layout.as_ref().and_then(|l| self.selected.iter().filter_map(|s| l.order.iter().position(|x| x == s)).min());
         self.selected = old.iter().filter_map(|n| names.iter().position(|m| m == n)).collect();
+        if self.keep_position && self.selected.is_empty() {
+            self.lost_position = old_position;
+        }
         self.last_names = names;
         self.anchor = self.selected.first().copied();
         self.layout = None;
@@ -173,32 +219,50 @@ impl FileList {
         // taken for the frame so that the rows can update the selection
         let layout = self.layout.take().expect("layout");
         let order = &layout.order;
+        if let Some(p) = self.lost_position.take() {
+            if let Some(&i) = order.get(p.min(order.len().saturating_sub(1))) {
+                self.selected = vec![i];
+                self.anchor = Some(i);
+                self.scroll_to_selected = true;
+                resp.selection_changed = true;
+            }
+        }
 
         // keyboard navigation (egui only keeps focus on widgets, so the list tracks its own like the revision grid)
         let has_focus = self.has_focus && !ui.ctx().wants_keyboard_input();
         if has_focus && !order.is_empty() {
-            let (up, down, home, end) = ui.input(|i| {
-                (i.key_pressed(egui::Key::ArrowUp), i.key_pressed(egui::Key::ArrowDown), i.key_pressed(egui::Key::Home), i.key_pressed(egui::Key::End))
+            let (up, down, home, end, shift) = ui.input(|i| {
+                (i.key_pressed(egui::Key::ArrowUp), i.key_pressed(egui::Key::ArrowDown), i.key_pressed(egui::Key::Home), i.key_pressed(egui::Key::End), i.modifiers.shift)
             });
-            if up || down || home || end {
-                // the items shown (the tree mode hides the items of collapsed folders)
-                let shown: Vec<usize> = layout.rows.iter().filter_map(|r| if let RowKind::Item(i) = r.kind { Some(i) } else { None }).collect();
-                if !shown.is_empty() {
-                    let cur = self.selected.last().and_then(|s| shown.iter().position(|x| x == s));
-                    let next = match cur {
-                        _ if home => 0,
-                        _ if end => shown.len() - 1,
-                        Some(p) if up => p.saturating_sub(1),
-                        Some(p) => (p + 1).min(shown.len() - 1),
-                        None => 0,
-                    };
-                    if self.selected != [shown[next]] {
-                        self.selected = vec![shown[next]];
-                        self.anchor = Some(shown[next]);
-                        self.scroll_to_selected = true;
-                        resp.selection_changed = true;
-                    }
+            let shown = Self::shown(&layout);
+            if (up || down || home || end) && !shown.is_empty() {
+                let cur = self.selected.last().and_then(|s| shown.iter().position(|x| x == s));
+                let next = match cur {
+                    _ if home => 0,
+                    _ if end => shown.len() - 1,
+                    Some(p) if up => p.saturating_sub(1),
+                    Some(p) => (p + 1).min(shown.len() - 1),
+                    None => 0,
+                };
+                let anchor = self.anchor.and_then(|a| shown.iter().position(|&x| x == a));
+                let selected = match anchor {
+                    // Shift extends the selection from the anchor; the moved-to item is last, as it is shown
+                    Some(a) if shift && a <= next => shown[a..=next].to_vec(),
+                    Some(a) if shift => shown[next..=a].iter().rev().copied().collect(),
+                    _ => vec![shown[next]],
+                };
+                if !shift {
+                    self.anchor = Some(shown[next]);
                 }
+                if self.selected != selected {
+                    self.selected = selected;
+                    self.scroll_to_selected = true;
+                    resp.selection_changed = true;
+                }
+            }
+            if crate::views::shortcut(ui.ctx(), egui::Modifiers::COMMAND, egui::Key::A) && !shown.is_empty() {
+                self.selected = shown;
+                resp.selection_changed = true;
             }
         }
         resp.has_focus = has_focus;
@@ -259,9 +323,7 @@ impl FileList {
             }
             out.inner_rect
         };
-        if ui.input(|i| i.pointer.any_pressed()) {
-            self.has_focus = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| inner_rect.contains(p));
-        }
+        crate::views::track_focus(ui, inner_rect, &mut self.has_focus);
         if self.layout.is_none() {
             self.layout = Some(layout);
         }
@@ -327,7 +389,10 @@ impl FileList {
                 if ui.selectable_label(self.tree_mode, "🌲").on_hover_text("Show as tree").clicked() {
                     self.tree_mode = !self.tree_mode;
                 }
-                ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("Filter files…").desired_width(ui.available_width()));
+                let r = ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("Filter files…").desired_width(ui.available_width()));
+                if std::mem::take(&mut self.focus_filter) {
+                    r.request_focus();
+                }
             });
         });
     }
@@ -340,6 +405,70 @@ mod tests {
 
     fn key(k: egui::Key) -> egui::Event {
         egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() }
+    }
+
+    fn key_with(k: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
+        egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers }
+    }
+
+    fn run_frame(ctx: &egui::Context, list: &mut FileList, items: &[GitItemStatus], events: Vec<egui::Event>) {
+        let modifiers = events.iter().find_map(|e| if let egui::Event::Key { modifiers, .. } = e { Some(*modifiers) } else { None }).unwrap_or_default();
+        let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0))), events, modifiers, ..Default::default() };
+        let _ = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                list.ui(ui, "test", items, |_, _| {});
+            });
+        });
+    }
+
+    fn files(names: &[&str]) -> Vec<GitItemStatus> {
+        names.iter().map(|n| GitItemStatus::from_status_character(StagedStatus::WorkTree, *n, 'M')).collect()
+    }
+
+    /// Shift+arrows extend the selection from the anchor, Ctrl+A selects all.
+    #[test]
+    fn shift_arrows_and_select_all() {
+        let items = files(&["a", "b", "c", "d"]);
+        let ctx = egui::Context::default();
+        let mut list = FileList { has_focus: true, ..Default::default() };
+        run_frame(&ctx, &mut list, &items, vec![]);
+        run_frame(&ctx, &mut list, &items, vec![key(egui::Key::ArrowDown)]);
+        assert_eq!(list.selected, [0]);
+        run_frame(&ctx, &mut list, &items, vec![key_with(egui::Key::ArrowDown, egui::Modifiers::SHIFT)]);
+        run_frame(&ctx, &mut list, &items, vec![key_with(egui::Key::ArrowDown, egui::Modifiers::SHIFT)]);
+        assert_eq!(list.selected, [0, 1, 2]);
+        run_frame(&ctx, &mut list, &items, vec![key_with(egui::Key::ArrowUp, egui::Modifiers::SHIFT)]);
+        assert_eq!(list.selected, [0, 1]);
+        run_frame(&ctx, &mut list, &items, vec![key(egui::Key::ArrowDown)]);
+        assert_eq!(list.selected, [2]);
+        run_frame(&ctx, &mut list, &items, vec![key_with(egui::Key::A, egui::Modifiers::COMMAND)]);
+        assert_eq!(list.selected, [0, 1, 2, 3]);
+    }
+
+    /// With `keep_position`, the item taking the place of a removed selected item is selected
+    /// (staging a file with S moves on to the next one).
+    #[test]
+    fn keep_position_selects_the_next_item() {
+        let ctx = egui::Context::default();
+        let mut list = FileList { has_focus: true, keep_position: true, ..Default::default() };
+        let items = files(&["a", "b", "c"]);
+        run_frame(&ctx, &mut list, &items, vec![]);
+        list.selected = vec![1];
+        run_frame(&ctx, &mut list, &items, vec![]);
+        let items = files(&["a", "c"]);
+        run_frame(&ctx, &mut list, &items, vec![]);
+        assert_eq!(list.selected, [1], "c is selected");
+        // the last item removed: the new last one is selected
+        let items = files(&["a"]);
+        run_frame(&ctx, &mut list, &items, vec![]);
+        assert_eq!(list.selected, [0]);
+        // select_next wraps around
+        let items = files(&["a", "b"]);
+        run_frame(&ctx, &mut list, &items, vec![]);
+        assert!(list.select_next(true));
+        assert_eq!(list.selected, [1]);
+        assert!(list.select_next(false));
+        assert_eq!(list.selected, [0]);
     }
 
     /// The arrow keys move over the rows shown, also those not laid out (only the rows in view
