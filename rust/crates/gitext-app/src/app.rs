@@ -336,28 +336,6 @@ impl GitExtApp {
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let pressed = |k: KeyboardShortcut| ctx.input_mut(|i| i.consume_shortcut(&k));
-        if pressed(KeyboardShortcut::new(Modifiers::NONE, Key::F5)) && self.browse.is_some() {
-            self.actions.push(Action::Refresh);
-        }
-        if pressed(KeyboardShortcut::new(Modifiers::COMMAND, Key::Space)) && self.browse.is_some() {
-            self.actions.push(Action::OpenCommit);
-        }
-        if pressed(KeyboardShortcut::new(Modifiers::COMMAND, Key::O)) {
-            self.open_folder_dialog();
-        }
-        if pressed(KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, Key::P)) && self.browse.is_some() {
-            if let Some(b) = &self.browse {
-                self.actions.push(Action::OpenDialog(Box::new(dialogs::push::PushDialog::new(&b.data, &self.settings, None))));
-            }
-        }
-        if pressed(KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, Key::D)) && self.browse.is_some() {
-            if let Some(b) = &self.browse {
-                self.actions.push(Action::OpenDialog(Box::new(dialogs::pull::PullDialog::new(&b.data, None))));
-            }
-        }
-        if pressed(KeyboardShortcut::new(Modifiers::COMMAND, Key::G)) && self.browse.is_some() {
-            self.actions.push(Action::OpenDialog(Box::new(dialogs::goto_commit::GoToCommitDialog::default())));
-        }
         if pressed(KeyboardShortcut::new(Modifiers::COMMAND, Key::Plus)) || pressed(KeyboardShortcut::new(Modifiers::COMMAND, Key::Equals)) {
             self.settings.ui_scale = (self.settings.ui_scale + 0.1).min(3.0);
             self.theme_applied = false;
@@ -366,16 +344,28 @@ impl GitExtApp {
             self.settings.ui_scale = (self.settings.ui_scale - 0.1).max(0.5);
             self.theme_applied = false;
         }
-        if pressed(KeyboardShortcut::new(Modifiers::ALT, Key::ArrowLeft)) {
-            if let Some(b) = &mut self.browse {
-                b.grid.navigate_parent();
-            }
+        // the keys of the main window do not apply while a dialog (always kept on top) is open,
+        // as in Git Extensions where each dialog is a separate window
+        if !self.dialogs.is_empty() {
+            return;
         }
-        if pressed(KeyboardShortcut::new(Modifiers::ALT, Key::ArrowRight)) {
-            if let Some(b) = &mut self.browse {
-                b.grid.navigate_child();
-            }
+        if pressed(KeyboardShortcut::new(Modifiers::COMMAND, Key::O)) {
+            self.open_folder_dialog();
         }
+        let Some(b) = &mut self.browse else { return };
+        if crate::views::plain_key(ctx, Key::F5) {
+            self.actions.push(Action::Refresh);
+        }
+        if pressed(KeyboardShortcut::new(Modifiers::COMMAND, Key::Space)) {
+            self.actions.push(Action::OpenCommit);
+        }
+        if crate::views::shortcut(ctx, Modifiers::ALT, Key::ArrowLeft) {
+            b.grid.navigate_parent();
+        }
+        if crate::views::shortcut(ctx, Modifiers::ALT, Key::ArrowRight) {
+            b.grid.navigate_child();
+        }
+        b.shortcuts(ctx, &mut self.settings, &mut self.actions);
     }
 
     /// "Open local repository" (`FormOpenDirectory`).
@@ -393,7 +383,7 @@ impl GitExtApp {
         let mut open: Vec<Box<dyn Dialog>> = Vec::new();
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("Start", |ui| {
-                if ui.button("Open…").clicked() {
+                if ui.button("Open…  (Ctrl+O)").clicked() {
                     self.open_folder_dialog();
                     ui.close_kind(egui::UiKind::Menu);
                 }
@@ -420,7 +410,7 @@ impl GitExtApp {
                     }
                 });
                 ui.separator();
-                if ui.add_enabled(has_repo, egui::Button::new("Close (go to Dashboard)")).clicked() {
+                if ui.add_enabled(has_repo, egui::Button::new("Close (go to Dashboard)  (Ctrl+W)")).clicked() {
                     self.actions.push(Action::CloseRepo);
                     ui.close_kind(egui::UiKind::Menu);
                 }
@@ -444,7 +434,7 @@ impl GitExtApp {
                         }
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.button("Terminal").clicked() {
+                    if ui.button("Terminal  (Ctrl+G)").clicked() {
                         if let Some(m) = self.module() {
                             crate::util::open_terminal(m.work_dir(), &self.settings.terminal);
                         }
@@ -459,7 +449,7 @@ impl GitExtApp {
                         open.push(Box::new(submodules::SubmodulesDialog::default()));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.button("Manage worktrees…").clicked() {
+                    if ui.button("Manage worktrees…  (Ctrl+Alt+W)").clicked() {
                         open.push(Box::new(worktrees::WorktreesDialog::default()));
                         ui.close_kind(egui::UiKind::Menu);
                     }
@@ -527,20 +517,20 @@ impl GitExtApp {
                             ui.close_kind(egui::UiKind::Menu);
                         }
                     };
-                    item(ui, "Commit…", &mut || Box::new(commit::CommitDialog::default()));
-                    item(ui, "Pull/Fetch…", &mut || Box::new(pull::PullDialog::new(&data, None)));
-                    item(ui, "Push…", &mut || Box::new(push::PushDialog::new(&data, &self.settings, None)));
+                    item(ui, "Commit…  (Ctrl+Space)", &mut || Box::new(commit::CommitDialog::default()));
+                    item(ui, "Pull/Fetch…  (Ctrl+Down)", &mut || Box::new(pull::PullDialog::new(&data, None)));
+                    item(ui, "Push…  (Ctrl+Up)", &mut || Box::new(push::PushDialog::new(&data, &self.settings, None)));
                     item(ui, "Manage stashes…", &mut || Box::new(stash::StashDialog::default()));
                     item(ui, "Reset changes…", &mut || Box::new(reset::ResetChangesDialog::all()));
                     item(ui, "Clean working directory…", &mut || Box::new(cleanup::CleanupDialog::default()));
                     ui.separator();
-                    item(ui, "Create branch…", &mut || Box::new(branch::CreateBranchDialog::new(head)));
-                    item(ui, "Checkout branch…", &mut || Box::new(checkout::CheckoutBranchDialog::new(&data, None, false)));
-                    item(ui, "Merge branches…", &mut || Box::new(merge::MergeDialog::new(&data, "")));
-                    item(ui, "Rebase…", &mut || Box::new(rebase::RebaseDialog::new(&data, "")));
+                    item(ui, "Create branch…  (Ctrl+B)", &mut || Box::new(branch::CreateBranchDialog::new(head)));
+                    item(ui, "Checkout branch…  (Ctrl+.)", &mut || Box::new(checkout::CheckoutBranchDialog::new(&data, None, false)));
+                    item(ui, "Merge branches…  (Ctrl+M)", &mut || Box::new(merge::MergeDialog::new(&data, "")));
+                    item(ui, "Rebase…  (Ctrl+Shift+E)", &mut || Box::new(rebase::RebaseDialog::new(&data, "")));
                     item(ui, "Delete branch…", &mut || Box::new(branch::DeleteBranchDialog::new(&data, None)));
                     ui.separator();
-                    item(ui, "Create tag…", &mut || Box::new(tag::CreateTagDialog::new(head)));
+                    item(ui, "Create tag…  (Ctrl+T)", &mut || Box::new(tag::CreateTagDialog::new(head)));
                     item(ui, "Delete tag…", &mut || Box::new(tag::DeleteTagDialog::new(&data, None)));
                     ui.separator();
                     item(ui, "Checkout revision…", &mut || Box::new(checkout::CheckoutRevisionDialog::new(head)));
@@ -554,12 +544,12 @@ impl GitExtApp {
                     item(ui, "Bisect…", &mut || Box::new(bisect::BisectDialog));
                     item(ui, "Solve merge conflicts…", &mut || Box::new(conflicts::ConflictsDialog::default()));
                     item(ui, "View reflog…", &mut || Box::new(reflog::ReflogDialog::default()));
-                    item(ui, "Go to commit…  (Ctrl+G)", &mut || Box::new(goto_commit::GoToCommitDialog::default()));
+                    item(ui, "Go to commit…  (Ctrl+Shift+G)", &mut || Box::new(goto_commit::GoToCommitDialog::default()));
                 });
             });
             ui.menu_button("View", |ui| {
                 let mut changed = false;
-                changed |= ui.checkbox(&mut self.settings.left_panel_visible, "Show left panel").changed();
+                changed |= ui.checkbox(&mut self.settings.left_panel_visible, "Show left panel  (Ctrl+Alt+C)").changed();
                 ui.separator();
                 changed |= ui.checkbox(&mut self.settings.show_author_column, "Author column").changed();
                 changed |= ui.checkbox(&mut self.settings.show_date_column, "Date column").changed();
@@ -611,7 +601,7 @@ impl GitExtApp {
                     open.push(Box::new(command_log::CommandLogDialog));
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if ui.button("Settings…").clicked() {
+                if ui.button("Settings…  (Ctrl+,)").clicked() {
                     open.push(Box::new(settings::SettingsDialog::default()));
                     ui.close_kind(egui::UiKind::Menu);
                 }
@@ -708,6 +698,18 @@ impl eframe::App for GitExtApp {
         self.poll_tool_runs();
         crate::prof::scope("shortcuts", || self.shortcuts(ctx));
         crate::prof::scope("title", || self.update_title(ctx));
+        // the keyboard belongs to the topmost dialog: the main window does not see the keys
+        let held_keys: Vec<egui::Event> = if self.dialogs.is_empty() {
+            Vec::new()
+        } else {
+            ctx.input_mut(|i| {
+                let (keys, rest) = std::mem::take(&mut i.events)
+                    .into_iter()
+                    .partition(|e| matches!(e, egui::Event::Key { .. } | egui::Event::Text(_) | egui::Event::Copy | egui::Event::Cut | egui::Event::Paste(_)));
+                i.events = rest;
+                keys
+            })
+        };
 
         egui::TopBottomPanel::top("menu").show(ctx, |ui| self.menu_bar(ui));
         if let Some(browse) = &mut self.browse {
@@ -747,6 +749,7 @@ impl eframe::App for GitExtApp {
             });
         }
 
+        ctx.input_mut(|i| i.events.extend(held_keys));
         self.draw_dialogs(ctx);
         self.process_actions(ctx);
 

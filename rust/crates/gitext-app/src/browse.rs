@@ -39,6 +39,8 @@ pub struct BrowseView {
     status_duration: Duration,
     filter_input: String,
     filter_kind: TextFilterKind,
+    /// Put the text cursor into the revision filter box on the next frame.
+    focus_filter: bool,
 }
 
 impl BrowseView {
@@ -60,9 +62,150 @@ impl BrowseView {
             status_duration: Duration::ZERO,
             filter_input: String::new(),
             filter_kind: TextFilterKind::Message,
+            focus_filter: false,
         };
         v.refresh(ctx, settings, true);
         v
+    }
+
+    /// The keys of the browse window (`FormBrowse` and `RevisionGridControl` hotkeys); only
+    /// while no dialog is open.
+    pub fn shortcuts(&mut self, ctx: &egui::Context, settings: &mut AppSettings, actions: &mut Vec<Action>) {
+        use crate::views::shortcut;
+        use egui::{Key, Modifiers as M};
+        let ctrl_shift = M::COMMAND | M::SHIFT;
+        let ctrl_alt = M::COMMAND | M::ALT;
+        let open = |actions: &mut Vec<Action>, d: Box<dyn dialogs::Dialog>| actions.push(Action::OpenDialog(d));
+        let at = self.grid.selected_revision().filter(|id| !id.is_artificial()).unwrap_or(self.data.head);
+
+        if shortcut(ctx, M::COMMAND, Key::B) {
+            open(actions, Box::new(dialogs::branch::CreateBranchDialog::new(at)));
+        }
+        if shortcut(ctx, M::COMMAND, Key::T) {
+            open(actions, Box::new(dialogs::tag::CreateTagDialog::new(at)));
+        }
+        if shortcut(ctx, M::COMMAND, Key::M) {
+            open(actions, Box::new(dialogs::merge::MergeDialog::new(&self.data, "")));
+        }
+        if shortcut(ctx, ctrl_shift, Key::E) {
+            open(actions, Box::new(dialogs::rebase::RebaseDialog::new(&self.data, "")));
+        }
+        if shortcut(ctx, M::COMMAND, Key::Period) {
+            open(actions, Box::new(dialogs::checkout::CheckoutBranchDialog::new(&self.data, None, false)));
+        }
+        if shortcut(ctx, M::COMMAND, Key::W) {
+            actions.push(Action::CloseRepo);
+        }
+        if shortcut(ctx, M::COMMAND, Key::Comma) {
+            open(actions, Box::new(dialogs::settings::SettingsDialog::default()));
+        }
+        if shortcut(ctx, M::COMMAND, Key::G) {
+            crate::util::open_terminal(self.module.work_dir(), &settings.terminal);
+        }
+        if shortcut(ctx, ctrl_shift, Key::G) {
+            open(actions, Box::new(dialogs::goto_commit::GoToCommitDialog::default()));
+        }
+        if shortcut(ctx, ctrl_alt, Key::W) {
+            open(actions, Box::new(dialogs::worktrees::WorktreesDialog::default()));
+        }
+        // push / pull
+        if shortcut(ctx, M::COMMAND, Key::ArrowUp) || shortcut(ctx, ctrl_shift, Key::P) {
+            open(actions, Box::new(dialogs::push::PushDialog::new(&self.data, settings, None)));
+        }
+        if shortcut(ctx, M::COMMAND, Key::ArrowDown) || shortcut(ctx, ctrl_shift, Key::D) {
+            open(actions, Box::new(dialogs::pull::PullDialog::new(&self.data, None)));
+        }
+        if shortcut(ctx, ctrl_shift, Key::ArrowDown) {
+            open(actions, Box::new(dialogs::pull::PullDialog::new(&self.data, Some(PullAction::Fetch))));
+        }
+        if shortcut(ctx, M::NONE, Key::F8) {
+            open(actions, Box::new(dialogs::pull::PullDialog::new(&self.data, Some(settings.pull_action))));
+        }
+        // stash
+        if shortcut(ctx, ctrl_alt, Key::ArrowUp) {
+            actions.push(Action::RunGit(GitRun::new("Stash", commands::stash_save(settings.show_untracked_files, false, None, &[]))));
+        }
+        if shortcut(ctx, ctrl_alt | M::SHIFT, Key::ArrowUp) {
+            actions.push(Action::RunGit(GitRun::new("Stash staged", GitArgs::new("stash").arg("push").arg("--staged"))));
+        }
+        if shortcut(ctx, ctrl_alt, Key::ArrowDown) && !self.data.stashes.is_empty() {
+            actions.push(Action::RunGit(GitRun::new("Stash pop", GitArgs::new("stash").arg("pop")).conflicts()));
+        }
+        // focus and tabs
+        if shortcut(ctx, ctrl_alt, Key::C) {
+            settings.left_panel_visible = !settings.left_panel_visible;
+            actions.push(Action::SaveSettings);
+        }
+        if shortcut(ctx, M::COMMAND, Key::E) {
+            self.focus_filter = true;
+        }
+        for (key, part) in [(Key::Num1, None), (Key::Num2, Some(0)), (Key::Num3, Some(1)), (Key::Num4, Some(2))] {
+            if shortcut(ctx, M::COMMAND, key) {
+                self.focus(ctx, part, settings);
+            }
+        }
+        if shortcut(ctx, M::COMMAND, Key::Tab) {
+            self.focus(ctx, Some((self.tab + 1) % 3), settings);
+        }
+        if shortcut(ctx, ctrl_shift, Key::Tab) {
+            self.focus(ctx, Some((self.tab + 2) % 3), settings);
+        }
+        // revision grid
+        if shortcut(ctx, M::COMMAND, Key::N) {
+            self.grid.navigate_child();
+        }
+        if shortcut(ctx, M::COMMAND, Key::P) {
+            self.grid.navigate_parent();
+        }
+        if shortcut(ctx, ctrl_shift, Key::C) && !self.data.head.is_zero() {
+            self.grid.select(self.data.head);
+        }
+        let reload = |actions: &mut Vec<Action>| {
+            actions.push(Action::ReloadLog);
+            actions.push(Action::SaveSettings);
+        };
+        if shortcut(ctx, ctrl_shift, Key::A) {
+            settings.branch_filter_mode = BranchFilterMode::All;
+            reload(actions);
+        }
+        if shortcut(ctx, ctrl_shift, Key::U) {
+            settings.branch_filter_mode = BranchFilterMode::Current;
+            reload(actions);
+        }
+        for (key, mods, flag) in [
+            (Key::S, ctrl_shift, &mut settings.show_first_parent),
+            (Key::R, ctrl_shift, &mut settings.show_remote_branches),
+            (Key::L, ctrl_shift, &mut settings.show_reflog_references),
+            (Key::T, ctrl_alt, &mut settings.show_tags),
+        ] {
+            if shortcut(ctx, mods, key) {
+                *flag = !*flag;
+                reload(actions);
+            }
+        }
+        if shortcut(ctx, ctrl_shift, Key::I) && self.grid.filter.is_active() {
+            self.grid.filter = Default::default();
+            self.filter_input.clear();
+            actions.push(Action::ReloadLog);
+        }
+        if shortcut(ctx, ctrl_shift, Key::H) && !self.grid.filter.path.is_empty() {
+            self.grid.filter.path.clear();
+            actions.push(Action::ReloadLog);
+        }
+    }
+
+    /// Gives the keyboard to the revision grid (`None`) or to a tab, which is shown.
+    fn focus(&mut self, ctx: &egui::Context, tab: Option<usize>, settings: &mut AppSettings) {
+        if let Some(id) = ctx.memory(|m| m.focused()) {
+            ctx.memory_mut(|m| m.surrender_focus(id));
+        }
+        if let Some(t) = tab {
+            self.tab = t;
+            settings.last_browse_tab = t;
+        }
+        self.grid.has_focus = tab.is_none();
+        self.diff.list.set_focus(tab == Some(1));
+        self.file_tree.has_focus = tab == Some(2);
     }
 
     /// Reloads repository data (and the log when `reload_log`).
@@ -260,7 +403,10 @@ impl BrowseView {
                     ui.selectable_value(&mut self.filter_kind, k, k.label());
                 }
             });
-            let r = ui.add(egui::TextEdit::singleline(&mut self.filter_input).hint_text("Filter revisions (Enter)").desired_width(220.0));
+            let r = ui.add(egui::TextEdit::singleline(&mut self.filter_input).hint_text("Filter revisions (Enter)").desired_width(220.0)).on_hover_text("Ctrl+E");
+            if std::mem::take(&mut self.focus_filter) {
+                r.request_focus();
+            }
             if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 self.apply_text_filter(actions);
             }

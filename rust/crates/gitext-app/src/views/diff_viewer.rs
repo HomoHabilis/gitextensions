@@ -31,6 +31,8 @@ pub struct DiffViewer {
     find_match: Option<usize>,
     scroll_to: Option<usize>,
     drag_start: Option<usize>,
+    /// Whether the keys act on the viewer (it was clicked last), like the file lists.
+    has_focus: bool,
 }
 
 /// Commands from the diff viewer context menu.
@@ -40,6 +42,31 @@ pub enum ViewerCommand {
     UnstageSelectedLines,
     ResetSelectedLines,
     CopyPatch,
+    /// Insert the selected lines into the commit message (commit dialog).
+    AddToCommitMessage,
+}
+
+impl ViewerCommand {
+    fn label(self) -> &'static str {
+        match self {
+            ViewerCommand::StageSelectedLines => "Stage selected lines",
+            ViewerCommand::UnstageSelectedLines => "Unstage selected lines",
+            ViewerCommand::ResetSelectedLines => "Reset selected lines…",
+            ViewerCommand::CopyPatch => "Copy",
+            ViewerCommand::AddToCommitMessage => "Add selection to commit message",
+        }
+    }
+
+    /// The key of the command (`FileViewer` / `FormCommit` hotkeys).
+    fn key(self) -> (egui::Modifiers, egui::Key) {
+        match self {
+            ViewerCommand::StageSelectedLines => (egui::Modifiers::NONE, egui::Key::S),
+            ViewerCommand::UnstageSelectedLines => (egui::Modifiers::NONE, egui::Key::U),
+            ViewerCommand::ResetSelectedLines => (egui::Modifiers::NONE, egui::Key::R),
+            ViewerCommand::CopyPatch => (egui::Modifiers::COMMAND, egui::Key::C),
+            ViewerCommand::AddToCommitMessage => (egui::Modifiers::NONE, egui::Key::C),
+        }
+    }
 }
 
 impl DiffViewer {
@@ -78,6 +105,53 @@ impl DiffViewer {
         s
     }
 
+    /// Whether the keys act on the viewer (it was clicked last and no text box has the focus).
+    pub fn has_focus(&self, ctx: &egui::Context) -> bool {
+        self.has_focus && !ctx.wants_keyboard_input()
+    }
+
+    /// Gives the viewer the keyboard focus (or takes it away).
+    pub fn set_focus(&mut self, focus: bool) {
+        self.has_focus = focus;
+    }
+
+    /// The text of the selected lines, without the diff markers.
+    pub fn selected_text(&self) -> String {
+        let lines: Vec<&str> = self
+            .selected_lines()
+            .into_iter()
+            .map(|i| {
+                let t = self.line_text(i);
+                match self.lines.get(i).map(|l| l.kind) {
+                    Some(DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context) if self.is_diff => t.get(1..).unwrap_or_default(),
+                    _ => t,
+                }
+            })
+            .collect();
+        lines.join("\n")
+    }
+
+    fn is_change(&self, i: usize) -> bool {
+        self.is_diff && self.lines.get(i).is_some_and(|l| matches!(l.kind, DiffLineKind::Added | DiffLineKind::Removed))
+    }
+
+    /// Selects the next (or previous) block of changed lines (`NextChange` / `PreviousChange`).
+    fn select_change(&mut self, backwards: bool) {
+        let starts: Vec<usize> = (0..self.lines.len()).filter(|&i| self.is_change(i) && (i == 0 || !self.is_change(i - 1))).collect();
+        let current = self.selected.iter().min().copied();
+        let start = if backwards {
+            starts.iter().rev().find(|&&s| current.is_some_and(|c| s < c)).or(starts.first())
+        } else {
+            starts.iter().find(|&&s| current.is_none_or(|c| s > c)).or(starts.last())
+        };
+        if let Some(&start) = start {
+            let end = (start..self.lines.len()).take_while(|&i| self.is_change(i)).last().unwrap_or(start);
+            self.selected = (start..=end).collect();
+            self.anchor = Some(start);
+            self.scroll_to = Some(start);
+        }
+    }
+
     pub fn has_change_selection(&self) -> bool {
         self.selected.iter().any(|&i| self.lines.get(i).is_some_and(|l| matches!(l.kind, DiffLineKind::Added | DiffLineKind::Removed)))
     }
@@ -90,15 +164,20 @@ impl DiffViewer {
         if self.is_diff { &self.lines[i].text } else { &self.text_lines[i] }
     }
 
-    fn find_next(&mut self) {
+    fn find_next(&mut self, backwards: bool) {
         let needle = self.find.to_lowercase();
         if needle.is_empty() {
             return;
         }
         let n = self.line_count();
-        let start = self.find_match.map(|m| m + 1).unwrap_or(0);
+        let start = match self.find_match {
+            Some(m) if backwards => m + n - 1,
+            Some(m) => m + 1,
+            None if backwards => n.saturating_sub(1),
+            None => 0,
+        };
         for k in 0..n {
-            let i = (start + k) % n;
+            let i = if backwards { (start + n - k) % n } else { (start + k) % n };
             if self.line_text(i).to_lowercase().contains(&needle) {
                 self.find_match = Some(i);
                 self.scroll_to = Some(i);
@@ -122,18 +201,20 @@ impl DiffViewer {
             _ => {}
         }
 
-        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) && ui.ui_contains_pointer() {
-            self.find_open = true;
+        if ui.ui_contains_pointer() || self.has_focus(ui.ctx()) {
+            if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
+                self.find_open = true;
+            }
         }
         if self.find_open {
             ui.horizontal(|ui| {
                 let r = ui.add(egui::TextEdit::singleline(&mut self.find).hint_text("Find…").desired_width(220.0));
                 if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    self.find_next();
+                    self.find_next(false);
                     r.request_focus();
                 }
-                if ui.button("Next").clicked() {
-                    self.find_next();
+                if ui.button("Next").on_hover_text("F3 (Shift+F3: previous)").clicked() {
+                    self.find_next(false);
                 }
                 if ui.button("✖").clicked() {
                     self.find_open = false;
@@ -164,7 +245,7 @@ impl DiffViewer {
         // show_rows also adds item_spacing.y to its row stride, so zero it before the call.
         let item_spacing = ui.spacing().item_spacing;
         ui.spacing_mut().item_spacing.y = 0.0;
-        area.show_rows(ui, row_h, count, |ui, range| {
+        let area_rect = area.show_rows(ui, row_h, count, |ui, range| {
             let width = content_w.max(ui.available_width());
             ui.set_min_width(width);
             for i in range {
@@ -217,28 +298,54 @@ impl DiffViewer {
                     drag_line = Some(i);
                 }
                 resp.context_menu(|ui| {
-                    for c in menu {
-                        let label = match c {
-                            ViewerCommand::StageSelectedLines => "Stage selected lines",
-                            ViewerCommand::UnstageSelectedLines => "Unstage selected lines",
-                            ViewerCommand::ResetSelectedLines => "Reset selected lines…",
-                            ViewerCommand::CopyPatch => "Copy",
-                        };
-                        let enabled = *c == ViewerCommand::CopyPatch || self.has_change_selection();
-                        if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
-                            command = Some(*c);
+                    for &c in menu {
+                        let (m, k) = c.key();
+                        let enabled = self.can_run(c);
+                        if ui.add_enabled(enabled, egui::Button::new(c.label()).shortcut_text(ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(m, k)))).clicked() {
+                            command = Some(c);
                             ui.close_kind(egui::UiKind::Menu);
                         }
                     }
-                    if ui.button("Find…").clicked() {
+                    if ui.add(egui::Button::new("Find…").shortcut_text(ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::F)))).clicked() {
                         self.find_open = true;
                         ui.close_kind(egui::UiKind::Menu);
                     }
                 });
             }
-        });
+        })
+        .inner_rect;
         ui.spacing_mut().item_spacing = item_spacing;
         let _ = hovered_line;
+        crate::views::track_focus(ui, area_rect, &mut self.has_focus);
+        if self.has_focus(ui.ctx()) {
+            for &c in menu {
+                let (m, k) = c.key();
+                if c != ViewerCommand::CopyPatch && self.can_run(c) && crate::views::shortcut(ui.ctx(), m, k) {
+                    command = Some(c);
+                }
+            }
+            // Ctrl+C arrives as a copy event, not as a key
+            let copy = ui.input_mut(|i| {
+                let n = i.events.len();
+                i.events.retain(|e| !matches!(e, egui::Event::Copy));
+                i.events.len() != n
+            });
+            if copy && !self.selected.is_empty() {
+                command = Some(ViewerCommand::CopyPatch);
+            }
+            if crate::views::shortcut(ui.ctx(), egui::Modifiers::ALT, egui::Key::ArrowDown) {
+                self.select_change(false);
+            }
+            if crate::views::shortcut(ui.ctx(), egui::Modifiers::ALT, egui::Key::ArrowUp) {
+                self.select_change(true);
+            }
+            if crate::views::shortcut(ui.ctx(), egui::Modifiers::SHIFT, egui::Key::F3) {
+                self.find_next(true);
+            }
+            if crate::views::plain_key(ui.ctx(), egui::Key::F3) {
+                self.find_next(false);
+            }
+        }
         if let Some(l) = drag_line {
             if let Some(s) = self.drag_start {
                 let (a, b) = if s <= l { (s, l) } else { (l, s) };
@@ -280,6 +387,13 @@ impl DiffViewer {
         command
     }
 
+    fn can_run(&self, c: ViewerCommand) -> bool {
+        match c {
+            ViewerCommand::CopyPatch | ViewerCommand::AddToCommitMessage => !self.selected.is_empty(),
+            _ => self.has_change_selection(),
+        }
+    }
+
     fn colors(&self, i: usize, p: &Palette, text: Color32) -> (Option<Color32>, Color32) {
         if !self.is_diff {
             return (None, text);
@@ -307,6 +421,52 @@ pub fn content_from_bytes(bytes: &[u8]) -> ViewerContent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn run_frame(ctx: &egui::Context, viewer: &mut DiffViewer, content: &ViewerContent, menu: &[ViewerCommand], events: Vec<egui::Event>) -> Option<ViewerCommand> {
+        let modifiers = events.iter().find_map(|e| if let egui::Event::Key { modifiers, .. } = e { Some(*modifiers) } else { None }).unwrap_or_default();
+        let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600.0, 400.0))), events, modifiers, ..Default::default() };
+        let mut out = None;
+        let _ = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                out = viewer.ui(ui, content, true, menu);
+            });
+        });
+        out
+    }
+
+    fn key(key: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
+        egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }
+    }
+
+    /// Alt+Down / Alt+Up select the blocks of changed lines, S stages them (only when the viewer
+    /// has the focus and the command is offered).
+    #[test]
+    fn change_navigation_and_line_keys() {
+        let diff = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,5 +1,5 @@\n one\n-two\n+2\n three\n-four\n+4\n";
+        let content = ViewerContent::Diff(diff.into());
+        let menu = [ViewerCommand::StageSelectedLines, ViewerCommand::CopyPatch];
+        let ctx = egui::Context::default();
+        let mut viewer = DiffViewer::default();
+        run_frame(&ctx, &mut viewer, &content, &menu, vec![]);
+        let changed: Vec<usize> = (0..viewer.lines.len()).filter(|&i| viewer.is_change(i)).collect();
+        assert_eq!(changed.len(), 4);
+        // without the focus the keys do nothing
+        run_frame(&ctx, &mut viewer, &content, &menu, vec![key(egui::Key::ArrowDown, egui::Modifiers::ALT)]);
+        assert!(viewer.selected.is_empty());
+        viewer.set_focus(true);
+        run_frame(&ctx, &mut viewer, &content, &menu, vec![key(egui::Key::ArrowDown, egui::Modifiers::ALT)]);
+        assert_eq!(viewer.selected_lines(), changed[..2]);
+        run_frame(&ctx, &mut viewer, &content, &menu, vec![key(egui::Key::ArrowDown, egui::Modifiers::ALT)]);
+        assert_eq!(viewer.selected_lines(), changed[2..]);
+        run_frame(&ctx, &mut viewer, &content, &menu, vec![key(egui::Key::ArrowUp, egui::Modifiers::ALT)]);
+        assert_eq!(viewer.selected_lines(), changed[..2]);
+        assert_eq!(viewer.selected_text(), "two\n2");
+        assert_eq!(run_frame(&ctx, &mut viewer, &content, &menu, vec![key(egui::Key::S, egui::Modifiers::NONE)]), Some(ViewerCommand::StageSelectedLines));
+        // U is not offered here
+        assert_eq!(run_frame(&ctx, &mut viewer, &content, &menu, vec![key(egui::Key::U, egui::Modifiers::NONE)]), None);
+        // Shift+S is not S
+        assert_eq!(run_frame(&ctx, &mut viewer, &content, &menu, vec![key(egui::Key::S, egui::Modifiers::SHIFT)]), None);
+    }
 
     #[test]
     fn binary_detection() {
