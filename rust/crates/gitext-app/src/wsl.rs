@@ -13,11 +13,16 @@ fn running_in_wsl() -> bool {
 /// WSLg's Wayland compositor drops the application's connection while its window opens
 /// ("Connection reset by peer"), and GTK tools on it can fail to create cursors, which makes
 /// meld abort and can leave the mouse pointer invisible. Through XWayland both work, and the
-/// window gets the title bar of WSLg. Must run before other threads are started (it changes
+/// window gets the title bar of WSLg. GTK still connects to the default Wayland socket
+/// without `WAYLAND_DISPLAY`, so it is told to use X11 explicitly (unless the user set
+/// `GDK_BACKEND`). Must run before other threads are started (it changes
 /// the process environment).
 pub fn prefer_x11() {
     #[cfg(target_os = "linux")]
     if running_in_wsl() && std::env::var_os("DISPLAY").is_some() {
         std::env::remove_var("WAYLAND_DISPLAY");
+        if std::env::var_os("GDK_BACKEND").is_none() {
+            std::env::set_var("GDK_BACKEND", "x11");
+        }
     }
 }
