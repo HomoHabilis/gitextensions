@@ -421,7 +421,9 @@ impl BrowseView {
                     if let Some(c) = self.diff.ui(ui, &self.module, first, second, &parents, settings, "browse_diff") {
                         self.handle_diff(c, settings, actions);
                     }
-                    if self.grid.selected.len() == 1 {
+                    // preloading the next commits costs git processes (slow on Windows): only
+                    // when moving through the commits with the keyboard, not on clicks
+                    if self.grid.selected.len() == 1 && self.grid.moved_by_keyboard {
                         let neighbors = self.grid.neighbor_revisions();
                         self.diff.prefetch(ctx, &self.module, &neighbors, settings);
                     }

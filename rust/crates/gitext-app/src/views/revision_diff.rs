@@ -249,9 +249,13 @@ impl RevisionDiffView {
         }
         let (m, cache, opts) = (module.clone(), Arc::clone(&self.cache), diff_options(settings));
         self.prefetch = Some(Task::spawn(ctx, move || {
-            for (first, second) in missing {
-                let _ = load_into_cache(&cache, &m, first, second, false, &opts);
-            }
+            // at the same time: the batch takes as long as one git process instead of the sum
+            std::thread::scope(|s| {
+                for (first, second) in missing {
+                    let (cache, m, opts) = (&cache, &m, &opts);
+                    s.spawn(move || load_into_cache(cache, m, first, second, false, opts));
+                }
+            });
         }));
     }
 

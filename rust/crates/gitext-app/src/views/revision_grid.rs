@@ -124,6 +124,8 @@ pub enum GridCommand {
 }
 
 pub struct RevisionGrid {
+    /// Whether the selection last moved with the keyboard (then the next rows are likely next).
+    pub moved_by_keyboard: bool,
     pub graph: RevisionGraph,
     rx: Option<Receiver<LogMsg>>,
     cancel: Arc<AtomicBool>,
@@ -156,6 +158,7 @@ pub struct RevisionGrid {
 impl Default for RevisionGrid {
     fn default() -> Self {
         RevisionGrid {
+            moved_by_keyboard: false,
             graph: RevisionGraph::new(RevisionGraphConfig::default()),
             rx: None,
             cancel: Arc::new(AtomicBool::new(false)),
@@ -456,6 +459,7 @@ impl RevisionGrid {
     }
 
     pub fn select(&mut self, id: ObjectId) {
+        self.moved_by_keyboard = false;
         if let Some(row) = self.graph.try_get_row_index(&id) {
             self.selected = vec![id];
             self.anchor_row = Some(row);
@@ -651,6 +655,7 @@ impl RevisionGrid {
         let keyboard_moved = self.handle_keys(ui, count);
         if keyboard_moved {
             events.selection_changed = true;
+            self.moved_by_keyboard = true;
         }
 
         let draw_style = match settings.graph_draw_style {
@@ -841,6 +846,7 @@ impl RevisionGrid {
         if let Some((row, ctrl, shift)) = clicked {
             self.select_row(row, ctrl, shift);
             events.selection_changed = true;
+            self.moved_by_keyboard = false;
         }
         if focus_clicked {
             self.has_focus = true;
