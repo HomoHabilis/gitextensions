@@ -568,6 +568,12 @@ impl GitModule {
         Ok(tree::parse(&out))
     }
 
+    /// All entries at `rev`, directories included, with their full paths (one git call for the whole tree).
+    pub fn ls_tree_all(&self, rev: ObjectId) -> GitResult<Vec<GitItem>> {
+        let out = self.output(&GitArgs::new("ls-tree").arg("-r").arg("-t").arg("-z").arg(rev.to_string()))?;
+        Ok(tree::parse(&out))
+    }
+
     /// All files at `rev` (recursive, for "find file").
     pub fn ls_tree_recursive(&self, rev: ObjectId) -> GitResult<Vec<String>> {
         let out = self.output(&GitArgs::new("ls-tree").arg("-r").arg("-z").arg("--name-only").arg(rev.to_string()))?;
