@@ -20,6 +20,7 @@ mod tasks;
 mod theme;
 mod util;
 mod views;
+mod wsl;
 
 use std::path::{Path, PathBuf};
 
@@ -27,6 +28,7 @@ use app::StartCommand;
 use cli::CliExit;
 
 fn main() -> eframe::Result<()> {
+    wsl::prefer_x11();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cwd = std::env::current_dir().unwrap_or_default();
     let (repo, command) = match cli::parse(&args, &cwd) {

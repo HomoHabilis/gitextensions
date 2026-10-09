@@ -23,6 +23,9 @@ chrono.workspace = true
 regex.workspace = true
 dirs.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+winit.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
 raw-window-handle = "0.6"
