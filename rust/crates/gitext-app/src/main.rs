@@ -12,7 +12,6 @@ mod app;
 mod browse;
 mod cli;
 mod dialogs;
-mod driver_noise;
 mod prof;
 mod repo;
 mod shell_ext;
@@ -20,6 +19,7 @@ mod tasks;
 mod theme;
 mod util;
 mod views;
+mod wsl;
 
 use std::path::{Path, PathBuf};
 
@@ -27,6 +27,7 @@ use app::StartCommand;
 use cli::CliExit;
 
 fn main() -> eframe::Result<()> {
+    wsl::prefer_x11_for_gtk_tools();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cwd = std::env::current_dir().unwrap_or_default();
     let (repo, command) = match cli::parse(&args, &cwd) {
@@ -72,7 +73,7 @@ fn main() -> eframe::Result<()> {
             .with_min_inner_size([720.0, 460.0]),
         ..Default::default()
     };
-    let _quiet_driver = driver_noise::filter();
+    let _quiet_driver = wsl::filter();
     eframe::run_native(
         "Git Extensions",
         options,
