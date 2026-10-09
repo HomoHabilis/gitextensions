@@ -17,10 +17,13 @@ pub enum ViewerContent {
 
 #[derive(Default)]
 pub struct DiffViewer {
-    content_key: String,
+    /// The content shown, compared each frame to detect changes.
+    content: Option<ViewerContent>,
     lines: Vec<DiffLine>,
     text_lines: Vec<String>,
     is_diff: bool,
+    /// The length in characters of the longest line.
+    max_len: usize,
     pub selected: Vec<usize>,
     anchor: Option<usize>,
     pub find: String,
@@ -41,16 +44,10 @@ pub enum ViewerCommand {
 
 impl DiffViewer {
     fn set_content(&mut self, c: &ViewerContent) {
-        let key = match c {
-            ViewerContent::Empty(s) => format!("e{s}"),
-            ViewerContent::Diff(s) => format!("d{s}"),
-            ViewerContent::Text(s) => format!("t{s}"),
-            ViewerContent::Binary(s) => format!("b{s}"),
-        };
-        if key == self.content_key {
+        if self.content.as_ref() == Some(c) {
             return;
         }
-        self.content_key = key;
+        self.content = Some(c.clone());
         self.selected.clear();
         self.anchor = None;
         self.find_match = None;
@@ -71,6 +68,7 @@ impl DiffViewer {
                 self.text_lines.clear();
             }
         }
+        self.max_len = (0..self.line_count()).map(|i| self.line_text(i).chars().count()).max().unwrap_or(0);
     }
 
     /// The selected line indexes (for creating partial patches).
@@ -84,7 +82,7 @@ impl DiffViewer {
         self.selected.iter().any(|&i| self.lines.get(i).is_some_and(|l| matches!(l.kind, DiffLineKind::Added | DiffLineKind::Removed)))
     }
 
-    fn line_count(&self) -> usize {
+    pub(crate) fn line_count(&self) -> usize {
         if self.is_diff { self.lines.len() } else { self.text_lines.len() }
     }
 
@@ -147,13 +145,12 @@ impl DiffViewer {
         let row_h = ui.fonts(|f| f.row_height(&font)) + 2.0;
         let char_w = ui.fonts(|f| f.glyph_width(&font, 'M'));
         let count = self.line_count();
-        let max_len = (0..count).map(|i| self.line_text(i).chars().count()).max().unwrap_or(0);
         let gutter = if show_line_numbers {
             if self.is_diff { char_w * 11.0 } else { char_w * (count.max(1).ilog10() as f32 + 2.0) }
         } else {
             0.0
         };
-        let content_w = gutter + 8.0 + max_len as f32 * char_w + 20.0;
+        let content_w = gutter + 8.0 + self.max_len as f32 * char_w + 20.0;
 
         let mut area = egui::ScrollArea::both().auto_shrink([false, false]).id_salt("diffviewer");
         if let Some(line) = self.scroll_to.take() {

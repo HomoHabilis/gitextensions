@@ -98,6 +98,10 @@ impl CommandLogEntry {
     /// One-line description (port of `CommandLogEntry.ToString`).
     pub fn column_line(&self) -> String {
         let start: chrono::DateTime<chrono::Local> = self.start.into();
+        if self.file_name.is_empty() {
+            // a mark from the UI (see [`log_event`])
+            return format!("{}  -------- {}", start.format("%H:%M:%S%.3f"), self.arguments);
+        }
         let duration = self.duration.map(|d| format!("{:>6}ms", d.as_millis())).unwrap_or_else(|| "running".to_string());
         let exit = self.exit_code.map(|c| c.to_string()).unwrap_or_default();
         format!("{} {} {:>3} {} {}", start.format("%H:%M:%S%.3f"), duration, exit, self.file_name, self.arguments)
@@ -118,6 +122,24 @@ pub fn command_log_entries() -> Vec<CommandLogEntry> {
 
 pub fn clear_command_log() {
     command_log().lock().unwrap().clear();
+}
+
+/// Adds a mark to the command log, such as when a commit is selected or its diff shown, so that
+/// the log tells where the time goes between the git commands.
+pub fn log_event(text: impl Into<String>) {
+    let mut log = command_log().lock().unwrap();
+    if log.len() >= MAX_LOG_ENTRIES {
+        log.remove(0);
+    }
+    log.push(CommandLogEntry {
+        file_name: String::new(),
+        arguments: text.into(),
+        working_dir: String::new(),
+        start: SystemTime::now(),
+        duration: None,
+        exit_code: Some(0),
+        is_on_main_thread: true,
+    });
 }
 
 fn log_start(file_name: &str, args: &str, working_dir: &Path) -> usize {
@@ -348,6 +370,52 @@ impl Executable {
     /// Runs and returns stdout as (lossy) UTF-8, failing on non-zero exit.
     pub fn output(&self, args: &GitArgs) -> GitResult<String> {
         Ok(self.run_checked(args)?.stdout_str())
+    }
+
+    /// Runs the process capturing stdout (stderr discarded), and stops it early when `stop`
+    /// returns true for the output read so far. Returns the output and whether it is complete.
+    pub fn run_until(&self, args: &GitArgs, mut stop: impl FnMut(&[u8]) -> bool) -> GitResult<(Vec<u8>, bool)> {
+        let display = args.to_string();
+        let log_index = log_start(&self.display_name(), &display, &self.working_dir);
+        let started = Instant::now();
+        let mut cmd = self.command(args.as_slice());
+        cmd.stdout(Stdio::piped()).stderr(Stdio::null()).stdin(Stdio::null());
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                log_end(log_index, &display, started, -1);
+                return Err(GitError::Io(e));
+            }
+        };
+        let mut stdout = child.stdout.take().unwrap();
+        let mut out = Vec::new();
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut complete = true;
+        loop {
+            match stdout.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => out.extend_from_slice(&buf[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    log_end(log_index, &display, started, -1);
+                    return Err(GitError::Io(e));
+                }
+            }
+            if stop(&out) {
+                complete = false;
+                let _ = child.kill();
+                break;
+            }
+        }
+        drop(stdout);
+        let exit_code = child.wait()?.code().unwrap_or(-1);
+        log_end(log_index, &display, started, exit_code);
+        if complete && exit_code != 0 {
+            return Err(GitError::Failed { args: display, exit_code, stderr: String::new() });
+        }
+        Ok((out, complete))
     }
 
     /// Starts the process with piped stdout (stderr discarded) for incremental parsing.

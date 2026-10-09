@@ -421,7 +421,9 @@ impl BrowseView {
                     if let Some(c) = self.diff.ui(ui, &self.module, first, second, &parents, settings, "browse_diff") {
                         self.handle_diff(c, settings, actions);
                     }
-                    if self.grid.selected.len() == 1 {
+                    // preloading the next commits costs git processes (slow on Windows): only
+                    // when moving through the commits with the keyboard, not on clicks
+                    if self.grid.selected.len() == 1 && self.grid.moved_by_keyboard {
                         let neighbors = self.grid.neighbor_revisions();
                         self.diff.prefetch(ctx, &self.module, &neighbors, settings);
                     }
@@ -439,6 +441,10 @@ impl BrowseView {
         egui::CentralPanel::default().show_inside(ui, |ui| {
             let events = crate::prof::scope("grid", || self.grid.ui(ui, settings, &self.data));
             if events.selection_changed {
+                if let Some(id) = self.grid.selected_revision() {
+                    gitext_core::exec::log_event(format!("selected {}", id.to_short_string()));
+                    crate::prof::trace_frames();
+                }
                 self.diff.list.clear();
                 // the tabs are drawn before the grid: draw again now to load the new selection
                 ctx.request_repaint();

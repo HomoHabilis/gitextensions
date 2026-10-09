@@ -438,6 +438,50 @@ impl GitModule {
         Ok(files)
     }
 
+    /// The changed files between the commits `first` and `second`, and the diffs of the first
+    /// files, from one git process (a process start is costly on Windows). The diffs are as
+    /// `get_file_diff` gives them, in the order of the files; once the output passes
+    /// `max_bytes`, git is stopped and only the diffs read completely are returned (at least
+    /// the first one).
+    pub fn get_diff_files_with_patches(&self, first: ObjectId, second: ObjectId, options: &DiffOptions, max_bytes: usize) -> GitResult<(Vec<GitItemStatus>, Vec<String>)> {
+        if first.is_artificial() || second.is_artificial() {
+            return Err(GitError::Invalid("artificial revision".into()));
+        }
+        let mut args = GitArgs::with_config(&commands::DIFF_CONFIGS, "diff");
+        args.add_all(["--no-ext-diff", "--find-renames", "--find-copies", "-z", "--raw", "--patch"]);
+        args.add_all(options.extra_args());
+        args.add(if first.is_zero() { EMPTY_TREE_ID.to_string() } else { first.to_string() });
+        args.add(second.to_string());
+        args.add("--");
+        // stop past `max_bytes` once the first diff is complete (a second one has started)
+        let mut scanned = 0;
+        let (out, complete) = self.git().run_until(&args, |out| {
+            if out.len() <= max_bytes {
+                return false;
+            }
+            let Some(start) = patch_start(out) else { return false };
+            let from = scanned.max(start + 1);
+            scanned = out.len().saturating_sub(DIFF_HEADER.len());
+            find_diff_header(&out[from..]).is_some()
+        })?;
+        let (raw, patch) = match patch_start(&out) {
+            Some(start) => (&out[..start], &out[start..]),
+            None if complete => (&out[..], &out[..0]),
+            None => return Err(GitError::Invalid("diff output too large".into())),
+        };
+        let files = parse_diff_raw(&String::from_utf8_lossy(raw), StagedStatus::None);
+        let mut patches = split_patches(patch);
+        if !complete {
+            // the last one is cut
+            patches.pop();
+        }
+        if patches.len() > files.len() || (complete && patches.len() != files.len()) {
+            // not one diff per file: let the caller load them one by one
+            patches.clear();
+        }
+        Ok((files, patches.into_iter().map(|p| String::from_utf8_lossy(p).into_owned()).collect()))
+    }
+
     /// Port of `GetStagedStatus`: classify a revision pair.
     pub fn staged_status(first: Option<ObjectId>, second: ObjectId, parent_to_second: Option<ObjectId>) -> StagedStatus {
         if second == ObjectId::WORK_TREE && (first == Some(ObjectId::INDEX) || first.is_none()) {
@@ -521,6 +565,12 @@ impl GitModule {
     pub fn ls_tree(&self, rev: ObjectId, path: &str) -> GitResult<Vec<GitItem>> {
         let spec = if path.is_empty() { rev.to_string() } else { format!("{rev}:{}", to_posix_path(path)) };
         let out = self.output(&GitArgs::new("ls-tree").arg("-z").arg(spec))?;
+        Ok(tree::parse(&out))
+    }
+
+    /// All entries at `rev`, directories included, with their full paths (one git call for the whole tree).
+    pub fn ls_tree_all(&self, rev: ObjectId) -> GitResult<Vec<GitItem>> {
+        let out = self.output(&GitArgs::new("ls-tree").arg("-r").arg("-t").arg("-z").arg(rev.to_string()))?;
         Ok(tree::parse(&out))
     }
 
@@ -1220,6 +1270,38 @@ mod tests {
     }
 
     #[test]
+    fn diff_files_with_patches_match_single_file_diffs() {
+        let repo = TestRepo::new();
+        repo.write("keep.txt", &"same line\n".repeat(50));
+        repo.write("old name.txt", &"to be renamed\n".repeat(20));
+        repo.git(&["add", "-A"]);
+        let first = repo.commit_file("a.txt", "one\ntwo\n", "first");
+        repo.git(&["mv", "old name.txt", "new name.txt"]);
+        repo.write("a.txt", "one\n+two plus\ndiff --git not a header\n");
+        repo.write("b/c.txt", "new\n");
+        repo.write("keep.txt", "");
+        repo.module.stage_files(&["a.txt", "b/c.txt", "keep.txt"]).unwrap();
+        repo.module.commit("second", Default::default()).unwrap();
+        let second = repo.module.head_id();
+        let opts = DiffOptions { context_lines: Some(3), ..Default::default() };
+
+        let (files, patches) = repo.module.get_diff_files_with_patches(first, second, &opts, usize::MAX).unwrap();
+        assert_eq!(files, repo.module.get_diff_files(Some(first), second).unwrap());
+        assert_eq!(files.len(), 4);
+        assert_eq!(patches.len(), files.len());
+        for (f, p) in files.iter().zip(&patches) {
+            let single = repo.module.get_file_diff(Some(first), second, &f.name, f.old_name.as_deref(), &opts).unwrap();
+            assert_eq!(*p, single, "{}", f.name);
+        }
+
+        // stopped early: the diffs read completely, at least the first one
+        let (cut_files, cut) = repo.module.get_diff_files_with_patches(first, second, &opts, 1).unwrap();
+        assert_eq!(cut_files, files);
+        assert!(!cut.is_empty() && cut.len() <= files.len());
+        assert_eq!(cut[..], patches[..cut.len()]);
+    }
+
+    #[test]
     fn get_worktrees_parsing() {
         let w = parse_worktrees(&wt(&["worktree C:/repos/main", "HEAD abc1234abc1234abc1234abc1234abc1234abc12", "branch refs/heads/master", "", ""]));
         assert_eq!(w.len(), 1);
@@ -1534,4 +1616,34 @@ mod tests {
         assert_eq!(repo.module.get_tag_message("v1").as_deref(), Some("Tag message\n\nline 2"));
         assert_eq!(repo.module.get_refs().unwrap().iter().find(|r| r.is_tag()).unwrap().object_id, id);
     }
+}
+
+const DIFF_HEADER: &[u8] = b"\ndiff --git ";
+
+/// Where the patches start in `git diff -z --raw --patch` output: after the raw entries, which
+/// end with an empty entry (two NULs never occur within them).
+fn patch_start(out: &[u8]) -> Option<usize> {
+    out.windows(2).position(|w| w == b"\0\0").map(|i| i + 2)
+}
+
+/// The position of the `\n` before the next `diff --git` line.
+fn find_diff_header(out: &[u8]) -> Option<usize> {
+    out.windows(DIFF_HEADER.len()).position(|w| w == DIFF_HEADER)
+}
+
+/// Splits patches at their `diff --git` lines (lines of a diff start with a space, `+`, `-`,
+/// `@` or `\`, so these lines only start a file's diff).
+fn split_patches(patch: &[u8]) -> Vec<&[u8]> {
+    let mut patches = Vec::new();
+    if !patch.starts_with(&DIFF_HEADER[1..]) {
+        return patches;
+    }
+    let mut start = 0;
+    while let Some(i) = find_diff_header(&patch[start + 1..]) {
+        let end = start + 1 + i + 1;
+        patches.push(&patch[start..end]);
+        start = end;
+    }
+    patches.push(&patch[start..]);
+    patches
 }
