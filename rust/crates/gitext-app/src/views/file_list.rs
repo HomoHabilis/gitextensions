@@ -19,6 +19,8 @@ pub struct FileList {
     has_focus: bool,
     /// Scroll the selected item into view on the next frame.
     scroll_to_selected: bool,
+    /// The items shown in the last frame, in order (the tree mode hides the items of collapsed folders).
+    shown: Vec<usize>,
 }
 
 #[derive(Default)]
@@ -120,17 +122,19 @@ impl FileList {
                 (i.key_pressed(egui::Key::ArrowUp), i.key_pressed(egui::Key::ArrowDown), i.key_pressed(egui::Key::Home), i.key_pressed(egui::Key::End))
             });
             if up || down || home || end {
-                let cur = self.selected.last().and_then(|s| order.iter().position(|x| x == s));
+                // the items shown in the last frame, or all of them when the list changed since
+                let shown = if !self.shown.is_empty() && self.shown.iter().all(|i| order.contains(i)) { self.shown.clone() } else { order.clone() };
+                let cur = self.selected.last().and_then(|s| shown.iter().position(|x| x == s));
                 let next = match cur {
                     _ if home => 0,
-                    _ if end => order.len() - 1,
+                    _ if end => shown.len() - 1,
                     Some(p) if up => p.saturating_sub(1),
-                    Some(p) => (p + 1).min(order.len() - 1),
+                    Some(p) => (p + 1).min(shown.len() - 1),
                     None => 0,
                 };
-                if self.selected != [order[next]] {
-                    self.selected = vec![order[next]];
-                    self.anchor = Some(order[next]);
+                if self.selected != [shown[next]] {
+                    self.selected = vec![shown[next]];
+                    self.anchor = Some(shown[next]);
                     self.scroll_to_selected = true;
                     resp.selection_changed = true;
                 }
@@ -138,6 +142,7 @@ impl FileList {
         }
         resp.has_focus = has_focus;
 
+        self.shown.clear();
         let out = egui::ScrollArea::both().id_salt(id).auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 1.0;
             if items.is_empty() {
@@ -182,6 +187,7 @@ impl FileList {
                 }
                 NodeTag::Item(i) => {
                     let index = visible[*i];
+                    self.shown.push(index);
                     let item = &items[index];
                     let selected = self.selected.contains(&index);
                     let r = ui
