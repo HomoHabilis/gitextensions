@@ -15,6 +15,12 @@ pub struct FileList {
     anchor: Option<usize>,
     /// Item names of the last frame, to keep the selection when the list changes.
     last_names: Vec<String>,
+    /// Whether the arrow keys move the selection (the list was clicked last).
+    has_focus: bool,
+    /// Scroll the selected item into view on the next frame.
+    scroll_to_selected: bool,
+    /// The items shown in the last frame, in order (the tree mode hides the items of collapsed folders).
+    shown: Vec<usize>,
 }
 
 #[derive(Default)]
@@ -108,32 +114,46 @@ impl FileList {
         // map back to the original indexes
         let order: Vec<usize> = tree.items().iter().map(|&i| visible[i]).collect();
 
-        // keyboard navigation
+        // keyboard navigation (egui only keeps focus on widgets, so the list tracks its own like the revision grid)
         let list_id = ui.make_persistent_id(id);
-        let has_focus = ui.memory(|m| m.has_focus(list_id));
+        let has_focus = self.has_focus && !ui.ctx().wants_keyboard_input();
         if has_focus && !order.is_empty() {
-            let (up, down) = ui.input(|i| (i.key_pressed(egui::Key::ArrowUp), i.key_pressed(egui::Key::ArrowDown)));
-            if up || down {
-                let cur = self.selected.last().and_then(|s| order.iter().position(|x| x == s));
+            let (up, down, home, end) = ui.input(|i| {
+                (i.key_pressed(egui::Key::ArrowUp), i.key_pressed(egui::Key::ArrowDown), i.key_pressed(egui::Key::Home), i.key_pressed(egui::Key::End))
+            });
+            if up || down || home || end {
+                // the items shown in the last frame, or all of them when the list changed since
+                let shown = if !self.shown.is_empty() && self.shown.iter().all(|i| order.contains(i)) { self.shown.clone() } else { order.clone() };
+                let cur = self.selected.last().and_then(|s| shown.iter().position(|x| x == s));
                 let next = match cur {
+                    _ if home => 0,
+                    _ if end => shown.len() - 1,
                     Some(p) if up => p.saturating_sub(1),
-                    Some(p) => (p + 1).min(order.len() - 1),
+                    Some(p) => (p + 1).min(shown.len() - 1),
                     None => 0,
                 };
-                self.selected = vec![order[next]];
-                self.anchor = Some(order[next]);
-                resp.selection_changed = true;
+                if self.selected != [shown[next]] {
+                    self.selected = vec![shown[next]];
+                    self.anchor = Some(shown[next]);
+                    self.scroll_to_selected = true;
+                    resp.selection_changed = true;
+                }
             }
         }
         resp.has_focus = has_focus;
 
-        egui::ScrollArea::both().id_salt(id).auto_shrink([false, false]).show(ui, |ui| {
+        self.shown.clear();
+        let out = egui::ScrollArea::both().id_salt(id).auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 1.0;
             if items.is_empty() {
                 ui.label(RichText::new("No changes").italics().color(palette.muted));
             }
             self.show_nodes(ui, &tree.nodes, &visible, items, &order, &palette, &mut resp, &mut menu, list_id, 0);
         });
+        self.scroll_to_selected = false;
+        if ui.input(|i| i.pointer.any_pressed()) {
+            self.has_focus = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| out.inner_rect.contains(p));
+        }
         resp
     }
 
@@ -167,6 +187,7 @@ impl FileList {
                 }
                 NodeTag::Item(i) => {
                     let index = visible[*i];
+                    self.shown.push(index);
                     let item = &items[index];
                     let selected = self.selected.contains(&index);
                     let r = ui
@@ -186,8 +207,11 @@ impl FileList {
                         })
                         .inner;
                     let r = r.on_hover_text(item.description());
+                    if selected && self.scroll_to_selected {
+                        r.scroll_to_me(None);
+                        self.scroll_to_selected = false;
+                    }
                     if r.clicked() {
-                        ui.memory_mut(|m| m.request_focus(list_id));
                         self.click(index, order, ui);
                         resp.selection_changed = true;
                     }
