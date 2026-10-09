@@ -807,7 +807,9 @@ impl RevisionGrid {
                     }
 
                     let resp = row.response();
-                    if resp.clicked() {
+                    // select on press, as the original grid does: the diff starts loading while
+                    // the button is still down
+                    if resp.contains_pointer() && resp.ctx.input(|i| i.pointer.primary_pressed()) {
                         let m = resp.ctx.input(|i| i.modifiers);
                         clicked = Some((index, m.command || m.ctrl, m.shift));
                         focus_clicked = true;

@@ -441,6 +441,7 @@ impl BrowseView {
             if events.selection_changed {
                 if let Some(id) = self.grid.selected_revision() {
                     gitext_core::exec::log_event(format!("selected {}", id.to_short_string()));
+                    crate::prof::trace_frames();
                 }
                 self.diff.list.clear();
                 // the tabs are drawn before the grid: draw again now to load the new selection
