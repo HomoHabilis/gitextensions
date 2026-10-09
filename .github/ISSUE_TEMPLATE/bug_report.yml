@@ -52,7 +52,3 @@ body:
       description: If relevant, the failing git command from *Tools → Git command log*, or for slowness the stderr output of `gitext` started with `GITEXT_PROFILE=1`.
     validations:
       required: false
-  - type: markdown
-    attributes:
-      value: |
-        ❤️ Git Extensions? Please consider supporting our collective: https://opencollective.com/gitextensions

@@ -28,7 +28,3 @@ body:
         - OS (Windows / macOS / Linux distribution) and version: 
     validations:
       required: true
-  - type: markdown
-    attributes:
-      value: |
-        ❤️ Git Extensions? Please consider supporting our collective: https://opencollective.com/gitextensions

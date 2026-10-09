@@ -2,10 +2,6 @@
 
 Contributions are welcome: ideas, bug reports, bug fixes and new features.
 
-All submissions must be made under [The Developer Certificate of Origin](contributors.txt),
-as for the original Git Extensions project. Sign it with your pull request if you have not
-done so before.
-
 ## Reporting issues
 
 Search the [issue tracker](https://github.com/HomoHabilis/gitextensions/issues?q=), including
