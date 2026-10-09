@@ -12,6 +12,7 @@ mod app;
 mod browse;
 mod cli;
 mod dialogs;
+mod driver_noise;
 mod prof;
 mod repo;
 mod shell_ext;
@@ -71,6 +72,7 @@ fn main() -> eframe::Result<()> {
             .with_min_inner_size([720.0, 460.0]),
         ..Default::default()
     };
+    let _quiet_driver = driver_noise::filter();
     eframe::run_native(
         "Git Extensions",
         options,

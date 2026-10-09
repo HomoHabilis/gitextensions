@@ -23,6 +23,10 @@ chrono.workspace = true
 regex.workspace = true
 dirs.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+winit.workspace = true
+libc.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
 

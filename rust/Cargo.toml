@@ -23,6 +23,10 @@ eframe = { version = "0.32", default-features = false, features = ["default_font
 egui = "0.32"
 egui_extras = "0.32"
 rfd = "0.15"
+# Linux: Adwaita-style window decorations on Wayland (winit's fallback frame draws the close
+# button as a plain square with no cross).
+winit = { version = "0.30", default-features = false, features = ["wayland-csd-adwaita"] }
+libc = "0.2"
 
 [profile.release]
 lto = "thin"
