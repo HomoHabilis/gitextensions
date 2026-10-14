@@ -16,12 +16,36 @@ pub struct CreateBranchDialog {
     checkout: bool,
     orphan: bool,
     clear_orphan: bool,
+    /// Whether the name has been prefilled from a ref at the start commit (done on the first frame,
+    /// where the repository data is available).
+    prefilled: bool,
 }
 
 impl CreateBranchDialog {
     pub fn new(id: ObjectId) -> Self {
-        CreateBranchDialog { id, revision: if id.is_zero() { "HEAD".into() } else { id.to_string() }, name: String::new(), checkout: true, orphan: false, clear_orphan: true }
+        CreateBranchDialog {
+            id,
+            revision: if id.is_zero() { "HEAD".into() } else { id.to_string() },
+            name: String::new(),
+            checkout: true,
+            orphan: false,
+            clear_orphan: true,
+            prefilled: false,
+        }
     }
+}
+
+/// The name `FormCreateBranch` suggests for a branch at `id`: the first local branch there, else
+/// the first remote branch without its remote prefix, else the first tag.
+fn suggested_name(data: &RepoData, id: ObjectId) -> Option<String> {
+    let id = if id.is_zero() { data.head } else { id };
+    let refs = data.refs_by_commit.get(&id)?;
+    let remote = |r: &&gitext_core::GitRef| r.is_remote() && !gitext_core::git_ref::ref_name::is_remote_head(&r.complete_name);
+    refs.iter()
+        .find(|r| r.is_head())
+        .or_else(|| refs.iter().find(remote))
+        .or_else(|| refs.iter().find(|r| r.is_tag()))
+        .map(|r| r.local_name())
 }
 
 impl Dialog for CreateBranchDialog {
@@ -32,8 +56,23 @@ impl Dialog for CreateBranchDialog {
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         let normalised = normalise(&self.name, &GitBranchNameOptions::new("_"));
         egui::Grid::new("create_branch").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
+            let mut prefilled = false;
+            if !self.prefilled {
+                self.prefilled = true;
+                if let Some(name) = cx.data.and_then(|d| suggested_name(d, self.id)) {
+                    self.name = name;
+                    prefilled = true;
+                }
+            }
             form_row(ui, "Branch name", |ui| {
-                let r = ui.add(egui::TextEdit::singleline(&mut self.name).desired_width(300.0));
+                let mut out = egui::TextEdit::singleline(&mut self.name).desired_width(300.0).show(ui);
+                if prefilled {
+                    // caret after the suggested name, so it can be extended
+                    let end = egui::text::CCursor::new(self.name.chars().count());
+                    out.state.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
+                    out.state.store(ui.ctx(), out.response.id);
+                }
+                let r = out.response;
                 if r.lost_focus() {
                     self.name = normalise(&self.name, &GitBranchNameOptions::new("_"));
                 }
@@ -229,5 +268,28 @@ impl Dialog for SetUpstreamDialog {
             return false;
         }
         !cancel
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gitext_core::GitRef;
+
+    fn data(id: ObjectId, refs: &[(&str, &str)]) -> RepoData {
+        let mut d = RepoData { head: id, ..Default::default() };
+        d.refs_by_commit.insert(id, refs.iter().map(|(name, remote)| GitRef::new(id, *name, *remote)).collect());
+        d
+    }
+
+    #[test]
+    fn suggests_local_then_remote_then_tag() {
+        let id = ObjectId::parse("1111111111111111111111111111111111111111").unwrap();
+        let all = [("refs/tags/v1", ""), ("refs/remotes/origin/HEAD", "origin"), ("refs/remotes/origin/feature/x", "origin"), ("refs/heads/main", "")];
+        assert_eq!(suggested_name(&data(id, &all), id).as_deref(), Some("main"));
+        assert_eq!(suggested_name(&data(id, &all[..3]), id).as_deref(), Some("feature/x"));
+        assert_eq!(suggested_name(&data(id, &all[..2]), id).as_deref(), Some("v1"));
+        assert_eq!(suggested_name(&data(id, &all[..1]), ObjectId::default()).as_deref(), Some("v1"));
+        assert_eq!(suggested_name(&data(id, &[]), id), None);
     }
 }
