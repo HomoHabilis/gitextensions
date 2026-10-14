@@ -75,12 +75,20 @@ pub fn open_with_system(path: &str) {
 /// Opens a folder in the configured file manager (`configured`: a command, arguments allowed),
 /// or with the system handler when none is configured.
 pub fn open_folder(path: &str, configured: &str) {
+    let configured = configured.trim();
+    if configured.is_empty() {
+        return open_with_system(path);
+    }
+    // A plain executable path may contain spaces ("C:\Program Files\…"); only split
+    // the setting into a command and arguments when it is not one.
+    let unquoted = configured.trim_matches('"');
+    if std::path::Path::new(unquoted).is_file() {
+        spawn_detached(std::process::Command::new(unquoted).arg(path));
+        return;
+    }
     let mut parts = configured.split_whitespace();
-    match parts.next() {
-        Some(cmd) => {
-            spawn_detached(std::process::Command::new(cmd).args(parts).arg(path));
-        }
-        None => open_with_system(path),
+    if let Some(cmd) = parts.next() {
+        spawn_detached(std::process::Command::new(cmd).args(parts).arg(path));
     }
 }
 
