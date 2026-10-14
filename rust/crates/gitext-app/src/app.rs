@@ -349,6 +349,12 @@ impl GitExtApp {
                         }
                     }
                     Action::Copy(s) => crate::util::copy_to_clipboard(ctx, s),
+                    Action::SetRevisionFilter(f) => {
+                        if let Some(b) = &mut self.browse {
+                            b.set_revision_filter(f);
+                            b.reload_log(ctx, &self.settings);
+                        }
+                    }
                     Action::Exit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
                 }
             }
@@ -472,6 +478,14 @@ impl GitExtApp {
                         open.push(Box::new(submodules::SubmodulesDialog::default()));
                         ui.close_kind(egui::UiKind::Menu);
                     }
+                    if ui.add_enabled(!data.is_bare, egui::Button::new("Update all submodules")).clicked() {
+                        self.actions.push(Action::RunGit(GitRun::new("Update all submodules", gitext_core::commands::submodule_update(&[], false))));
+                        ui.close_kind(egui::UiKind::Menu);
+                    }
+                    if ui.add_enabled(!data.is_bare, egui::Button::new("Synchronize all submodules")).clicked() {
+                        self.actions.push(Action::RunGit(GitRun::new("Synchronize all submodules", gitext_core::commands::submodule_sync(None))));
+                        ui.close_kind(egui::UiKind::Menu);
+                    }
                     if ui.button("Manage worktrees…  (Ctrl+Alt+W)").clicked() {
                         open.push(Box::new(worktrees::WorktreesDialog::default()));
                         ui.close_kind(egui::UiKind::Menu);
@@ -546,6 +560,16 @@ impl GitExtApp {
                     item(ui, "Manage stashes…", &mut || Box::new(stash::StashDialog::default()));
                     item(ui, "Reset changes…", &mut || Box::new(reset::ResetChangesDialog::all()));
                     item(ui, "Clean working directory…", &mut || Box::new(cleanup::CleanupDialog::default()));
+                    ui.add_enabled_ui(!data.is_bare && !head.is_zero(), |ui| {
+                        item(ui, "Undo last commit…", &mut || {
+                            Box::new(Confirm::new(
+                                "Undo last commit",
+                                "You will still be able to find all the commit's changes in the staging area\n\nDo you want to continue?",
+                                "Undo",
+                                |cx| cx.run(GitRun::new("Undo last commit", GitArgs::new("reset").arg("--soft").arg("HEAD~1"))),
+                            ))
+                        });
+                    });
                     ui.separator();
                     item(ui, "Create branch…  (Ctrl+B)", &mut || Box::new(branch::CreateBranchDialog::new(at)));
                     item(ui, "Checkout branch…  (Ctrl+.)", &mut || Box::new(checkout::CheckoutBranchDialog::new(&data, None, false)));
@@ -742,7 +766,7 @@ impl eframe::App for GitExtApp {
         if let Some(browse) = &mut self.browse {
             egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
                 ui.add_space(2.0);
-                crate::prof::scope("toolbar", || browse.toolbar(ui, &mut self.settings, &mut self.actions));
+                crate::prof::scope("toolbar", || browse.toolbar(ui, &mut self.settings, &self.history, &mut self.actions));
                 ui.add_space(2.0);
             });
             egui::TopBottomPanel::bottom("statusbar").show(ctx, |ui| crate::prof::scope("statusbar", || browse.status_bar(ui)));

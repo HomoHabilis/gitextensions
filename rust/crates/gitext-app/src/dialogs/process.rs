@@ -55,7 +55,9 @@ impl ProcessDialog {
             .or_else(|| cx.module.map(|m| m.work_dir().to_path_buf()))
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         self.output.push_str(&format!("$ git {args}\n"));
-        match Executable::git(dir).spawn_streaming(args) {
+        let mut git = Executable::git(dir);
+        git.env.extend(self.run.env.iter().cloned());
+        match git.spawn_streaming(args) {
             Ok(p) => self.process = Some(p),
             Err(e) => {
                 self.output.push_str(&format!("{e}\n"));

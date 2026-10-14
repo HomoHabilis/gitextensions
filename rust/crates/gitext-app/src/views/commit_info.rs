@@ -96,7 +96,7 @@ impl CommitInfo {
         Loaded { revision, describe: describe.flatten(), branches, tags }
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, module: &GitModule, rev: Option<&GitRevision>, children: Vec<ObjectId>) -> Option<CommitInfoLink> {
+    pub fn ui(&mut self, ui: &mut Ui, module: &GitModule, rev: Option<&GitRevision>, children: Vec<ObjectId>, avatars: Option<(&mut crate::avatars::Avatars, u32)>) -> Option<CommitInfoLink> {
         let palette = Palette::for_ui(ui);
         let Some(rev) = rev else {
             ui.label(RichText::new("No commit selected").italics().color(palette.muted));
@@ -113,52 +113,65 @@ impl CommitInfo {
 
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             let full = full.as_ref().unwrap_or(rev);
-            egui::Grid::new("commit_header").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
-                ui.label(RichText::new("Author").color(palette.muted));
-                ui.label(format!("{} <{}>", full.author, full.author_email));
-                ui.end_row();
-                ui.label(RichText::new("Date").color(palette.muted));
-                ui.label(format!("{} ({})", short_date(full.author_unix_time), format_date(full.author_unix_time)));
-                ui.end_row();
-                if full.committer != full.author || full.committer_email != full.author_email || full.commit_unix_time != full.author_unix_time {
-                    ui.label(RichText::new("Committer").color(palette.muted));
-                    ui.label(format!("{} <{}>", full.committer, full.committer_email));
+            let mut header = |ui: &mut Ui| {
+                egui::Grid::new("commit_header").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+                    ui.label(RichText::new("Author").color(palette.muted));
+                    ui.label(format!("{} <{}>", full.author, full.author_email));
                     ui.end_row();
-                    ui.label(RichText::new("Commit date").color(palette.muted));
-                    ui.label(format!("{} ({})", short_date(full.commit_unix_time), format_date(full.commit_unix_time)));
+                    ui.label(RichText::new("Date").color(palette.muted));
+                    ui.label(format!("{} ({})", short_date(full.author_unix_time), format_date(full.author_unix_time)));
                     ui.end_row();
-                }
-                ui.label(RichText::new("Commit hash").color(palette.muted));
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(id.to_string()).monospace());
-                    if ui.small_button("📋").on_hover_text("Copy").clicked() {
-                        crate::util::copy_to_clipboard(ui.ctx(), id.to_string());
+                    if full.committer != full.author || full.committer_email != full.author_email || full.commit_unix_time != full.author_unix_time {
+                        ui.label(RichText::new("Committer").color(palette.muted));
+                        ui.label(format!("{} <{}>", full.committer, full.committer_email));
+                        ui.end_row();
+                        ui.label(RichText::new("Commit date").color(palette.muted));
+                        ui.label(format!("{} ({})", short_date(full.commit_unix_time), format_date(full.commit_unix_time)));
+                        ui.end_row();
+                    }
+                    ui.label(RichText::new("Commit hash").color(palette.muted));
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(id.to_string()).monospace());
+                        if ui.small_button("📋").on_hover_text("Copy").clicked() {
+                            crate::util::copy_to_clipboard(ui.ctx(), id.to_string());
+                        }
+                    });
+                    ui.end_row();
+                    if full.has_parent() {
+                        ui.label(RichText::new(if full.parents().len() > 1 { "Parents" } else { "Parent" }).color(palette.muted));
+                        ui.horizontal_wrapped(|ui| {
+                            for p in full.parents() {
+                                if ui.link(RichText::new(p.to_short_string()).monospace()).clicked() {
+                                    link = Some(CommitInfoLink::Select(*p));
+                                }
+                            }
+                        });
+                        ui.end_row();
+                    }
+                    if !children.is_empty() {
+                        ui.label(RichText::new(if children.len() > 1 { "Children" } else { "Child" }).color(palette.muted));
+                        ui.horizontal_wrapped(|ui| {
+                            for c in &children {
+                                if ui.link(RichText::new(c.to_short_string()).monospace()).clicked() {
+                                    link = Some(CommitInfoLink::Select(*c));
+                                }
+                            }
+                        });
+                        ui.end_row();
                     }
                 });
-                ui.end_row();
-                if full.has_parent() {
-                    ui.label(RichText::new(if full.parents().len() > 1 { "Parents" } else { "Parent" }).color(palette.muted));
-                    ui.horizontal_wrapped(|ui| {
-                        for p in full.parents() {
-                            if ui.link(RichText::new(p.to_short_string()).monospace()).clicked() {
-                                link = Some(CommitInfoLink::Select(*p));
-                            }
-                        }
+            };
+            // the author image left of the header (`AvatarControl` of `CommitInfo`)
+            match avatars {
+                Some((avatars, cache_days)) => {
+                    ui.horizontal_top(|ui| {
+                        avatars.show(ui, &full.author_email, &full.author, 64.0, cache_days);
+                        ui.add_space(6.0);
+                        ui.vertical(|ui| header(ui));
                     });
-                    ui.end_row();
                 }
-                if !children.is_empty() {
-                    ui.label(RichText::new(if children.len() > 1 { "Children" } else { "Child" }).color(palette.muted));
-                    ui.horizontal_wrapped(|ui| {
-                        for c in &children {
-                            if ui.link(RichText::new(c.to_short_string()).monospace()).clicked() {
-                                link = Some(CommitInfoLink::Select(*c));
-                            }
-                        }
-                    });
-                    ui.end_row();
-                }
-            });
+                None => header(ui),
+            }
             ui.add_space(8.0);
             let body = full.body().unwrap_or(&full.subject);
             ui.add(egui::Label::new(RichText::new(body).size(ui.text_style_height(&egui::TextStyle::Body) + 0.5)).wrap().selectable(true));

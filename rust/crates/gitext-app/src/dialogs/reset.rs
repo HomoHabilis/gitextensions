@@ -157,3 +157,93 @@ impl Dialog for ResetChangesDialog {
         !cancel
     }
 }
+
+/// Port of `FormResetAnotherBranch`: moves a local branch (not the current one) to a commit
+/// with `git update-ref`, only fast-forward unless forced.
+pub struct ResetAnotherBranchDialog {
+    id: ObjectId,
+    subject: String,
+    /// (name, complete name, commit) of the local branches that can be reset.
+    branches: Vec<(String, String, ObjectId)>,
+    branch: String,
+    force: bool,
+    /// Whether the chosen branch is an ancestor of the commit (checked in the background).
+    fast_forward: crate::tasks::Loader<String, bool>,
+}
+
+impl ResetAnotherBranchDialog {
+    pub fn new(data: &RepoData, rev: &gitext_core::GitRevision) -> Self {
+        let current = data.current_branch.as_deref();
+        // local branches tracking a remote branch at the commit first, as upstream
+        let remotes: Vec<&gitext_core::GitRef> = rev.refs.iter().filter(|r| r.is_remote()).collect();
+        let tracks = |b: &gitext_core::GitRef| remotes.iter().any(|r| r.name == format!("{}/{}", b.tracking_remote, b.merge_with) || r.name.split_once('/').is_some_and(|(_, n)| n == b.name));
+        let mut locals: Vec<&gitext_core::GitRef> = data.local_branches().filter(|b| Some(b.name.as_str()) != current && b.object_id != rev.object_id).collect();
+        locals.sort_by_key(|b| !tracks(b));
+        let candidates: Vec<&&gitext_core::GitRef> = locals.iter().filter(|b| tracks(b)).collect();
+        let branch = if remotes.len() == 1 && candidates.len() == 1 { candidates[0].name.clone() } else { String::new() };
+        ResetAnotherBranchDialog {
+            id: rev.object_id,
+            subject: rev.subject.clone(),
+            branches: locals.iter().map(|b| (b.name.clone(), b.complete_name.clone(), b.object_id)).collect(),
+            branch,
+            force: false,
+            fast_forward: Default::default(),
+        }
+    }
+}
+
+impl Dialog for ResetAnotherBranchDialog {
+    fn title(&self) -> String {
+        "Reset branch".into()
+    }
+
+    fn kind(&self) -> super::DialogKind {
+        super::DialogKind::Modal(560.0)
+    }
+
+    fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
+        let palette = Palette::for_ui(ui);
+        ui.label(format!("Reset to {}  {}", self.id.to_short_string(), self.subject));
+        ui.add_space(4.0);
+        let names: Vec<String> = self.branches.iter().map(|(n, ..)| n.clone()).collect();
+        ui.horizontal(|ui| {
+            ui.label("Reset local branch:");
+            super::branch_combo(ui, "reset_another_branch", &mut self.branch, &names, 300.0);
+        });
+        let selected = self.branches.iter().find(|(n, ..)| *n == self.branch.trim()).cloned();
+        let fast_forward = match (&selected, cx.module) {
+            (Some((name, _, at)), Some(m)) => {
+                let (m, id, at) = (m.clone(), self.id, *at);
+                self.fast_forward.request(cx.ctx, name.clone(), move || m.is_ancestor(at, id)).copied()
+            }
+            _ => None,
+        };
+        ui.checkbox(&mut self.force, "Force reset for a non-fast-forward reset");
+        ui.label(
+            RichText::new("You can only reset a branch safely if there is a direct path from it to the selected revision.\nForcing a branch to reset if it has not been merged might leave some commits unreachable.")
+                .small()
+                .color(palette.muted),
+        );
+        if selected.is_none() && !self.branch.trim().is_empty() {
+            ui.label(RichText::new(format!("'{}' is not the name of an existing local branch.", self.branch.trim())).color(palette.error));
+        } else if fast_forward == Some(false) && !self.force {
+            ui.label(RichText::new("This is not a fast-forward: check \"Force\" to reset anyway.").color(palette.warning));
+        }
+        ui.checkbox(&mut cx.settings.checkout_other_branch_after_reset, "Checkout branch after reset");
+        let enabled = selected.is_some() && (self.force || fast_forward == Some(true));
+        let (ok, cancel) = ok_cancel(ui, "Reset", enabled);
+        if ok {
+            let Some((name, complete, _)) = selected else { return true };
+            let mut run = GitRun::new(format!("Reset {name}"), commands::update_ref(&complete, self.id));
+            if cx.settings.checkout_other_branch_after_reset {
+                if let Some(d) = cx.data {
+                    run = run.then(Action::OpenDialog(Box::new(super::checkout::CheckoutBranchDialog::new(d, Some(name), false))));
+                }
+            }
+            cx.push(Action::SaveSettings);
+            cx.run(run);
+            return false;
+        }
+        !cancel
+    }
+}

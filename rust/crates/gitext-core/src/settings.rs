@@ -193,6 +193,27 @@ pub struct AppSettings {
     pub left_panel_visible: bool,
     pub commit_info_position_right: bool,
     pub last_browse_tab: usize,
+
+    // Avatars (`AppSettings.AvatarProvider` and related)
+    pub avatar_provider: AvatarProvider,
+    pub show_author_avatar_column: bool,
+    pub show_author_avatar_in_commit_info: bool,
+    /// Days a downloaded avatar is kept in the disk cache (`AvatarImageCacheDays`).
+    pub avatar_cache_days: u32,
+
+    // Dialogs
+    pub checkout_other_branch_after_reset: bool,
+}
+
+/// Where author images come from (`AvatarProvider`); author initials are shown when there is
+/// no image (`AvatarFallbackType.AuthorInitials`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum AvatarProvider {
+    /// Author initials only (upstream's default).
+    #[default]
+    None,
+    /// GitHub for GitHub no-reply addresses, else Gravatar (upstream "Default").
+    Gravatar,
 }
 
 impl Default for AppSettings {
@@ -280,6 +301,11 @@ impl Default for AppSettings {
             left_panel_visible: true,
             commit_info_position_right: false,
             last_browse_tab: 0,
+            avatar_provider: AvatarProvider::None,
+            show_author_avatar_column: true,
+            show_author_avatar_in_commit_info: true,
+            avatar_cache_days: 13,
+            checkout_other_branch_after_reset: true,
         }
     }
 }

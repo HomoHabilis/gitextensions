@@ -35,6 +35,8 @@ pub mod process;
 pub mod pull;
 pub mod push;
 pub mod rebase;
+pub mod reword;
+pub mod revision_filter;
 pub mod reflog;
 pub mod remotes;
 pub mod reset;
@@ -78,6 +80,8 @@ pub enum Action {
     ReloadLog,
     /// Copy text to the clipboard.
     Copy(String),
+    /// Set the revision filter of the browse window and reload the log.
+    SetRevisionFilter(crate::views::revision_grid::RevisionFilter),
     Exit,
 }
 
@@ -92,15 +96,17 @@ pub struct GitRun {
     pub check_conflicts: bool,
     /// Keep the dialog open even on success.
     pub keep_open: bool,
+    /// Environment variables for the git processes.
+    pub env: Vec<(String, String)>,
 }
 
 impl GitRun {
     pub fn new(title: impl Into<String>, args: GitArgs) -> Self {
-        GitRun { title: title.into(), commands: vec![args], working_dir: None, refresh: true, then: Vec::new(), check_conflicts: false, keep_open: false }
+        GitRun { title: title.into(), commands: vec![args], working_dir: None, refresh: true, then: Vec::new(), check_conflicts: false, keep_open: false, env: Vec::new() }
     }
 
     pub fn many(title: impl Into<String>, commands: Vec<GitArgs>) -> Self {
-        GitRun { title: title.into(), commands, working_dir: None, refresh: true, then: Vec::new(), check_conflicts: false, keep_open: false }
+        GitRun { title: title.into(), commands, working_dir: None, refresh: true, then: Vec::new(), check_conflicts: false, keep_open: false, env: Vec::new() }
     }
 
     pub fn conflicts(mut self) -> Self {
@@ -125,6 +131,11 @@ impl GitRun {
 
     pub fn keep_open(mut self) -> Self {
         self.keep_open = true;
+        self
+    }
+
+    pub fn env(mut self, name: &str, value: impl Into<String>) -> Self {
+        self.env.push((name.to_string(), value.into()));
         self
     }
 }
