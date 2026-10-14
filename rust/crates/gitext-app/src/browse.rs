@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use egui::{RichText, Ui};
 use gitext_core::commands::{self, UntrackedFilesMode};
+use gitext_core::repo_history::RepositoryHistory;
 use gitext_core::settings::{AppSettings, BranchFilterMode, PullAction};
 use gitext_core::status::GitItemStatus;
 use gitext_core::{GitArgs, GitModule, ObjectId};
@@ -15,7 +16,7 @@ use crate::tasks::Task;
 use crate::theme::Palette;
 use crate::views::commit_info::{CommitInfo, CommitInfoLink};
 use crate::views::file_tree_view::FileTreeView;
-use crate::views::left_panel::{LeftCommand, LeftPanel};
+use crate::views::left_panel::{FetchThen, LeftCommand, LeftPanel};
 use crate::views::revision_diff::{DiffCommand, RevisionDiffView};
 use crate::views::revision_grid::{GridCommand, RevisionGrid, TextFilterKind};
 
@@ -27,6 +28,7 @@ pub struct BrowseView {
     first_load: bool,
     pub grid: RevisionGrid,
     left: LeftPanel,
+    avatars: crate::avatars::Avatars,
     pub tab: usize,
     commit_info: CommitInfo,
     diff: RevisionDiffView,
@@ -53,6 +55,7 @@ impl BrowseView {
             first_load: true,
             grid: RevisionGrid::default(),
             left: LeftPanel::default(),
+            avatars: crate::avatars::Avatars::default(),
             tab: settings.last_browse_tab.min(2),
             commit_info: CommitInfo::default(),
             diff: RevisionDiffView::default(),
@@ -190,6 +193,21 @@ impl BrowseView {
             self.filter_input.clear();
             actions.push(Action::ReloadLog);
         }
+        if shortcut(ctx, M::COMMAND, Key::I) {
+            open(actions, Box::new(dialogs::revision_filter::RevisionFilterDialog::new(&self.grid.filter, settings)));
+        }
+        // compare (`RevisionGridControl` hotkeys), on the latest selected commit
+        if let Some(id) = self.grid.selected_revision() {
+            if shortcut(ctx, M::COMMAND, Key::L) {
+                self.handle_grid(GridCommand::SelectAsBase(id), settings, actions);
+            }
+            if shortcut(ctx, M::COMMAND, Key::R) && self.grid.base_to_compare.is_some() {
+                self.handle_grid(GridCommand::CompareToBase(id), settings, actions);
+            }
+            if !viewer_focused && shortcut(ctx, M::COMMAND, Key::D) && id != ObjectId::WORK_TREE {
+                self.handle_grid(GridCommand::CompareWithWorkTree(id), settings, actions);
+            }
+        }
         if shortcut(ctx, ctrl_shift, Key::H) && !self.grid.filter.path.is_empty() {
             self.grid.filter.path.clear();
             actions.push(Action::ReloadLog);
@@ -206,6 +224,7 @@ impl BrowseView {
             settings.last_browse_tab = t;
         }
         self.grid.has_focus = tab.is_none();
+        self.left.has_focus = false;
         self.diff.list.set_focus(tab == Some(1));
         self.file_tree.has_focus = tab == Some(2);
     }
@@ -303,10 +322,10 @@ impl BrowseView {
     }
 
     /// Toolbar (`ToolStripMain`) and filter bar (`FilterToolBar`).
-    pub fn toolbar(&mut self, ui: &mut Ui, settings: &mut AppSettings, actions: &mut Vec<Action>) {
+    pub fn toolbar(&mut self, ui: &mut Ui, settings: &mut AppSettings, history: &RepositoryHistory, actions: &mut Vec<Action>) {
         let palette = Palette::for_ui(ui);
         ui.horizontal(|ui| {
-            ui.label(RichText::new(format!("📂 {}", self.module.name())).strong()).on_hover_text(self.module.work_dir().display().to_string());
+            self.repository_menu(ui, history, actions);
             let branch = self.data.current_branch.clone().unwrap_or_else(|| "(no branch)".into());
             let br = ui.button(format!("🔀 {branch}")).on_hover_text("Checkout branch");
             if br.clicked() {
@@ -429,6 +448,9 @@ impl BrowseView {
             if ui.button("🔍").on_hover_text("Apply filter").clicked() {
                 self.apply_text_filter(actions);
             }
+            if ui.button("⚙").on_hover_text("Advanced filter… (Ctrl+I)").clicked() {
+                actions.push(Action::OpenDialog(Box::new(dialogs::revision_filter::RevisionFilterDialog::new(&self.grid.filter, settings))));
+            }
             if self.grid.filter.is_active() && ui.button(RichText::new("✖ Clear filter").color(palette.warning)).clicked() {
                 self.grid.filter = Default::default();
                 self.filter_input.clear();
@@ -464,6 +486,73 @@ impl BrowseView {
         self.grid.filter.text = self.filter_input.clone();
         self.grid.filter.kind = self.filter_kind;
         actions.push(Action::ReloadLog);
+    }
+
+    /// The repository dropdown of the toolbar (`_NO_TRANSLATE_WorkingDir`): switches to a
+    /// favourite or recent repository.
+    fn repository_menu(&self, ui: &mut Ui, history: &RepositoryHistory, actions: &mut Vec<Action>) {
+        use gitext_core::repo_history::{Repository, RepositoryAnchor};
+        let work_dir = self.module.work_dir().display().to_string();
+        let item = |ui: &mut Ui, n: usize, r: &Repository, actions: &mut Vec<Action>| {
+            let pin = if r.anchor == RepositoryAnchor::None { "" } else { "📌 " };
+            let current = r.path.trim_end_matches(['/', '\\']) == work_dir.trim_end_matches(['/', '\\']);
+            let text = RichText::new(format!("{pin}{n}: {}", r.name()));
+            let resp = ui.add(egui::Button::selectable(current, if current { text.strong() } else { text }).shortcut_text(r.parent_path())).on_hover_text(&r.path);
+            if resp.clicked() {
+                if !current {
+                    actions.push(Action::OpenRepo(r.path.clone().into()));
+                }
+                ui.close_kind(egui::UiKind::Menu);
+            }
+        };
+        ui.menu_button(RichText::new(format!("📂 {}", self.module.name())).strong(), |ui| {
+            ui.set_min_width(320.0);
+            if !history.favourites.is_empty() {
+                ui.menu_button("Favourite repositories", |ui| {
+                    let mut categories: Vec<Option<String>> = history.favourites.iter().map(|r| r.category.clone()).collect();
+                    categories.sort();
+                    categories.dedup();
+                    for c in categories {
+                        let repos = history.favourites.iter().filter(|r| r.category == c);
+                        match &c {
+                            Some(name) if !name.is_empty() => {
+                                ui.menu_button(name.as_str(), |ui| {
+                                    for (i, r) in repos.enumerate() {
+                                        item(ui, i + 1, r, actions);
+                                    }
+                                });
+                            }
+                            _ => {
+                                for (i, r) in repos.enumerate() {
+                                    item(ui, i + 1, r, actions);
+                                }
+                            }
+                        }
+                    }
+                });
+                ui.separator();
+            }
+            // pinned repositories first, as on the dashboard
+            let mut recent: Vec<&Repository> = history.recent.iter().collect();
+            recent.sort_by_key(|r| r.anchor != RepositoryAnchor::AnchoredInTop);
+            for (i, r) in recent.into_iter().enumerate() {
+                item(ui, i + 1, r, actions);
+            }
+            ui.separator();
+            if ui.button("Open…").clicked() {
+                let recent = history.recent.iter().map(|r| r.path.clone()).collect();
+                actions.push(Action::OpenDialog(Box::new(dialogs::open_repo::OpenRepoDialog::new(Some(work_dir.clone()), recent))));
+                ui.close_kind(egui::UiKind::Menu);
+            }
+        })
+        .response
+        .on_hover_text(self.module.work_dir().display().to_string());
+    }
+
+    pub fn set_revision_filter(&mut self, filter: crate::views::revision_grid::RevisionFilter) {
+        self.filter_input = filter.text.clone();
+        self.filter_kind = filter.kind;
+        self.grid.filter = filter;
     }
 
     pub fn set_path_filter(&mut self, path: String) {
@@ -601,6 +690,7 @@ impl BrowseView {
 
     pub fn ui(&mut self, ctx: &egui::Context, ui: &mut Ui, settings: &mut AppSettings, actions: &mut Vec<Action>) {
         crate::prof::scope("poll", || self.poll(ctx, settings));
+        self.avatars.update(ctx, settings);
         let selected = self.grid.selected_revision();
         if settings.left_panel_visible {
             egui::SidePanel::left("left_panel").resizable(true).default_width(240.0).width_range(150.0..=500.0).show_inside(ui, |ui| {
@@ -630,7 +720,7 @@ impl BrowseView {
                         .and_then(|id| self.grid.graph.try_get_node(&id))
                         .map(|n| self.grid.graph.store.nodes[n].children.iter().map(|&c| self.grid.graph.store.nodes[c].object_id).collect())
                         .unwrap_or_default();
-                    if let Some(CommitInfoLink::Select(id)) = crate::prof::scope("commit_info", || self.commit_info.ui(ui, &self.module, rev.as_ref(), children)) {
+                    if let Some(CommitInfoLink::Select(id)) = crate::prof::scope("commit_info", || self.commit_info.ui(ui, &self.module, rev.as_ref(), children, settings.show_author_avatar_in_commit_info.then_some((&mut self.avatars, settings.avatar_cache_days)))) {
                         self.grid.select(id);
                     }
                 }
@@ -666,7 +756,7 @@ impl BrowseView {
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
             self.operation_bar(ui, actions);
-            let events = crate::prof::scope("grid", || self.grid.ui(ui, settings, &self.data));
+            let events = crate::prof::scope("grid", || self.grid.ui(ui, settings, &self.data, &mut self.avatars));
             if events.selection_changed {
                 if let Some(id) = self.grid.selected_revision() {
                     gitext_core::exec::log_event(format!("selected {}", id.to_short_string()));
@@ -760,6 +850,39 @@ impl BrowseView {
             LeftCommand::ManageWorktrees => open(actions, Box::new(worktrees::WorktreesDialog::default())),
             LeftCommand::SetUpstream(name) => open(actions, Box::new(branch::SetUpstreamDialog::new(&self.data, &name))),
             LeftCommand::CreateStash => open(actions, Box::new(stash::CreateStashDialog::default())),
+            LeftCommand::CreateStashStaged => actions.push(Action::RunGit(GitRun::new("Stash staged", GitArgs::new("stash").arg("push").arg("--staged")))),
+            LeftCommand::ManageStashes => open(actions, Box::new(stash::StashDialog::default())),
+            LeftCommand::FetchRemoteBranch(full, then) => {
+                // `RemoteBranchNode.Fetch`: `git fetch <remote> +<branch>` updates the remote
+                // branch, then the next step opens on success
+                let Some(remote) = self.data.remotes.iter().map(|r| r.name.as_str()).filter(|r| full.starts_with(&format!("{r}/"))).max_by_key(|r| r.len()) else { return };
+                let branch = &full[remote.len() + 1..];
+                let mut run = GitRun::new(format!("Fetch {full}"), self.module.fetch_args(remote, branch, "", None, false, false));
+                let next: Option<Box<dyn Dialog>> = match then {
+                    FetchThen::Nothing => None,
+                    FetchThen::Checkout => Some(Box::new(checkout::CheckoutBranchDialog::new(&self.data, Some(full.clone()), true))),
+                    FetchThen::Merge => Some(Box::new(merge::MergeDialog::new(&self.data, &full))),
+                    FetchThen::Rebase => Some(Box::new(rebase::RebaseDialog::new(&self.data, &full))),
+                    FetchThen::CreateBranch => {
+                        // the branch is created at the fetched commit: resolved when the dialog opens
+                        Some(Box::new(branch::CreateBranchDialog::from_ref(&full)))
+                    }
+                };
+                if let Some(d) = next {
+                    run = run.then(Action::OpenDialog(d));
+                }
+                actions.push(Action::RunGit(run));
+            }
+            LeftCommand::FetchPruneRemote(remote) => {
+                actions.push(Action::RunGit(GitRun::new(format!("Fetch and prune {remote}"), self.module.fetch_args(&remote, "", "", None, true, false))));
+            }
+            LeftCommand::FetchAllRemotes => actions.push(Action::RunGit(GitRun::new("Fetch all remotes", self.module.fetch_args("", "", "", None, settings.prune_on_fetch, false)))),
+            LeftCommand::FetchPruneAllRemotes => actions.push(Action::RunGit(GitRun::new("Fetch and prune all remotes", self.module.fetch_args("", "", "", None, true, false)))),
+            LeftCommand::OpenUrl(url) => crate::util::open_with_system(&url),
+            LeftCommand::Copy(s) => actions.push(Action::Copy(s)),
+            LeftCommand::ShowInFolder(path) => crate::util::open_folder(&path, &settings.file_manager),
+            LeftCommand::CreateWorktree => open(actions, Box::new(worktrees::CreateWorktreeDialog::default())),
+            LeftCommand::PruneWorktrees => actions.push(Action::RunGit(GitRun::new("Prune worktrees", GitArgs::new("worktree").arg("prune")))),
         }
     }
 
@@ -845,10 +968,83 @@ impl BrowseView {
                     }
                 }
             }
+            GridCommand::RewordCommit(id) | GridCommand::EditCommit(id) => {
+                let Some(rev) = self.grid.revision(&id).cloned() else { return };
+                if !self.grid.is_ancestor_of(id, self.data.head) && !self.module.is_ancestor(id, self.data.head) {
+                    actions.push(Action::Message { title: "Rebase".into(), text: "The commit is not in the history of the current branch.".into(), error: true });
+                    return;
+                }
+                if matches!(c, GridCommand::RewordCommit(_)) {
+                    open(actions, Box::new(reword::RewordCommitDialog::new(&rev)));
+                } else {
+                    actions.push(Action::RunGit(reword::rebase_run("Edit commit", "edit", rev.parents().first().copied())));
+                }
+            }
+            GridCommand::ResetAnotherBranch(id) => {
+                if let Some(rev) = self.grid.revision(&id) {
+                    open(actions, Box::new(reset::ResetAnotherBranchDialog::new(&self.data, rev)));
+                }
+            }
+            GridCommand::SelectAsBase(id) => self.grid.base_to_compare = Some(id),
+            GridCommand::CompareToBase(id) => match self.grid.base_to_compare {
+                Some(base) => open(actions, Box::new(compare::CompareDialog::revisions(&self.data, (self.revision_label(base), base), (self.revision_label(id), id)))),
+                None => actions.push(Action::Message { title: "Compare".into(), text: "Base commit for compare is not selected.".into(), error: true }),
+            },
+            GridCommand::CompareWithCurrentBranch(id) => match self.data.current_branch.clone() {
+                Some(branch) if !self.data.head.is_zero() => {
+                    open(actions, Box::new(compare::CompareDialog::revisions(&self.data, (self.revision_label(id), id), (branch, self.data.head))));
+                }
+                _ => actions.push(Action::Message { title: "Compare".into(), text: "No branch is currently selected".into(), error: true }),
+            },
+            GridCommand::CompareToBranch(id) => open(actions, Box::new(compare::CompareDialog::to_branch(&self.data, id))),
+            GridCommand::OpenWithDifftool => {
+                // `DiffSelectedCommitsWithDifftool`: the first and the last selected commit, or
+                // the commit and its parent
+                let (first, second) = self.diff_revisions();
+                let Some(second) = second else { return };
+                let mut args = GitArgs::new("difftool").arg("--dir-diff").arg("--find-renames").arg("--find-copies");
+                match (first, second) {
+                    (Some(f), s) if s == ObjectId::INDEX => {
+                        args.add("--cached");
+                        if f != self.data.head {
+                            args.add(f.to_string());
+                        }
+                    }
+                    // the work tree to the index is plain `git difftool`
+                    (Some(f), s) if s == ObjectId::WORK_TREE => {
+                        if f != ObjectId::INDEX {
+                            args.add(f.to_string());
+                        }
+                    }
+                    (Some(f), s) if f.is_artificial() => {
+                        // from the work tree / index to a commit: the reverse direction
+                        args.add("-R");
+                        if f == ObjectId::INDEX {
+                            args.add("--cached");
+                        }
+                        args.add(s.to_string());
+                    }
+                    (Some(f), s) => {
+                        args.add(f.to_string());
+                        args.add(s.to_string());
+                    }
+                    (None, s) => {
+                        args.add(format!("{s}^"));
+                        args.add(s.to_string());
+                    }
+                }
+                actions.push(Action::RunTool { tool_type: gitext_core::diff_tools::ToolType::Diff, args });
+            }
+            GridCommand::EditGitIgnore => open(actions, Box::new(gitignore::GitIgnoreDialog::new(false))),
             GridCommand::FixupCommit(id, kind) => {
                 actions.push(Action::RunGit(GitRun::new(format!("Create {kind} commit"), GitArgs::new("commit").arg(format!("--fixup={}{id}", if kind == "fixup" { String::new() } else { format!("{kind}:") })).arg("--no-edit"))));
             }
         }
+    }
+
+    /// A short name of a commit for titles: its first branch or tag, else its hash.
+    fn revision_label(&self, id: ObjectId) -> String {
+        self.data.refs_by_commit.get(&id).and_then(|refs| refs.iter().find(|r| r.is_head()).or(refs.first())).map(|r| r.name.clone()).unwrap_or_else(|| id.to_short_string())
     }
 
     pub fn handle_diff(&mut self, c: DiffCommand, settings: &mut AppSettings, actions: &mut Vec<Action>) {

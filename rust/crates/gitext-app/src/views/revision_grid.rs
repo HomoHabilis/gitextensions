@@ -64,11 +64,25 @@ pub struct RevisionFilter {
     pub until: String,
     pub path: String,
     pub follow: bool,
+    /// Advanced filter (`FormRevisionFilter`): each applies when not empty, together with `text`.
+    pub author: String,
+    pub committer: String,
+    pub message: String,
+    pub diff_contains: String,
+    /// Case-sensitive matching of author, committer and message (upstream "Ignore case" off).
+    pub match_case: bool,
+    /// Show at most this many commits (overrides the setting when set).
+    pub limit: Option<usize>,
+    pub simplify_by_decoration: bool,
+    pub full_history: bool,
+    pub simplify_merges: bool,
 }
 
 impl RevisionFilter {
     pub fn is_active(&self) -> bool {
-        !self.text.trim().is_empty() || !self.since.trim().is_empty() || !self.until.trim().is_empty() || !self.path.trim().is_empty()
+        [&self.text, &self.since, &self.until, &self.path, &self.author, &self.committer, &self.message, &self.diff_contains].iter().any(|s| !s.trim().is_empty())
+            || self.limit.is_some()
+            || self.simplify_by_decoration
     }
 }
 
@@ -121,6 +135,19 @@ pub enum GridCommand {
     RunScript(usize, ObjectId),
     FixupCommit(ObjectId, &'static str),
     InteractiveRebase(ObjectId),
+    /// `rebase -i` from the parent with the commit marked `reword` / `edit`.
+    RewordCommit(ObjectId),
+    EditCommit(ObjectId),
+    ResetAnotherBranch(ObjectId),
+    /// Remember the commit as the base of "Compare to BASE" (`SelectAsBaseToCompare`).
+    SelectAsBase(ObjectId),
+    /// Diff of the remembered base to the commit.
+    CompareToBase(ObjectId),
+    CompareWithCurrentBranch(ObjectId),
+    CompareToBranch(ObjectId),
+    /// `git difftool --dir-diff` of the selected commits.
+    OpenWithDifftool,
+    EditGitIgnore,
 }
 
 pub struct RevisionGrid {
@@ -134,6 +161,11 @@ pub struct RevisionGrid {
     pub loaded_count: usize,
     load_started: Option<Instant>,
     pub load_duration_ms: Option<u128>,
+    /// Whether a load of the log has finished: until then an empty grid means "not loaded yet",
+    /// not an empty repository.
+    pub loaded_once: bool,
+    /// The commit chosen with "Select as BASE to compare".
+    pub base_to_compare: Option<ObjectId>,
     /// Selected commits in selection order (the first one is the base for diffs).
     pub selected: Vec<ObjectId>,
     anchor_row: Option<usize>,
@@ -167,6 +199,8 @@ impl Default for RevisionGrid {
             loaded_count: 0,
             load_started: None,
             load_duration_ms: None,
+            loaded_once: false,
+            base_to_compare: None,
             selected: Vec::new(),
             anchor_row: None,
             scroll_to_row: None,
@@ -239,31 +273,51 @@ pub fn log_options(settings: &AppSettings, filter: &RevisionFilter, current_bran
     if !settings.show_merge_commits {
         rev.push("--no-merges".into());
     }
+    let ignore_case = (!filter.match_case).then(|| "--regexp-ignore-case".to_string());
     let text = filter.text.trim();
     let mut path_filter = Vec::new();
     if !text.is_empty() {
         match filter.kind {
-            TextFilterKind::Message => {
-                rev.push(format!("--grep={text}"));
-                rev.push("--regexp-ignore-case".into());
-            }
-            TextFilterKind::Author => {
-                rev.push(format!("--author={text}"));
-                rev.push("--regexp-ignore-case".into());
-            }
-            TextFilterKind::Committer => {
-                rev.push(format!("--committer={text}"));
-                rev.push("--regexp-ignore-case".into());
-            }
+            TextFilterKind::Message => rev.push(format!("--grep={text}")),
+            TextFilterKind::Author => rev.push(format!("--author={text}")),
+            TextFilterKind::Committer => rev.push(format!("--committer={text}")),
             TextFilterKind::DiffContains => rev.push(format!("-G{text}")),
             TextFilterKind::Hash => {}
             TextFilterKind::Path => path_filter.push(text.to_string()),
         }
     }
+    // the advanced filter (`FilterInfo.GetLimitingRevisionFilter`)
+    if filter.simplify_by_decoration {
+        rev.push("--simplify-by-decoration".into());
+    }
+    let (author, committer, message, diff) = (filter.author.trim(), filter.committer.trim(), filter.message.trim(), filter.diff_contains.trim());
+    if !author.is_empty() {
+        rev.push(format!("--author={author}"));
+    }
+    if !committer.is_empty() {
+        rev.push(format!("--committer={committer}"));
+    }
+    if !diff.is_empty() {
+        rev.push(format!("-G{diff}"));
+    }
+    if !message.is_empty() {
+        rev.push(format!("--grep={message}"));
+    }
+    let matches_text = !author.is_empty() || !committer.is_empty() || !message.is_empty() || !diff.is_empty()
+        || (!text.is_empty() && matches!(filter.kind, TextFilterKind::Message | TextFilterKind::Author | TextFilterKind::Committer));
+    if matches_text {
+        rev.extend(ignore_case);
+    }
     if !filter.path.trim().is_empty() {
         path_filter.push(filter.path.trim().to_string());
         if filter.follow {
             rev.push("--follow".into());
+        }
+    }
+    if !path_filter.is_empty() && filter.full_history {
+        rev.push("--full-history".into());
+        if filter.simplify_merges {
+            rev.push("--simplify-merges".into());
         }
     }
     if !filter.since.trim().is_empty() {
@@ -278,7 +332,7 @@ pub fn log_options(settings: &AppSettings, filter: &RevisionFilter, current_bran
         has_notes: settings.show_git_notes,
         sort_order: settings.revision_sort_order,
         oldest_body: gitext_core::revision_reader::unix_time_days_ago(gitext_core::revision_reader::OFFSET_DAYS_FOR_OLDEST_BODY),
-        max_count: (settings.max_revision_graph_commits > 0).then_some(settings.max_revision_graph_commits),
+        max_count: filter.limit.filter(|n| *n > 0).or((settings.max_revision_graph_commits > 0).then_some(settings.max_revision_graph_commits)),
     }
 }
 
@@ -391,6 +445,7 @@ impl RevisionGrid {
                 }
                 LogMsg::Done => {
                     self.loading = false;
+                    self.loaded_once = true;
                     self.graph.loading_completed();
                     self.load_duration_ms = self.load_started.map(|s| s.elapsed().as_millis());
                     self.insert_artificial();
@@ -399,6 +454,7 @@ impl RevisionGrid {
                 }
                 LogMsg::Error(e) => {
                     self.loading = false;
+                    self.loaded_once = true;
                     self.error = Some(e);
                     self.graph.loading_completed();
                     self.rx = None;
@@ -456,6 +512,24 @@ impl RevisionGrid {
     pub fn revision(&self, id: &ObjectId) -> Option<&GitRevision> {
         let n = self.graph.try_get_node(id)?;
         self.graph.store.nodes[n].revision.as_ref()
+    }
+
+    /// Whether `ancestor` is in the history of `descendant` as far as the loaded commits tell;
+    /// `false` when not found (e.g. not loaded).
+    pub fn is_ancestor_of(&self, ancestor: ObjectId, descendant: ObjectId) -> bool {
+        let mut seen = HashSet::new();
+        let mut stack = vec![descendant];
+        while let Some(id) = stack.pop() {
+            if id == ancestor {
+                return true;
+            }
+            if seen.insert(id) {
+                if let Some(rev) = self.revision(&id) {
+                    stack.extend(rev.parents().iter().copied());
+                }
+            }
+        }
+        false
     }
 
     pub fn select(&mut self, id: ObjectId) {
@@ -614,24 +688,26 @@ impl RevisionGrid {
     }
 
     /// Shows the grid. `data` provides refs for labels and context menus.
-    pub fn ui(&mut self, ui: &mut Ui, settings: &AppSettings, data: &RepoData) -> GridEvents {
+    pub fn ui(&mut self, ui: &mut Ui, settings: &AppSettings, data: &RepoData, avatars: &mut crate::avatars::Avatars) -> GridEvents {
         let mut events = GridEvents::default();
         self.poll(ui.ctx());
         let palette = Palette::for_ui(ui);
         let count = self.graph.count();
 
         if count == 0 {
-            ui.centered_and_justified(|ui| {
-                if self.loading {
-                    ui.spinner();
-                } else if let Some(e) = &self.error {
-                    ui.colored_label(palette.error, e);
-                } else if self.filter.is_active() {
-                    ui.label("No commits match the filter.");
-                } else {
-                    ui.label("This repository does not contain any commits.");
-                }
-            });
+            // While the log loads (or the repository data before it) the grid stays empty: the
+            // toolbar shows the loading spinner. Only a finished load tells that there are no
+            // commits (upstream shows `EmptyRepoControl` after `OnRevisionReadCompleted`).
+            if self.loading || !self.loaded_once {
+                return events;
+            }
+            if let Some(e) = &self.error {
+                ui.centered_and_justified(|ui| ui.colored_label(palette.error, e));
+            } else if self.filter.is_active() {
+                ui.centered_and_justified(|ui| ui.label("No commits match the filter."));
+            } else {
+                events.context_action = empty_repository(ui, data.is_bare);
+            }
             return events;
         }
 
@@ -688,8 +764,11 @@ impl RevisionGrid {
             .resizable(true)
             .sense(Sense::click())
             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-            .column(Column::exact(graph_width))
-            .column(Column::remainder().at_least(200.0).clip(true));
+            .column(Column::exact(graph_width));
+        if settings.show_author_avatar_column {
+            table = table.column(Column::exact(row_height));
+        }
+        table = table.column(Column::remainder().at_least(200.0).clip(true));
         if settings.show_author_column {
             table = table.column(Column::initial(150.0).at_least(60.0).clip(true));
         }
@@ -704,12 +783,16 @@ impl RevisionGrid {
         }
 
         let hover_ids = self.hover.highlighted_ids().cloned();
+        let menu_state = MenuState { base: self.base_to_compare, selected_count: self.selected.len() };
         let graph = &mut self.graph;
         table
             .header(20.0, |mut header| {
                 header.col(|ui| {
                     ui.label(egui::RichText::new("Graph").small().color(palette.muted));
                 });
+                if settings.show_author_avatar_column {
+                    header.col(|_| {});
+                }
                 header.col(|ui| {
                     ui.label(egui::RichText::new("Message").small().color(palette.muted));
                 });
@@ -750,6 +833,16 @@ impl RevisionGrid {
                             paint_graph(ui, rect, &prims, &palette, is_relative || draw_style == RevisionGraphDrawStyle::Normal);
                         }
                     });
+
+                    if settings.show_author_avatar_column {
+                        row.col(|ui| {
+                            if !rev.is_artificial() {
+                                let size = (row_height - 4.0).max(8.0);
+                                let rect = Rect::from_center_size(ui.max_rect().center(), Vec2::splat(size));
+                                avatars.paint(ui, rect, &rev.author_email, &rev.author, settings.avatar_cache_days);
+                            }
+                        });
+                    }
 
                     let highlight = settings.highlight_author_commits && !author_email.is_empty() && rev.author_email == author_email && !selected.contains(&id);
                     let paint_highlight = |ui: &mut Ui| {
@@ -826,7 +919,7 @@ impl RevisionGrid {
                         clicked = Some((index, false, false));
                     }
                     resp.context_menu(|ui| {
-                        if let Some(c) = revision_context_menu(ui, &rev, data, settings) {
+                        if let Some(c) = revision_context_menu(ui, &rev, data, settings, &menu_state) {
                             context = Some(c);
                             ui.close_kind(egui::UiKind::Menu);
                         }
@@ -976,17 +1069,69 @@ pub fn paint_graph(ui: &Ui, rect: Rect, prims: &[Primitive], palette: &Palette, 
     }
 }
 
+/// Grid state the context menu depends on.
+pub struct MenuState {
+    /// The commit selected as BASE to compare.
+    pub base: Option<ObjectId>,
+    pub selected_count: usize,
+}
+
+/// The screen of a repository without commits (`EmptyRepoControl`): its buttons open the
+/// commit dialog and the .gitignore editor (both hidden in a bare repository).
+fn empty_repository(ui: &mut Ui, is_bare: bool) -> Option<GridCommand> {
+    let mut cmd = None;
+    ui.vertical_centered(|ui| {
+        ui.add_space((ui.available_height() / 2.0 - 40.0).max(8.0));
+        ui.label(egui::RichText::new("This repository does not yet contain any commits.").size(15.0));
+        if !is_bare {
+            ui.add_space(10.0);
+            // centre the two buttons: measure them on the first frame
+            let id = ui.id().with("empty_repo_buttons");
+            let width: f32 = ui.ctx().data(|d| d.get_temp(id)).unwrap_or(200.0);
+            ui.horizontal(|ui| {
+                ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
+                let start = ui.cursor().left();
+                if ui.button("✔ Commit…").clicked() {
+                    cmd = Some(GridCommand::OpenCommitDialog);
+                }
+                if ui.button("Edit .gitignore…").clicked() {
+                    cmd = Some(GridCommand::EditGitIgnore);
+                }
+                let w = ui.min_rect().right() - start;
+                ui.ctx().data_mut(|d| d.insert_temp(id, w));
+            });
+        }
+    });
+    cmd
+}
+
+/// The "Compare" submenu (`compareToolStripMenuItem`).
+fn compare_menu(ui: &mut Ui, id: ObjectId, data: &RepoData, state: &MenuState, cmd: &mut Option<GridCommand>) {
+    let mut item = |ui: &mut Ui, enabled: bool, label: &str, hint: &str, c: GridCommand| {
+        if ui.add_enabled(enabled, egui::Button::new(label).shortcut_text(hint)).clicked() {
+            *cmd = Some(c);
+            ui.close_kind(egui::UiKind::Menu);
+        }
+    };
+    let real = !id.is_artificial();
+    item(ui, state.base.is_some(), "Compare to BASE", "Ctrl+R", GridCommand::CompareToBase(id));
+    item(ui, true, "Select as BASE to compare", "Ctrl+L", GridCommand::SelectAsBase(id));
+    item(ui, id != ObjectId::WORK_TREE, "Compare to working directory", "Ctrl+D", GridCommand::CompareWithWorkTree(id));
+    item(ui, data.current_branch.is_some() && !data.head.is_zero(), "Compare with current branch", "", GridCommand::CompareWithCurrentBranch(id));
+    item(ui, real, "Compare to branch…", "", GridCommand::CompareToBranch(id));
+    item(ui, state.selected_count > 1, "Compare selected commits", "", GridCommand::CompareSelected);
+    item(ui, true, "Open selected commits with difftool", "", GridCommand::OpenWithDifftool);
+}
+
 /// The context menu of a revision row (port of `RevisionGridControl` context menu).
-pub fn revision_context_menu(ui: &mut Ui, rev: &GitRevision, data: &RepoData, settings: &AppSettings) -> Option<GridCommand> {
+pub fn revision_context_menu(ui: &mut Ui, rev: &GitRevision, data: &RepoData, settings: &AppSettings, state: &MenuState) -> Option<GridCommand> {
     let id = rev.object_id;
     let mut cmd = None;
     if rev.is_artificial() {
         if ui.button("Commit…").clicked() {
             cmd = Some(GridCommand::OpenCommitDialog);
         }
-        if ui.button("Compare with selected").clicked() {
-            cmd = Some(GridCommand::CompareSelected);
-        }
+        ui.menu_button("Compare", |ui| compare_menu(ui, id, data, state, &mut cmd));
         return cmd;
     }
     let branches: Vec<&GitRef> = rev.refs.iter().filter(|r| r.is_head()).collect();
@@ -1071,6 +1216,9 @@ pub fn revision_context_menu(ui: &mut Ui, rev: &GitRevision, data: &RepoData, se
     if ui.button(format!("Reset current branch ({current}) to here…")).clicked() {
         cmd = Some(GridCommand::ResetCurrentBranchHere(id));
     }
+    if !data.is_bare && ui.button("Reset another branch to here…").clicked() {
+        cmd = Some(GridCommand::ResetAnotherBranch(id));
+    }
     if ui.button(format!("Merge into current branch ({current})…")).clicked() {
         cmd = Some(GridCommand::MergeInto(id));
     }
@@ -1091,6 +1239,15 @@ pub fn revision_context_menu(ui: &mut Ui, rev: &GitRevision, data: &RepoData, se
         }
         if ui.button("Create an amend commit").clicked() {
             cmd = Some(GridCommand::FixupCommit(id, "amend"));
+            ui.close_kind(egui::UiKind::Menu);
+        }
+        ui.separator();
+        if ui.button("Edit commit").clicked() {
+            cmd = Some(GridCommand::EditCommit(id));
+            ui.close_kind(egui::UiKind::Menu);
+        }
+        if ui.button("Reword commit…").clicked() {
+            cmd = Some(GridCommand::RewordCommit(id));
             ui.close_kind(egui::UiKind::Menu);
         }
     });
@@ -1132,12 +1289,7 @@ pub fn revision_context_menu(ui: &mut Ui, rev: &GitRevision, data: &RepoData, se
             ui.close_kind(egui::UiKind::Menu);
         }
     });
-    if ui.button("Compare selected commits").clicked() {
-        cmd = Some(GridCommand::CompareSelected);
-    }
-    if ui.button("Compare with working directory").clicked() {
-        cmd = Some(GridCommand::CompareWithWorkTree(id));
-    }
+    ui.menu_button("Compare", |ui| compare_menu(ui, id, data, state, &mut cmd));
     if ui.button("Show in file tree").clicked() {
         cmd = Some(GridCommand::ShowInFileTree(id));
     }
@@ -1200,6 +1352,41 @@ mod tests {
         assert_eq!(o.revision_filter[0], "main");
         assert_eq!(o.path_filter, ["src"]);
         assert!(o.revision_filter.contains(&"--follow".to_string()));
+    }
+
+    #[test]
+    fn log_options_of_the_advanced_filter() {
+        let s = AppSettings::default();
+        let f = RevisionFilter { author: "ann".into(), message: "fix".into(), diff_contains: "foo".into(), limit: Some(10), simplify_by_decoration: true, full_history: true, simplify_merges: true, ..Default::default() };
+        assert!(f.is_active());
+        let o = log_options(&s, &f, None);
+        for a in ["--author=ann", "--grep=fix", "-Gfoo", "--regexp-ignore-case", "--simplify-by-decoration"] {
+            assert!(o.revision_filter.contains(&a.to_string()), "{a} in {:?}", o.revision_filter);
+        }
+        assert_eq!(o.max_count, Some(10));
+        // full history only applies with a path filter
+        assert!(!o.revision_filter.contains(&"--full-history".to_string()));
+        let o = log_options(&s, &RevisionFilter { path: "src".into(), match_case: true, ..f }, None);
+        assert!(o.revision_filter.contains(&"--full-history".to_string()));
+        assert!(o.revision_filter.contains(&"--simplify-merges".to_string()));
+        assert!(!o.revision_filter.contains(&"--regexp-ignore-case".to_string()), "match case");
+        assert!(!RevisionFilter { full_history: true, ..Default::default() }.is_active());
+    }
+
+    #[test]
+    fn ancestors_from_the_loaded_commits() {
+        use gitext_core::revision::GitRevision;
+        let (a, b, c, x) = (ObjectId::random(), ObjectId::random(), ObjectId::random(), ObjectId::random());
+        let mut grid = RevisionGrid::default();
+        for (id, parents) in [(c, vec![b]), (x, vec![a]), (b, vec![a]), (a, vec![])] {
+            let mut r = GitRevision::new(id);
+            r.parent_ids = Some(parents);
+            grid.graph.add(r);
+        }
+        assert!(grid.is_ancestor_of(a, c));
+        assert!(grid.is_ancestor_of(c, c));
+        assert!(!grid.is_ancestor_of(x, c));
+        assert!(!grid.is_ancestor_of(c, a));
     }
 
     #[test]

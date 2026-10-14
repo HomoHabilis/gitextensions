@@ -35,6 +35,18 @@ impl CreateBranchDialog {
     }
 }
 
+impl CreateBranchDialog {
+    /// A branch created from a ref resolved when the branch is created (e.g. a remote branch
+    /// being fetched), named after it without the remote.
+    pub fn from_ref(name: &str) -> Self {
+        let mut d = CreateBranchDialog::new(ObjectId::ZERO);
+        d.revision = name.to_string();
+        d.name = name.split_once('/').map_or(name, |(_, b)| b).to_string();
+        d.prefilled = true;
+        d
+    }
+}
+
 /// The name `FormCreateBranch` suggests for a branch at `id`: the first local branch there, else
 /// the first remote branch without its remote prefix, else the first tag.
 fn suggested_name(data: &RepoData, id: ObjectId) -> Option<String> {

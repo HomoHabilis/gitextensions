@@ -248,6 +248,24 @@ impl Dialog for SettingsDialog {
                         ui.checkbox(&mut s.show_author_date, "Show author date (instead of commit date)");
                         ui.checkbox(&mut s.highlight_author_commits, "Highlight my commits");
                         ui.checkbox(&mut s.left_panel_visible, "Show the left panel");
+                        ui.separator();
+                        ui.label(egui::RichText::new("Author images").strong());
+                        ui.checkbox(&mut s.show_author_avatar_column, "Show author image column");
+                        ui.checkbox(&mut s.show_author_avatar_in_commit_info, "Show author image in the commit details");
+                        ui.horizontal(|ui| {
+                            use gitext_core::settings::AvatarProvider;
+                            ui.label("Get images from");
+                            ui.radio_value(&mut s.avatar_provider, AvatarProvider::None, "Author initials only");
+                            ui.radio_value(&mut s.avatar_provider, AvatarProvider::Gravatar, "GitHub / Gravatar (initials when none)");
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Keep downloaded images for");
+                            ui.add(egui::DragValue::new(&mut s.avatar_cache_days).range(1..=365));
+                            ui.label("days");
+                            if ui.button("Clear image cache").clicked() {
+                                crate::avatars::clear_disk_cache();
+                            }
+                        });
                     }
                     2 => {
                         ui.checkbox(&mut s.merge_graph_lanes_having_common_parent, "Merge graph lanes having a common parent");

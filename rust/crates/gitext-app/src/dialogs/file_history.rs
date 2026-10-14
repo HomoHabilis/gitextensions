@@ -13,6 +13,7 @@ use crate::views::revision_grid::RevisionGrid;
 pub struct FileHistoryDialog {
     file: String,
     grid: RevisionGrid,
+    avatars: crate::avatars::Avatars,
     started: bool,
     tab: usize,
     diff: Loader<(ObjectId, usize, String), ViewerContent>,
@@ -27,7 +28,7 @@ impl FileHistoryDialog {
         let mut grid = RevisionGrid::default();
         grid.filter.path = file.clone();
         grid.filter.follow = true;
-        FileHistoryDialog { file, grid, started: false, tab: 0, diff: Loader::default(), viewer: DiffViewer::default(), follow: true, follow_initialized: false }
+        FileHistoryDialog { file, grid, avatars: Default::default(), started: false, tab: 0, diff: Loader::default(), viewer: DiffViewer::default(), follow: true, follow_initialized: false }
     }
 }
 
@@ -124,7 +125,8 @@ impl Dialog for FileHistoryDialog {
         egui::CentralPanel::default().show_inside(ui, |ui| {
             let mut settings = cx.settings.clone();
             settings.show_artificial_commits = false;
-            let events = self.grid.ui(ui, &settings, &data);
+            self.avatars.update(ui.ctx(), &settings);
+            let events = self.grid.ui(ui, &settings, &data, &mut self.avatars);
             if let Some(id) = events.double_clicked {
                 cx.push(super::Action::SelectRevision(id));
             }
