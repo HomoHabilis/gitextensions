@@ -27,6 +27,7 @@ pub mod file_history;
 pub mod gitignore;
 pub mod goto_commit;
 pub mod init;
+pub mod language;
 pub mod merge;
 pub mod open_repo;
 pub mod message;

@@ -7,6 +7,7 @@ use gitext_core::settings::{AppSettings, CommitTemplate, PullAction, Theme, User
 use gitext_core::{Executable, GitArgs};
 
 use super::{Action, Cx, Dialog, DialogKind};
+use crate::i18n::tr;
 
 const PAGES: [&str; 10] = [
     "General",
@@ -157,6 +158,7 @@ impl Dialog for SettingsDialog {
                             || s.max_revision_graph_commits != cx.settings.max_revision_graph_commits;
                         let refs_changed = (s.refs_sort_by, s.refs_sort_order) != (cx.settings.refs_sort_by, cx.settings.refs_sort_order);
                         *cx.settings = s.clone();
+                        crate::i18n::set_language(&s.translation);
                         gitext_core::exec::set_git_command(&s.git_command);
                         gitext_core::exec::set_wsl_git_enabled(s.wsl_git_enabled);
                         if let Some(n) = &self.global_name {
@@ -221,6 +223,18 @@ impl Dialog for SettingsDialog {
                         }
                     }
                     1 => {
+                        ui.horizontal(|ui| {
+                            ui.label(tr("Language"));
+                            let current = crate::i18n::language(&s.translation);
+                            egui::ComboBox::from_id_salt("language").selected_text(current.label()).height(400.0).show_ui(ui, |ui| {
+                                for lang in crate::i18n::LANGUAGES {
+                                    if ui.selectable_label(current.name == lang.name, lang.label()).clicked() {
+                                        s.translation = lang.name.to_string();
+                                    }
+                                }
+                            });
+                            ui.hyperlink_to(tr("Help translate"), "https://github.com/gitextensions/gitextensions/wiki/Translations");
+                        });
                         ui.horizontal(|ui| {
                             ui.label("Theme");
                             ui.radio_value(&mut s.theme, Theme::System, "Follow system");

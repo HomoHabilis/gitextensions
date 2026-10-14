@@ -82,6 +82,8 @@ impl GitExtApp {
         let settings = settings_path.as_deref().map(AppSettings::load).unwrap_or_default();
         gitext_core::exec::set_git_command(&settings.git_command);
         gitext_core::exec::set_wsl_git_enabled(settings.wsl_git_enabled);
+        crate::i18n::set_language(&settings.translation);
+        let choose_language = settings.translation.is_empty();
         let history_path = RepositoryHistory::default_path();
         let history = history_path.as_deref().map(|p| RepositoryHistory::load(p, settings.recent_repositories_history_size)).unwrap_or_default();
         let mut app = GitExtApp {
@@ -101,6 +103,9 @@ impl GitExtApp {
             tool_runs: Vec::new(),
             startup_window: Some(startup_window),
         };
+        if choose_language {
+            app.open_dialog(Box::new(dialogs::language::LanguageDialog));
+        }
         if let Some(path) = repo {
             app.open_repo(&cc.egui_ctx, &path, false);
         }
@@ -741,6 +746,7 @@ impl eframe::App for GitExtApp {
         }
         if !self.theme_applied {
             crate::theme::apply(ctx, self.settings.theme, self.settings.ui_scale, self.settings.font_size, self.settings.monospace_font_size);
+            crate::i18n::install_fonts(ctx, crate::i18n::language(&self.settings.translation));
             self.theme_applied = true;
         }
         if self.start.is_some() && (self.browse.as_ref().is_none_or(|b| !b.data.refs.is_empty() || !b.is_loading())) {

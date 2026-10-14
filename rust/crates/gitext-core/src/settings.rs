@@ -87,6 +87,9 @@ pub struct UserScript {
 #[serde(default)]
 pub struct AppSettings {
     // General
+    /// The language of the UI (`AppSettings.Translation`): a language name such as "French";
+    /// empty until one was chosen, which shows the language picker at start.
+    pub translation: String,
     pub git_command: String,
     /// Run repositories on `\\wsl$\` paths with the git of the distro (Windows only,
     /// `WslGitEnabled`).
@@ -219,6 +222,7 @@ pub enum AvatarProvider {
 impl Default for AppSettings {
     fn default() -> Self {
         AppSettings {
+            translation: String::new(),
             git_command: "git".into(),
             wsl_git_enabled: true,
             theme: Theme::System,

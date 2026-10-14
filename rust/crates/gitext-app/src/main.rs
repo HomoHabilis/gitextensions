@@ -10,6 +10,7 @@
 
 mod app;
 mod avatars;
+mod i18n;
 mod browse;
 mod cli;
 mod dialogs;
