@@ -52,52 +52,52 @@ opens a folder.
 
 - [x] Highlight the changed words inside modified lines (upstream `MarkInlineDifferences`)
 
-### M4. Commit-list actions (M), PR B
+### M4. Commit-list actions (M), done in #19
 
-- [ ] Undo last commit
-- [ ] Reword commit
-- [ ] Edit commit
-- [ ] Reset another branch
-- [ ] Compare to BASE / select as BASE
-- [ ] Compare with current branch
-- [ ] Compare to branch
-- [ ] Open selected commits with the difftool
+- [x] Undo last commit
+- [x] Reword commit
+- [x] Edit commit
+- [x] Reset another branch
+- [x] Compare to BASE / select as BASE
+- [x] Compare with current branch
+- [x] Compare to branch
+- [x] Open selected commits with the difftool
 
-### M5. Commit dialog gaps (S), PR C
+### M5. Commit dialog gaps (S), done in #18
 
-- [ ] Reset unstaged changes
-- [ ] Stash staged changes
-- [ ] Commit & push button
-- [ ] Create branch
-- [ ] Unresolved-conflicts banner
-- [ ] Ln/Col indicator
-- [ ] Show ignored / assumed unchanged / skip-worktree toggles
+- [x] Reset unstaged changes
+- [x] Stash staged changes
+- [x] Commit & push button
+- [x] Create branch
+- [x] Unresolved-conflicts banner
+- [x] Ln/Col indicator
+- [x] Show ignored / assumed unchanged / skip-worktree toggles
 
-### M6. File list actions (M), PR C
+### M6. File list actions (M), done in #18
 
-- [ ] Rename / move
-- [ ] Delete
-- [ ] Stop tracking
-- [ ] Open with
-- [ ] Copy path variants (relative, POSIX, WSL)
-- [ ] Cherry-pick file changes
-- [ ] Remember first / second file for a diff
+- [x] Rename / move
+- [x] Delete
+- [x] Stop tracking
+- [x] Open with
+- [x] Copy path variants (relative, POSIX, WSL)
+- [x] Cherry-pick file changes
+- [x] Remember first / second file for a diff
 
-### M7. Main window gaps (S), PR B
+### M7. Main window gaps (S), done in #19
 
-- [ ] Repository switcher dropdown
-- [ ] Update / synchronize all submodules in the Repository menu
-- [ ] Empty-repository screen
-- [ ] Advanced revision filter dialog (since / until, limit, simplify merges, hide merges)
+- [x] Repository switcher dropdown
+- [x] Update / synchronize all submodules in the Repository menu
+- [x] Empty-repository screen
+- [x] Advanced revision filter dialog (since / until, limit, simplify merges, hide merges)
 
-### M8. Left panel actions (M), PR B
+### M8. Left panel actions (M), done in #19
 
-- [ ] Fetch & checkout / merge / rebase on remote branches
-- [ ] Open remote URL
-- [ ] Copy names
-- [ ] Rebase on tag
-- [ ] Create / prune worktree from a node
-- [ ] Keyboard focus with Delete / F2
+- [x] Fetch & checkout / merge / rebase on remote branches
+- [x] Open remote URL
+- [x] Copy names
+- [x] Rebase on tag
+- [x] Create / prune worktree from a node
+- [x] Keyboard focus with Delete / F2
 
 ### M9. Search tools (M), done in #17
 
@@ -106,9 +106,9 @@ opens a folder.
 - [x] Alternative diff views: git word diff, difftastic, range-diff of two selected commits
 - [ ] Not ported: git grep option presets (basic / extended / perl regexp) and free-form options
 
-### M10. Avatars (M), PR B
+### M10. Avatars (M), done in #19
 
-- [ ] Author images in the grid and commit details (Gravatar or initials), with a disk cache
+- [x] Author images in the grid and commit details (Gravatar or initials), with a disk cache
 
 ### M11. Syntax highlighting (M), done in #17
 
@@ -116,11 +116,11 @@ opens a folder.
 
 ### Fixes requested with the must-haves
 
-- [ ] While a repository loads, don't say "This repository does not contain any commits" (PR B)
-- [ ] Stash dialog: show the working directory changes when no stash is selected, stash
-      selected files, refresh button (PR C)
-- [ ] Message and confirmation boxes with long content scroll instead of growing past the
-      screen (PR C)
+- [x] While a repository loads, don't say "This repository does not contain any commits" (#19)
+- [x] Stash dialog: show the working directory changes when no stash is selected, stash
+      selected files, refresh button (#18)
+- [x] Message and confirmation boxes with long content scroll instead of growing past the
+      screen (#18)
 
 ## Nice-to-have
 
