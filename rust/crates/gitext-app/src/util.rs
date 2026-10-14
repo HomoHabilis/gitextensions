@@ -61,8 +61,11 @@ pub fn open_with_system(path: &str) {
     }
     #[cfg(target_os = "windows")]
     let mut cmd = {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let mut c = std::process::Command::new("cmd");
-        c.args(["/C", "start", ""]);
+        // `start` opens the target itself: no console window flashing up for `cmd`
+        c.args(["/C", "start", ""]).creation_flags(CREATE_NO_WINDOW);
         c
     };
     #[cfg(target_os = "macos")]
@@ -70,6 +73,59 @@ pub fn open_with_system(path: &str) {
     #[cfg(all(unix, not(target_os = "macos")))]
     let mut cmd = std::process::Command::new("xdg-open");
     spawn_detached(cmd.arg(path));
+}
+
+/// Opens a folder in the configured file manager (`configured`: a command, arguments allowed),
+/// or with the system handler when none is configured.
+pub fn open_folder(path: &str, configured: &str) {
+    let configured = configured.trim();
+    if configured.is_empty() {
+        return open_with_system(path);
+    }
+    // A plain executable path may contain spaces ("C:\Program Files\…"); only split
+    // the setting into a command and arguments when it is not one.
+    let unquoted = configured.trim_matches('"');
+    if std::path::Path::new(unquoted).is_file() {
+        spawn_detached(std::process::Command::new(unquoted).arg(path));
+        return;
+    }
+    let mut parts = configured.split_whitespace();
+    if let Some(cmd) = parts.next() {
+        spawn_detached(std::process::Command::new(cmd).args(parts).arg(path));
+    }
+}
+
+/// Splits a command line into arguments: whitespace separates them, and double or single
+/// quotes group words (the quotes are removed).
+pub fn split_args(line: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut cur = String::new();
+    let mut in_arg = false;
+    let mut quote: Option<char> = None;
+    for c in line.chars() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => cur.push(c),
+            None if c == '"' || c == '\'' => {
+                quote = Some(c);
+                in_arg = true;
+            }
+            None if c.is_whitespace() => {
+                if in_arg {
+                    args.push(std::mem::take(&mut cur));
+                    in_arg = false;
+                }
+            }
+            None => {
+                cur.push(c);
+                in_arg = true;
+            }
+        }
+    }
+    if in_arg {
+        args.push(cur);
+    }
+    args
 }
 
 /// Starts a short-lived launcher (`xdg-open`, `explorer.exe`…) without waiting for it, and
@@ -247,6 +303,14 @@ pub fn save_file(start: Option<&str>, name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn script_arguments_keep_quoted_words() {
+        assert_eq!(split_args(r#"-c 'echo a b' x"#), ["-c", "echo a b", "x"]);
+        assert_eq!(split_args(r#"log --format="%h %s"  -1"#), ["log", "--format=%h %s", "-1"]);
+        assert_eq!(split_args(r#"show "" end"#), ["show", "", "end"]);
+        assert!(split_args("   ").is_empty());
+    }
 
     #[test]
     fn relative_dates() {

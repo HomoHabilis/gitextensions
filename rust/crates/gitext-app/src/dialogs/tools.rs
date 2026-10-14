@@ -59,7 +59,7 @@ impl ToolEdit {
         Ok(())
     }
 
-    fn detected(&mut self) -> &[(&'static str, PathBuf)] {
+    pub(super) fn detected(&mut self) -> &[(&'static str, PathBuf)] {
         let t = self.tool_type;
         self.detected.get_or_insert_with(|| diff_tools::detect(t).into_iter().map(|(tool, p)| (tool.name, p)).collect())
     }

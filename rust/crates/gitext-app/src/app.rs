@@ -69,8 +69,9 @@ pub struct GitExtApp {
     last_title: String,
     /// Repository description for the title, cached per working directory.
     title_description: Option<(std::path::PathBuf, String)>,
-    /// Diff / merge tools started in the background (title, result when the tool exits).
-    tool_runs: Vec<(String, ToolRun)>,
+    /// Tools and background scripts started without a process dialog: (title, refresh the
+    /// repository when it succeeds, run).
+    tool_runs: Vec<(String, bool, ToolRun)>,
     /// Hides the window until its first frames are painted (Windows); `None` once shown.
     startup_window: Option<crate::startup_window::StartupWindow>,
 }
@@ -188,22 +189,38 @@ impl GitExtApp {
         };
         let args = diff_tools::launch_args(&launch, tool_type, &args);
         let title = format!("{} tool", if tool_type == diff_tools::ToolType::Diff { "Diff" } else { "Merge" });
-        self.tool_runs.push((title, crate::tasks::Task::spawn(ctx, move || exe.run(&args))));
+        self.tool_runs.push((title, false, crate::tasks::Task::spawn(ctx, move || exe.run(&args))));
     }
 
-    /// Reports diff / merge tools that failed to start.
+    /// Runs git, or `program`, without a process dialog (user scripts set to run in the
+    /// background); the repository is refreshed when it succeeds.
+    fn run_in_background(&mut self, ctx: &egui::Context, title: String, program: Option<String>, args: GitArgs) {
+        let Some(m) = self.module() else { return };
+        let exe = match program {
+            Some(p) => gitext_core::exec::Executable::new(p, m.work_dir()),
+            None => m.git(),
+        };
+        self.tool_runs.push((title, true, crate::tasks::Task::spawn(ctx, move || exe.run(&args))));
+    }
+
+    /// Reports diff / merge tools and background scripts that failed.
     fn poll_tool_runs(&mut self) {
         let mut finished = Vec::new();
-        self.tool_runs.retain_mut(|(title, task)| match task.try_take() {
+        self.tool_runs.retain_mut(|(title, refresh, task)| match task.try_take() {
             Some(r) => {
-                finished.push((title.clone(), r));
+                finished.push((title.clone(), *refresh, r));
                 false
             }
             None => true,
         });
-        for (title, r) in finished {
+        for (title, refresh, r) in finished {
             let error = match r {
-                Ok(r) if r.success() => continue,
+                Ok(r) if r.success() => {
+                    if refresh {
+                        self.actions.push(Action::Refresh);
+                    }
+                    continue;
+                }
                 Ok(r) => format!("The tool exited with code {}.\n\n{}", r.exit_code, r.all_output().trim()),
                 Err(e) => e.to_string(),
             };
@@ -302,6 +319,7 @@ impl GitExtApp {
                     Action::OpenDialog(d) => self.open_dialog(d),
                     Action::RunGit(run) => self.open_dialog(Box::new(dialogs::process::ProcessDialog::new(run))),
                     Action::RunTool { tool_type, args } => self.run_tool(ctx, tool_type, args),
+                    Action::RunInBackground { title, program, args } => self.run_in_background(ctx, title, program, args),
                     Action::Message { title, text, error } => self.open_dialog(Box::new(dialogs::message::MessageDialog { title, text, error })),
                     Action::SelectRevision(id) => {
                         if let Some(b) = &mut self.browse {
@@ -435,7 +453,7 @@ impl GitExtApp {
                     }
                     if ui.button("File explorer").clicked() {
                         if let Some(m) = self.module() {
-                            crate::util::open_with_system(&m.work_dir().display().to_string());
+                            crate::util::open_folder(&m.work_dir().display().to_string(), &self.settings.file_manager);
                         }
                         ui.close_kind(egui::UiKind::Menu);
                     }
@@ -555,6 +573,7 @@ impl GitExtApp {
             ui.menu_button("View", |ui| {
                 let mut changed = false;
                 changed |= ui.checkbox(&mut self.settings.left_panel_visible, "Show left panel  (Ctrl+Alt+C)").changed();
+                changed |= ui.checkbox(&mut self.settings.commit_info_position_right, "Commit details right of the graph").changed();
                 ui.separator();
                 changed |= ui.checkbox(&mut self.settings.show_author_column, "Author column").changed();
                 changed |= ui.checkbox(&mut self.settings.show_date_column, "Date column").changed();
@@ -750,7 +769,7 @@ impl eframe::App for GitExtApp {
                             self.history.assign_category(&p, c.as_deref());
                             self.save_history();
                         }
-                        DashboardCommand::ShowInFolder(p) => crate::util::open_with_system(&p),
+                        DashboardCommand::ShowInFolder(p) => crate::util::open_folder(&p, &self.settings.file_manager),
                         DashboardCommand::Settings => self.open_dialog(Box::new(dialogs::settings::SettingsDialog::default())),
                     }
                 }

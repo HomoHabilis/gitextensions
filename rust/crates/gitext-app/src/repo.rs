@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use gitext_core::commands::UntrackedFilesMode;
+use gitext_core::commands::{GitRefsSortBy, GitRefsSortOrder, UntrackedFilesMode};
 use gitext_core::module::{AheadBehind, GitWorktree, Remote, RepoState, SubmoduleInfo};
 use gitext_core::status::{GitItemStatus, StagedStatus};
 use gitext_core::{GitModule, GitRef, GitRevision, ObjectId};
@@ -29,12 +29,12 @@ pub struct RepoData {
 impl RepoData {
     /// Loads everything (runs on a background thread). The git commands are independent, so
     /// they run in parallel: process creation dominates on Windows.
-    pub fn load(module: &GitModule, show_untracked: bool) -> RepoData {
+    pub fn load(module: &GitModule, show_untracked: bool, refs_sort: (GitRefsSortBy, GitRefsSortOrder)) -> RepoData {
         let is_bare = module.is_bare();
         let mut d = std::thread::scope(|s| {
             let head = s.spawn(|| module.head_id());
             let current_branch = s.spawn(|| module.current_branch());
-            let refs = s.spawn(|| module.get_refs());
+            let refs = s.spawn(|| module.get_refs_sorted(refs_sort.0, refs_sort.1));
             let state = s.spawn(|| module.state());
             let remotes = s.spawn(|| module.get_remotes().unwrap_or_default());
             let stashes = s.spawn(|| module.get_stashes());

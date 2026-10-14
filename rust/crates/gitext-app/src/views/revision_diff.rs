@@ -34,6 +34,8 @@ pub enum DiffCommand {
     AddToGitIgnore(Vec<String>),
     StagePatch { patch: String, reverse: bool },
     ResetPatch(String),
+    /// The viewer toolbar changed the diff options in the settings.
+    SaveSettings,
 }
 
 type FilesKey = (Option<ObjectId>, ObjectId, bool);
@@ -96,6 +98,7 @@ pub fn diff_options(settings: &AppSettings) -> DiffOptions {
     DiffOptions {
         ignore_whitespace: settings.ignore_whitespace,
         ignore_whitespace_changes: settings.ignore_whitespace_changes,
+        ignore_whitespace_at_eol: settings.ignore_whitespace_at_eol,
         context_lines: Some(if settings.show_entire_file { 99999 } else { settings.context_lines }),
         histogram: settings.use_histogram_diff,
         word_diff: false,
@@ -272,7 +275,7 @@ impl RevisionDiffView {
         first: Option<ObjectId>,
         second: Option<ObjectId>,
         parents: &[ObjectId],
-        settings: &AppSettings,
+        settings: &mut AppSettings,
         id: &str,
     ) -> Option<DiffCommand> {
         let palette = Palette::for_ui(ui);
@@ -552,6 +555,9 @@ impl RevisionDiffView {
         } else {
             vec![ViewerCommand::CopyPatch]
         };
+        if self.viewer.toolbar(ui, &content, settings) {
+            cmd = Some(DiffCommand::SaveSettings);
+        }
         if let Some(c) = self.viewer.ui(ui, &content, settings.show_line_numbers, &menu) {
             if let ViewerContent::Diff(d) = &*content {
                 let sel = self.viewer.selected_lines();
@@ -571,7 +577,7 @@ impl RevisionDiffView {
                             cmd = Some(DiffCommand::ResetPatch(p));
                         }
                     }
-                    ViewerCommand::CopyPatch | ViewerCommand::AddToCommitMessage => {}
+                    ViewerCommand::CopyPatch | ViewerCommand::CopyOldVersion | ViewerCommand::CopyNewVersion | ViewerCommand::AddToCommitMessage => {}
                 }
             }
         }
@@ -655,15 +661,15 @@ mod tests {
         let head: ObjectId = git(d, &["rev-parse", "HEAD"]).parse().unwrap();
 
         let module = GitModule::open(d).unwrap();
-        let settings = AppSettings::default();
+        let mut settings = AppSettings::default();
         let ctx = egui::Context::default();
         let mut view = RevisionDiffView::default();
         view.list.tree_mode = std::env::var("BENCH_TREE").is_ok_and(|v| !v.is_empty());
         let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 1000.0))), ..Default::default() };
-        let frame = |view: &mut RevisionDiffView| {
+        let mut frame = |view: &mut RevisionDiffView| {
             let _ = ctx.run(input(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    view.ui(ui, &module, None, Some(head), &[parent], &settings, "bench");
+                    view.ui(ui, &module, None, Some(head), &[parent], &mut settings, "bench");
                 });
             });
         };

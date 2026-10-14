@@ -16,6 +16,8 @@ pub struct CheckoutBranchDialog {
     new_branch_mode: CheckoutNewBranchMode,
     new_branch_name: String,
     has_changes: bool,
+    /// The local-changes choice was set from the settings.
+    initialized: bool,
 }
 
 impl CheckoutBranchDialog {
@@ -34,8 +36,27 @@ impl CheckoutBranchDialog {
             new_branch_mode: if remote { if exists { CheckoutNewBranchMode::Reset } else { CheckoutNewBranchMode::Create } } else { CheckoutNewBranchMode::DontCreate },
             new_branch_name: new_name,
             has_changes: data.status.iter().any(|s| s.is_tracked),
+            initialized: false,
         }
     }
+}
+
+/// The commands of a checkout: `checkout` wrapped in a stash and stash pop when the local
+/// changes are stashed, then the submodule update when the settings ask for it.
+pub fn checkout_run(branch: &str, checkout: GitArgs, local_changes: LocalChangesAction, has_changes: bool, update_submodules: bool) -> GitRun {
+    let stash = local_changes == LocalChangesAction::Stash && has_changes;
+    let mut cmds = Vec::new();
+    if stash {
+        cmds.push(commands::stash_save(false, false, Some(&format!("Auto stash before checkout of {branch}")), &[]));
+    }
+    cmds.push(checkout);
+    if stash {
+        cmds.push(GitArgs::new("stash").arg("pop"));
+    }
+    if update_submodules {
+        cmds.push(commands::submodule_update(&[], false));
+    }
+    GitRun::many(format!("Checkout {branch}"), cmds).conflicts()
 }
 
 fn local_name(remote_branch: &str, data: &RepoData) -> String {
@@ -53,6 +74,10 @@ impl Dialog for CheckoutBranchDialog {
     }
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
+        if !self.initialized {
+            self.initialized = true;
+            self.local_changes = cx.settings.default_local_changes_action;
+        }
         ui.horizontal(|ui| {
             ui.radio_value(&mut self.remote, false, "Local branch");
             ui.radio_value(&mut self.remote, true, "Remote branch");
@@ -82,19 +107,8 @@ impl Dialog for CheckoutBranchDialog {
         let (ok, cancel) = ok_cancel(ui, "Checkout", !self.branch.trim().is_empty());
         if ok {
             let branch = self.branch.trim().to_string();
-            let mut cmds = Vec::new();
-            if self.local_changes == LocalChangesAction::Stash && self.has_changes {
-                cmds.push(commands::stash_save(false, false, Some(&format!("Auto stash before checkout of {branch}")), &[]));
-            }
-            cmds.push(commands::checkout_branch(&branch, self.remote, self.local_changes, self.new_branch_mode, Some(self.new_branch_name.trim())));
-            if self.local_changes == LocalChangesAction::Stash && self.has_changes {
-                cmds.push(GitArgs::new("stash").arg("pop"));
-            }
-            let mut run = GitRun::many(format!("Checkout {branch}"), cmds).conflicts();
-            if cx.settings.update_submodules_on_checkout {
-                run.commands.push(commands::submodule_update(&[], false));
-            }
-            cx.run(run);
+            let checkout = commands::checkout_branch(&branch, self.remote, self.local_changes, self.new_branch_mode, Some(self.new_branch_name.trim()));
+            cx.run(checkout_run(&branch, checkout, self.local_changes, self.has_changes, cx.settings.update_submodules_on_checkout));
             return false;
         }
         !cancel

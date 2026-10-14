@@ -1,8 +1,9 @@
 //! Port of `FileViewer`: shows diffs (with line numbers and colors) or file content, and
 //! supports selecting lines for staging, unstaging and resetting.
 
-use egui::{Color32, FontId, Pos2, Sense, Ui, Vec2};
+use egui::{Color32, FontId, Pos2, RichText, Sense, Ui, Vec2};
 use gitext_core::patch::{parse_diff_lines, strip_ansi, DiffLine, DiffLineKind};
+use gitext_core::settings::AppSettings;
 
 use crate::theme::Palette;
 
@@ -33,7 +34,19 @@ pub struct DiffViewer {
     drag_start: Option<usize>,
     /// Whether the keys act on the viewer (it was clicked last), like the file lists.
     has_focus: bool,
+    /// The "go to line" box is shown (`FormGoToLine`).
+    goto_open: bool,
+    goto_text: String,
+    goto_focus: bool,
+    /// Show the content even though it is larger than [`LARGE_CONTENT`].
+    show_large: bool,
+    /// Draw spaces and tabs as visible characters (`ShowNonPrintingChars`).
+    show_whitespace: bool,
 }
+
+/// Content larger than this is shown only on request, like upstream's 5 MB preview guard:
+/// laying out millions of lines makes the viewer slow.
+const LARGE_CONTENT: usize = 5 * 1024 * 1024;
 
 /// Commands from the diff viewer context menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +55,10 @@ pub enum ViewerCommand {
     UnstageSelectedLines,
     ResetSelectedLines,
     CopyPatch,
+    /// Copy the selected lines as they were before the change (context and removed lines).
+    CopyOldVersion,
+    /// Copy the selected lines as they are after the change (context and added lines).
+    CopyNewVersion,
     /// Insert the selected lines into the commit message (commit dialog).
     AddToCommitMessage,
 }
@@ -53,18 +70,21 @@ impl ViewerCommand {
             ViewerCommand::UnstageSelectedLines => "Unstage selected lines",
             ViewerCommand::ResetSelectedLines => "Reset selected lines…",
             ViewerCommand::CopyPatch => "Copy",
+            ViewerCommand::CopyOldVersion => "Copy old version",
+            ViewerCommand::CopyNewVersion => "Copy new version",
             ViewerCommand::AddToCommitMessage => "Add selection to commit message",
         }
     }
 
     /// The key of the command (`FileViewer` / `FormCommit` hotkeys).
-    fn key(self) -> (egui::Modifiers, egui::Key) {
+    fn key(self) -> Option<(egui::Modifiers, egui::Key)> {
         match self {
-            ViewerCommand::StageSelectedLines => (egui::Modifiers::NONE, egui::Key::S),
-            ViewerCommand::UnstageSelectedLines => (egui::Modifiers::NONE, egui::Key::U),
-            ViewerCommand::ResetSelectedLines => (egui::Modifiers::NONE, egui::Key::R),
-            ViewerCommand::CopyPatch => (egui::Modifiers::COMMAND, egui::Key::C),
-            ViewerCommand::AddToCommitMessage => (egui::Modifiers::NONE, egui::Key::C),
+            ViewerCommand::StageSelectedLines => Some((egui::Modifiers::NONE, egui::Key::S)),
+            ViewerCommand::UnstageSelectedLines => Some((egui::Modifiers::NONE, egui::Key::U)),
+            ViewerCommand::ResetSelectedLines => Some((egui::Modifiers::NONE, egui::Key::R)),
+            ViewerCommand::CopyPatch => Some((egui::Modifiers::COMMAND, egui::Key::C)),
+            ViewerCommand::CopyOldVersion | ViewerCommand::CopyNewVersion => None,
+            ViewerCommand::AddToCommitMessage => Some((egui::Modifiers::NONE, egui::Key::C)),
         }
     }
 }
@@ -78,6 +98,7 @@ impl DiffViewer {
         self.selected.clear();
         self.anchor = None;
         self.find_match = None;
+        self.show_large = false;
         match c {
             ViewerContent::Diff(d) => {
                 self.is_diff = true;
@@ -129,6 +150,117 @@ impl DiffViewer {
             })
             .collect();
         lines.join("\n")
+    }
+
+    /// The selected lines of one side of the diff, without the diff markers: the old version
+    /// (context and removed lines) or the new one (context and added lines).
+    pub fn selected_version(&self, new: bool) -> String {
+        let lines: Vec<&str> = self
+            .selected_lines()
+            .into_iter()
+            .filter_map(|i| {
+                let l = self.lines.get(i)?;
+                let keep = match l.kind {
+                    DiffLineKind::Context => true,
+                    DiffLineKind::Added => new,
+                    DiffLineKind::Removed => !new,
+                    _ => false,
+                };
+                keep.then(|| l.text.get(1..).unwrap_or_default())
+            })
+            .collect();
+        lines.join("\n")
+    }
+
+    /// The line index of line number `n` (1-based): of the new version in a diff (the closest
+    /// following line when `n` is not shown), of the text otherwise.
+    fn line_index(&self, n: usize) -> Option<usize> {
+        if n == 0 {
+            return None;
+        }
+        if !self.is_diff {
+            return (self.line_count() > 0).then(|| (n - 1).min(self.line_count() - 1));
+        }
+        self.lines.iter().position(|l| l.new_line.is_some_and(|x| x as usize >= n)).or_else(|| self.lines.iter().rposition(|l| l.new_line.is_some()))
+    }
+
+    /// Selects and shows line number `n` (`GoToLine`).
+    pub fn go_to_line(&mut self, n: usize) {
+        if let Some(i) = self.line_index(n) {
+            self.selected = vec![i];
+            self.anchor = Some(i);
+            self.scroll_to = Some(i);
+        }
+    }
+
+    /// The toolbar above the viewer (port of the `FileViewer` toolbar): previous / next change,
+    /// whitespace options, context lines, entire file and go to line. The diff options are kept
+    /// in `settings`, like upstream remembers them; returns true when it changed them (the
+    /// caller saves the settings, and the diffs reload as their options are part of their key).
+    pub fn toolbar(&mut self, ui: &mut Ui, content: &ViewerContent, settings: &mut AppSettings) -> bool {
+        self.set_content(content);
+        let before = settings.clone();
+        let diff = self.is_diff;
+        // wraps in a narrow pane rather than widening it (commit details right of the graph)
+        ui.horizontal_wrapped(|ui| {
+            ui.set_max_width(ui.available_width());
+            ui.spacing_mut().item_spacing.x = 4.0;
+            if ui.add_enabled(diff, egui::Button::new("⏶").small()).on_hover_text("Previous change (Alt+Up)").clicked() {
+                self.select_change(true);
+            }
+            if ui.add_enabled(diff, egui::Button::new("⏷").small()).on_hover_text("Next change (Alt+Down)").clicked() {
+                self.select_change(false);
+            }
+            ui.separator();
+            ui.add_enabled_ui(diff, |ui| {
+                // the label says which option is on, so an ignored change is never a surprise
+                let label = if settings.ignore_whitespace {
+                    "Whitespace: ignore all"
+                } else if settings.ignore_whitespace_changes {
+                    "Whitespace: ignore amount"
+                } else if settings.ignore_whitespace_at_eol {
+                    "Whitespace: ignore at EOL"
+                } else {
+                    "Whitespace"
+                };
+                ui.menu_button(RichText::new(label).small(), |ui| {
+                    ui.checkbox(&mut settings.ignore_whitespace, "Ignore all whitespace changes (-w)");
+                    ui.add_enabled(!settings.ignore_whitespace, egui::Checkbox::new(&mut settings.ignore_whitespace_changes, "Ignore changes in amount of whitespace (-b)"));
+                    ui.add_enabled(
+                        !settings.ignore_whitespace && !settings.ignore_whitespace_changes,
+                        egui::Checkbox::new(&mut settings.ignore_whitespace_at_eol, "Ignore whitespace changes at end of line"),
+                    );
+                });
+            });
+            if ui.selectable_label(settings.show_whitespace, RichText::new("Show whitespace").small()).on_hover_text("Show whitespace characters").clicked() {
+                settings.show_whitespace = !settings.show_whitespace;
+            }
+            ui.separator();
+            ui.add_enabled_ui(diff && !settings.show_entire_file, |ui| {
+                if ui.add_enabled(settings.context_lines > 0, egui::Button::new("−").small()).on_hover_text("Fewer lines of context").clicked() {
+                    settings.context_lines -= 1;
+                }
+                ui.label(RichText::new(format!("{} lines", settings.context_lines)).small()).on_hover_text("Lines of context around the changes");
+                if ui.add(egui::Button::new("+").small()).on_hover_text("More lines of context").clicked() {
+                    settings.context_lines += 1;
+                }
+            });
+            if ui.add_enabled(diff, egui::Button::new(RichText::new("Entire file").small()).selected(settings.show_entire_file)).on_hover_text("Show the entire file with the changes").clicked() {
+                settings.show_entire_file = !settings.show_entire_file;
+            }
+            ui.separator();
+            if ui.add(egui::Button::new(RichText::new("Go to line…").small()).selected(self.goto_open)).on_hover_text("Ctrl+G").clicked() {
+                self.open_go_to_line();
+            }
+        });
+        self.show_whitespace = settings.show_whitespace;
+        *settings != before
+    }
+
+    fn open_go_to_line(&mut self) {
+        self.goto_open = true;
+        self.goto_focus = true;
+        self.goto_text.clear();
     }
 
     fn is_change(&self, i: usize) -> bool {
@@ -198,6 +330,15 @@ impl DiffViewer {
                 });
                 return None;
             }
+            ViewerContent::Diff(t) | ViewerContent::Text(t) if t.len() > LARGE_CONTENT && !self.show_large => {
+                ui.centered_and_justified(|ui| {
+                    let text = format!("This file is over {} MB. Click to show it.", LARGE_CONTENT / (1024 * 1024));
+                    if ui.link(RichText::new(text).italics()).clicked() {
+                        self.show_large = true;
+                    }
+                });
+                return None;
+            }
             _ => {}
         }
 
@@ -205,6 +346,29 @@ impl DiffViewer {
             if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
                 self.find_open = true;
             }
+        }
+        if self.has_focus(ui.ctx()) && crate::views::shortcut(ui.ctx(), egui::Modifiers::COMMAND, egui::Key::G) {
+            self.open_go_to_line();
+        }
+        if self.goto_open {
+            ui.horizontal(|ui| {
+                ui.label("Go to line:");
+                let r = ui.add(egui::TextEdit::singleline(&mut self.goto_text).desired_width(80.0));
+                if std::mem::take(&mut self.goto_focus) {
+                    r.request_focus();
+                }
+                let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if enter || ui.button("Go").clicked() {
+                    if let Ok(n) = self.goto_text.trim().parse::<usize>() {
+                        self.go_to_line(n);
+                        self.goto_open = false;
+                        self.has_focus = true;
+                    }
+                }
+                if ui.button("✖").clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+                    self.goto_open = false;
+                }
+            });
         }
         if self.find_open {
             ui.horizontal(|ui| {
@@ -280,7 +444,13 @@ impl DiffViewer {
                         egui::Stroke::new(1.0_f32, palette.line_number.gamma_multiply(0.3)),
                     );
                 }
-                painter.text(Pos2::new(x + 4.0, rect.center().y), egui::Align2::LEFT_CENTER, self.line_text(i), font.clone(), fg);
+                let text = self.line_text(i);
+                if self.show_whitespace {
+                    let kind = self.is_diff.then(|| self.lines[i].kind);
+                    painter.text(Pos2::new(x + 4.0, rect.center().y), egui::Align2::LEFT_CENTER, visible_whitespace(text, kind), font.clone(), fg);
+                } else {
+                    painter.text(Pos2::new(x + 4.0, rect.center().y), egui::Align2::LEFT_CENTER, text, font.clone(), fg);
+                }
                 if resp.clicked() {
                     let m = ui.input(|inp| inp.modifiers);
                     clicked_line = Some((i, m.shift, m.command || m.ctrl));
@@ -298,10 +468,14 @@ impl DiffViewer {
                     drag_line = Some(i);
                 }
                 resp.context_menu(|ui| {
-                    for &c in menu {
-                        let (m, k) = c.key();
+                    let copy_versions = if self.is_diff { &[ViewerCommand::CopyOldVersion, ViewerCommand::CopyNewVersion][..] } else { &[] };
+                    for &c in menu.iter().chain(copy_versions) {
                         let enabled = self.can_run(c);
-                        if ui.add_enabled(enabled, egui::Button::new(c.label()).shortcut_text(ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(m, k)))).clicked() {
+                        let mut button = egui::Button::new(c.label());
+                        if let Some((m, k)) = c.key() {
+                            button = button.shortcut_text(ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(m, k)));
+                        }
+                        if ui.add_enabled(enabled, button).clicked() {
                             command = Some(c);
                             ui.close_kind(egui::UiKind::Menu);
                         }
@@ -319,7 +493,7 @@ impl DiffViewer {
         crate::views::track_focus(ui, area_rect, &mut self.has_focus);
         if self.has_focus(ui.ctx()) {
             for &c in menu {
-                let (m, k) = c.key();
+                let Some((m, k)) = c.key() else { continue };
                 if c != ViewerCommand::CopyPatch && self.can_run(c) && crate::views::shortcut(ui.ctx(), m, k) {
                     command = Some(c);
                 }
@@ -379,17 +553,24 @@ impl DiffViewer {
                 self.anchor = Some(i);
             }
         }
-        if command == Some(ViewerCommand::CopyPatch) {
-            let text: Vec<&str> = self.selected_lines().iter().map(|&i| self.line_text(i)).collect();
-            crate::util::copy_to_clipboard(ui.ctx(), text.join("\n"));
-            command = None;
+        match command {
+            Some(ViewerCommand::CopyPatch) => {
+                let text: Vec<&str> = self.selected_lines().iter().map(|&i| self.line_text(i)).collect();
+                crate::util::copy_to_clipboard(ui.ctx(), text.join("\n"));
+                command = None;
+            }
+            Some(c @ (ViewerCommand::CopyOldVersion | ViewerCommand::CopyNewVersion)) => {
+                crate::util::copy_to_clipboard(ui.ctx(), self.selected_version(c == ViewerCommand::CopyNewVersion));
+                command = None;
+            }
+            _ => {}
         }
         command
     }
 
     fn can_run(&self, c: ViewerCommand) -> bool {
         match c {
-            ViewerCommand::CopyPatch | ViewerCommand::AddToCommitMessage => !self.selected.is_empty(),
+            ViewerCommand::CopyPatch | ViewerCommand::AddToCommitMessage | ViewerCommand::CopyOldVersion | ViewerCommand::CopyNewVersion => !self.selected.is_empty(),
             _ => self.has_change_selection(),
         }
     }
@@ -418,9 +599,31 @@ pub fn content_from_bytes(bytes: &[u8]) -> ViewerContent {
     ViewerContent::Text(String::from_utf8_lossy(bytes).into_owned())
 }
 
+/// Shows spaces as `·` and tabs as `→` in file content. In a diff only the content of
+/// context, added and removed lines changes: not their `+`/`-`/space prefix, nor the headers.
+fn visible_whitespace(text: &str, kind: Option<DiffLineKind>) -> String {
+    let show = |t: &str| t.replace(' ', "·").replace('\t', "→   ");
+    match kind {
+        None => show(text),
+        Some(DiffLineKind::Context | DiffLineKind::Added | DiffLineKind::Removed) => {
+            let prefix = text.chars().next().map_or(0, char::len_utf8);
+            format!("{}{}", &text[..prefix], show(&text[prefix..]))
+        }
+        Some(_) => text.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn whitespace_is_shown_in_content_only() {
+        assert_eq!(visible_whitespace("a b\tc", None), "a·b→   c");
+        assert_eq!(visible_whitespace(" x y", Some(DiffLineKind::Context)), " x·y");
+        assert_eq!(visible_whitespace("+x ", Some(DiffLineKind::Added)), "+x·");
+        assert_eq!(visible_whitespace("@@ -1 +1 @@", Some(DiffLineKind::HunkHeader)), "@@ -1 +1 @@");
+    }
 
     fn run_frame(ctx: &egui::Context, viewer: &mut DiffViewer, content: &ViewerContent, menu: &[ViewerCommand], events: Vec<egui::Event>) -> Option<ViewerCommand> {
         let modifiers = events.iter().find_map(|e| if let egui::Event::Key { modifiers, .. } = e { Some(*modifiers) } else { None }).unwrap_or_default();
@@ -466,6 +669,44 @@ mod tests {
         assert_eq!(run_frame(&ctx, &mut viewer, &content, &menu, vec![key(egui::Key::U, egui::Modifiers::NONE)]), None);
         // Shift+S is not S
         assert_eq!(run_frame(&ctx, &mut viewer, &content, &menu, vec![key(egui::Key::S, egui::Modifiers::SHIFT)]), None);
+    }
+
+    #[test]
+    fn copy_versions_and_go_to_line() {
+        let diff = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\n@@ -10,2 +10,2 @@\n ten\n-eleven\n+11\n";
+        let content = ViewerContent::Diff(diff.into());
+        let ctx = egui::Context::default();
+        let mut viewer = DiffViewer::default();
+        run_frame(&ctx, &mut viewer, &content, &[], vec![]);
+        viewer.selected = (0..viewer.lines.len()).collect();
+        assert_eq!(viewer.selected_version(false), "one\ntwo\nthree\nten\neleven");
+        assert_eq!(viewer.selected_version(true), "one\n2\nthree\nten\n11");
+        // line numbers of the new version; a hidden line goes to the next shown one
+        viewer.go_to_line(2);
+        assert_eq!(viewer.selected_text(), "2");
+        viewer.go_to_line(5);
+        assert_eq!(viewer.selected_text(), "ten");
+        viewer.go_to_line(999);
+        assert_eq!(viewer.selected_text(), "11");
+        let text = ViewerContent::Text("a\nb\nc".into());
+        run_frame(&ctx, &mut viewer, &text, &[], vec![]);
+        viewer.go_to_line(2);
+        assert_eq!(viewer.selected_text(), "b");
+    }
+
+    #[test]
+    fn large_content_is_shown_on_request() {
+        let content = ViewerContent::Text("x\n".repeat(LARGE_CONTENT / 2 + 1));
+        let ctx = egui::Context::default();
+        let mut viewer = DiffViewer::default();
+        run_frame(&ctx, &mut viewer, &content, &[], vec![]);
+        assert!(!viewer.show_large);
+        viewer.show_large = true;
+        run_frame(&ctx, &mut viewer, &content, &[], vec![]);
+        // the same content keeps the choice, new content asks again
+        assert!(viewer.show_large);
+        run_frame(&ctx, &mut viewer, &ViewerContent::Text("y\n".repeat(LARGE_CONTENT / 2 + 1)), &[], vec![]);
+        assert!(!viewer.show_large);
     }
 
     #[test]

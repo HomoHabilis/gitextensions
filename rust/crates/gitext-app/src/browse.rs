@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 
 use egui::{RichText, Ui};
-use gitext_core::commands::{self, LocalChangesAction, UntrackedFilesMode};
+use gitext_core::commands::{self, UntrackedFilesMode};
 use gitext_core::settings::{AppSettings, BranchFilterMode, PullAction};
 use gitext_core::status::GitItemStatus;
 use gitext_core::{GitArgs, GitModule, ObjectId};
@@ -99,7 +99,9 @@ impl BrowseView {
         if shortcut(ctx, M::COMMAND, Key::Comma) {
             open(actions, Box::new(dialogs::settings::SettingsDialog::default()));
         }
-        if shortcut(ctx, M::COMMAND, Key::G) {
+        // in a file viewer Ctrl+G is "go to line", as upstream
+        let viewer_focused = self.diff.viewer.has_focus(ctx) || self.file_tree.viewer_has_focus(ctx);
+        if !viewer_focused && shortcut(ctx, M::COMMAND, Key::G) {
             crate::util::open_terminal(self.module.work_dir(), &settings.terminal);
         }
         if shortcut(ctx, ctrl_shift, Key::G) {
@@ -212,12 +214,20 @@ impl BrowseView {
     pub fn refresh(&mut self, ctx: &egui::Context, settings: &AppSettings, reload_log: bool) {
         let m = self.module.clone();
         let untracked = settings.show_untracked_files;
-        self.data_task = Some(Task::spawn(ctx, move || RepoData::load(&m, untracked)));
+        let refs_sort = (settings.refs_sort_by, settings.refs_sort_order);
+        self.data_task = Some(Task::spawn(ctx, move || RepoData::load(&m, untracked, refs_sort)));
         self.reload_log_after_data |= reload_log;
         self.last_status_refresh = Instant::now();
-        self.commit_info.invalidate();
-        self.diff.invalidate();
-        self.file_tree.invalidate();
+        // A commit's diff and files never change for the same id: only the working directory
+        // and the index need loading again, and the details that list refs. Reloading the rest
+        // made the details and the diff blink after every refresh (scripts, F5).
+        if self.grid.selected.iter().any(|s| s.is_artificial()) {
+            self.commit_info.invalidate();
+            self.diff.invalidate();
+            self.file_tree.invalidate();
+        } else {
+            self.commit_info.invalidate_refs();
+        }
     }
 
     pub fn reload_log(&mut self, ctx: &egui::Context, settings: &AppSettings) {
@@ -364,7 +374,7 @@ impl BrowseView {
             });
             ui.separator();
             if ui.button("🗁").on_hover_text("Open working directory in file manager").clicked() {
-                crate::util::open_with_system(&self.module.work_dir().display().to_string());
+                crate::util::open_folder(&self.module.work_dir().display().to_string(), &settings.file_manager);
             }
             if ui.button(">_").on_hover_text("Open terminal").clicked() {
                 crate::util::open_terminal(self.module.work_dir(), &settings.terminal);
@@ -600,7 +610,9 @@ impl BrowseView {
             });
         }
 
-        egui::TopBottomPanel::bottom("browse_tabs").resizable(true).default_height(380.0).min_height(120.0).show_inside(ui, |ui| {
+        // the commit / diff / file tree tabs, below the graph or to its right
+        let right = settings.commit_info_position_right;
+        let tabs = |ui: &mut Ui| {
             ui.set_min_height(ui.available_height());
             ui.horizontal(|ui| {
                 for (i, label) in ["📄 Commit", "± Diff", "🌲 File tree"].iter().enumerate() {
@@ -638,12 +650,19 @@ impl BrowseView {
                 _ => {
                     // the work tree / index are shown at HEAD
                     let tree_rev = selected.map(|id| if id.is_artificial() { self.data.head } else { id });
-                    if let Some(c) = self.file_tree.ui(ui, &self.module, tree_rev, settings.show_line_numbers) {
+                    if let Some(c) = self.file_tree.ui(ui, &self.module, tree_rev, settings) {
                         self.handle_diff(c, settings, actions);
                     }
                 }
             }
-        });
+        };
+        if right {
+            // capped, else a wide diff line stretches the panel over the revision grid
+            let max_w = (ui.available_width() * 0.7).max(260.0);
+            egui::SidePanel::right("browse_tabs_right").resizable(true).default_width(560.0).min_width(260.0).max_width(max_w).show_inside(ui, tabs);
+        } else {
+            egui::TopBottomPanel::bottom("browse_tabs").resizable(true).default_height(380.0).min_height(120.0).show_inside(ui, tabs);
+        }
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
             self.operation_bar(ui, actions);
@@ -696,7 +715,10 @@ impl BrowseView {
                 if self.data.status.iter().any(|s| s.is_tracked) && settings.check_for_uncommitted_changes_in_checkout {
                     open(actions, Box::new(checkout::CheckoutBranchDialog::new(&self.data, Some(name), false)));
                 } else {
-                    actions.push(Action::RunGit(GitRun::new(format!("Checkout {name}"), commands::checkout(&name, LocalChangesAction::DontChange))));
+                    // without the dialog the default action for local changes applies
+                    let action = settings.default_local_changes_action;
+                    let has_changes = self.data.status.iter().any(|s| s.is_tracked);
+                    actions.push(Action::RunGit(checkout::checkout_run(&name, commands::checkout(&name, action), action, has_changes, settings.update_submodules_on_checkout)));
                 }
             }
             LeftCommand::CheckoutRemote(name) => open(actions, Box::new(checkout::CheckoutBranchDialog::new(&self.data, Some(name), true))),
@@ -802,10 +824,24 @@ impl BrowseView {
             GridCommand::RunScript(i, id) => {
                 if let Some(script) = settings.user_scripts.get(i).cloned() {
                     let args = script.arguments.replace("{sHash}", &id.to_string()).replace("{WorkingDir}", &self.module.work_dir().display().to_string());
-                    if script.command == "git" || script.command.is_empty() {
-                        actions.push(Action::RunGit(GitRun::new(script.name.clone(), GitArgs::empty().args(args.split_whitespace()))));
+                    let work_dir = self.module.work_dir().to_path_buf();
+                    let confirm_text = script.ask_confirmation.then(|| format!("Run the script '{}'?", script.name));
+                    let run = move |actions: &mut Vec<Action>| {
+                        let words = crate::util::split_args(&args);
+                        let is_git = script.command == "git" || script.command.is_empty();
+                        if script.run_in_background {
+                            let program = (!is_git).then(|| script.command.clone());
+                            actions.push(Action::RunInBackground { title: script.name.clone(), program, args: GitArgs::empty().args(words) });
+                        } else if is_git {
+                            actions.push(Action::RunGit(GitRun::new(script.name.clone(), GitArgs::empty().args(words))));
+                        } else {
+                            crate::util::spawn_detached(std::process::Command::new(&script.command).args(words).current_dir(&work_dir));
+                        }
+                    };
+                    if let Some(text) = confirm_text {
+                        open(actions, Box::new(Confirm::new("Run script", text, "Run", move |cx| run(cx.actions))));
                     } else {
-                        let _ = std::process::Command::new(&script.command).args(args.split_whitespace()).current_dir(self.module.work_dir()).spawn();
+                        run(actions);
                     }
                 }
             }
@@ -819,6 +855,7 @@ impl BrowseView {
         use dialogs::*;
         let m = &self.module;
         match c {
+            DiffCommand::SaveSettings => actions.push(Action::SaveSettings),
             DiffCommand::Blame { file, rev } => actions.push(Action::OpenDialog(Box::new(blame::BlameDialog::new(file, rev)))),
             DiffCommand::FileHistory(file) => actions.push(Action::OpenDialog(Box::new(file_history::FileHistoryDialog::new(file)))),
             DiffCommand::ShowInFileTree { rev, file } => actions.push(Action::ShowInFileTree(rev, Some(file))),
@@ -871,7 +908,7 @@ impl BrowseView {
             DiffCommand::CopyPaths(p) => actions.push(Action::Copy(p.join("\n"))),
             DiffCommand::OpenContainingFolder(f) => {
                 let p = m.work_dir().join(f);
-                crate::util::open_with_system(&p.parent().unwrap_or(m.work_dir()).display().to_string());
+                crate::util::open_folder(&p.parent().unwrap_or(m.work_dir()).display().to_string(), &settings.file_manager);
             }
             DiffCommand::ExternalDiff { first, second, file } => {
                 let mut args = GitArgs::new("difftool").arg("--find-renames").arg("--find-copies");

@@ -6,6 +6,7 @@
 //! `mergetool.<name>.path|cmd` tell git how to start it. The app then runs
 //! `git difftool --gui` / `git mergetool --gui`.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::args::GitArgs;
@@ -425,25 +426,66 @@ pub fn load_tool_config(
     Some(ToolConfiguration::new(tool.exe_file_name(), &path, tool.command(ToolType::Diff), tool.command(ToolType::Merge)))
 }
 
+/// `git config` keys ignore the case of the section and of the variable name, not of the
+/// subsection (`difftool.<tool>.path`): the form `git config --list` prints them in.
+pub fn config_key(key: &str) -> String {
+    match (key.find('.'), key.rfind('.')) {
+        (Some(first), Some(last)) if first < last => {
+            format!("{}{}{}", key[..first].to_lowercase(), &key[first..last], key[last..].to_lowercase())
+        }
+        _ => key.to_lowercase(),
+    }
+}
+
+/// Runs a `git config --list -z` command and returns its values by `config_key` (the last
+/// value of a key wins, like `git config --get`).
+pub fn read_config_list(git: &Executable, args: &GitArgs) -> HashMap<String, String> {
+    let out = git.run(args).map(|r| r.stdout_str()).unwrap_or_default();
+    parse_config_list(&out)
+}
+
+fn parse_config_list(out: &str) -> HashMap<String, String> {
+    out.split('\0')
+        .filter(|e| !e.is_empty())
+        .map(|e| match e.split_once('\n') {
+            Some((k, v)) => (config_key(k), v.to_string()),
+            // a key without a value is a boolean true
+            None => (config_key(e), "true".to_string()),
+        })
+        .collect()
+}
+
 /// Reads and writes the tool settings in the global git config
 /// (port of `DiffMergeToolConfigurationManager`).
 pub struct ToolConfigStore {
     git: Executable,
+    /// Values read once with `git config --list` (see `snapshot`); `None` reads each key.
+    cache: Option<HashMap<String, String>>,
 }
 
 impl Default for ToolConfigStore {
     fn default() -> Self {
-        ToolConfigStore { git: Executable::git(std::env::temp_dir()) }
+        ToolConfigStore { git: Executable::git(std::env::temp_dir()), cache: None }
     }
 }
 
 impl ToolConfigStore {
     /// A store for the config seen from `dir` (global and system config, plus the repository's).
     pub fn new(git: Executable) -> Self {
-        ToolConfigStore { git }
+        ToolConfigStore { git, cache: None }
+    }
+
+    /// A store that reads the whole config with one git call and answers `get` from it: each
+    /// git call costs ~150 ms on Windows, and the tool settings need up to eight of them.
+    pub fn snapshot(git: Executable) -> Self {
+        let cache = read_config_list(&git, &GitArgs::new("config").arg("--list").arg("-z"));
+        ToolConfigStore { git, cache: Some(cache) }
     }
 
     pub fn get(&self, key: &str) -> String {
+        if let Some(cache) = &self.cache {
+            return cache.get(&config_key(key)).map(|v| v.trim().to_string()).unwrap_or_default();
+        }
         self.git
             .run(&GitArgs::new("config").arg("--get").arg(key))
             .map(|r| r.stdout_str().trim().to_string())
@@ -608,6 +650,30 @@ pub fn install_hint() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn config_snapshot_answers_like_git_config_get() {
+        let parsed = parse_config_list("Diff.GuiTool\nMeld\0difftool.MyTool.Path\nC:\\a b\\x.exe\0core.bare\0merge.tool\nkdiff3\0merge.tool\nmeld\0");
+        assert_eq!(parsed.get("diff.guitool").map(String::as_str), Some("Meld"));
+        assert_eq!(parsed.get("difftool.MyTool.path").map(String::as_str), Some("C:\\a b\\x.exe"));
+        assert_eq!(parsed.get("core.bare").map(String::as_str), Some("true"));
+        assert_eq!(parsed.get("merge.tool").map(String::as_str), Some("meld"));
+        assert_eq!(config_key("DiffTool.MyTool.CMD"), "difftool.MyTool.cmd");
+
+        let dir = tempfile::tempdir().unwrap();
+        let git = Executable::git(dir.path());
+        git.run(&GitArgs::new("init").arg("-q")).unwrap();
+        git.run(&GitArgs::new("config").arg("difftool.My Tool.path").arg("/x y/z")).unwrap();
+        git.run(&GitArgs::new("config").arg("diff.guitool").arg("My Tool")).unwrap();
+        let live = ToolConfigStore::new(Executable::git(dir.path()));
+        let snap = ToolConfigStore::snapshot(Executable::git(dir.path()));
+        for t in [ToolType::Diff, ToolType::Merge] {
+            assert_eq!(snap.configured_tool(t), live.configured_tool(t));
+            let name = live.configured_tool(t);
+            assert_eq!(snap.tool_setting(&name, t, "path"), live.tool_setting(&name, t, "path"));
+        }
+        assert_eq!(snap.tool_setting("My Tool", ToolType::Diff, "path"), "/x y/z");
+    }
 
     // From DiffMergeToolConfigurationManagerTests / RegisteredDiffMergeToolsTests
 

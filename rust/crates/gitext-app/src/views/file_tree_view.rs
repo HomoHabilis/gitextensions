@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use egui::{CollapsingHeader, RichText, Ui};
+use gitext_core::settings::AppSettings;
 use gitext_core::tree::{GitItem, GitObjectType};
 use gitext_core::{GitModule, ObjectId};
 
@@ -73,7 +74,12 @@ impl FileTreeView {
         self.all_files.invalidate();
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, module: &GitModule, rev: Option<ObjectId>, show_line_numbers: bool) -> Option<DiffCommand> {
+    /// Whether the file viewer has the keyboard focus.
+    pub fn viewer_has_focus(&self, ctx: &egui::Context) -> bool {
+        self.viewer.has_focus(ctx)
+    }
+
+    pub fn ui(&mut self, ui: &mut Ui, module: &GitModule, rev: Option<ObjectId>, settings: &mut AppSettings) -> Option<DiffCommand> {
         let palette = Palette::for_ui(ui);
         let Some(rev) = rev else {
             ui.label(RichText::new("No commit selected").italics().color(palette.muted));
@@ -148,7 +154,10 @@ impl FileTreeView {
                 })
                 .cloned()
                 .unwrap_or(ViewerContent::Empty("Loading…".into()));
-            self.viewer.ui(ui, &content, show_line_numbers, &[]);
+            if self.viewer.toolbar(ui, &content, settings) {
+                cmd = Some(DiffCommand::SaveSettings);
+            }
+            self.viewer.ui(ui, &content, settings.show_line_numbers, &[]);
         } else {
             ui.centered_and_justified(|ui| {
                 ui.label(RichText::new("Select a file").italics().color(palette.muted));

@@ -46,6 +46,17 @@ pub enum CommitInfoLink {
 }
 
 impl CommitInfo {
+    /// Forgets what depends on the refs (describe, containing branches and tags) and keeps the
+    /// rest: a commit's message, author and signature never change for the same id.
+    pub fn invalidate_refs(&mut self) {
+        self.describe.invalidate();
+        self.branches.invalidate();
+        self.tags.invalidate();
+        self.describe_cache.clear();
+        self.branches_cache.clear();
+        self.tags_cache.clear();
+    }
+
     pub fn invalidate(&mut self) {
         self.revision.invalidate();
         self.describe.invalidate();
