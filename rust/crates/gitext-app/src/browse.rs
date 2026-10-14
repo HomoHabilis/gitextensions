@@ -890,11 +890,12 @@ impl BrowseView {
                 }
             }
             DiffCommand::ResetFileTo { rev, files } => {
-                let list = files.join("\n");
-                actions.push(Action::OpenDialog(Box::new(Confirm::new("Reset files", format!("Reset these files to {}?\n\n{list}", rev.to_short_string()), "Reset", move |cx| {
+                let list = files.clone();
+                let text = format!("Reset {} file(s) to {}?", files.len(), rev.to_short_string());
+                actions.push(Action::OpenDialog(Box::new(Confirm::new("Reset files", text, "Reset", move |cx| {
                     let refs: Vec<&str> = files.iter().map(String::as_str).collect();
                     cx.run(GitRun::new("Reset files", GitArgs::new("checkout").arg(rev.to_string()).arg("--").args(refs)));
-                }))));
+                }).with_list(list))));
             }
             DiffCommand::Stage(files) => {
                 let refs: Vec<&str> = files.iter().map(String::as_str).collect();
@@ -912,6 +913,7 @@ impl BrowseView {
             }
             DiffCommand::ResetWorkFiles(files) => actions.push(Action::OpenDialog(Box::new(reset::ResetChangesDialog::files(files)))),
             DiffCommand::CopyPaths(p) => actions.push(Action::Copy(p.join("\n"))),
+            DiffCommand::File(a) => crate::views::file_actions::run(a, m, actions),
             DiffCommand::OpenContainingFolder(f) => {
                 let p = m.work_dir().join(f);
                 crate::util::open_folder(&p.parent().unwrap_or(m.work_dir()).display().to_string(), &settings.file_manager);

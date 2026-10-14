@@ -255,6 +255,33 @@ pub fn parse_status_v2(output: &str) -> Vec<GitItemStatus> {
     diff_files
 }
 
+/// The assumed-unchanged and skip-worktree files of `git ls-files -v -z` (port of
+/// `GetAssumeUnchangedFilesFromString` / `GetSkipWorktreeFilesFromString`): a lowercase tag marks
+/// an assumed-unchanged file, `S` a skip-worktree one (`s` both, listed once as assumed unchanged
+/// when those are wanted).
+pub fn parse_ls_files_flags(output: &str, assume_unchanged: bool, skip_worktree: bool) -> Vec<GitItemStatus> {
+    let mut items = Vec::new();
+    for entry in output.split('\0') {
+        let mut chars = entry.chars();
+        let (Some(tag), Some(' ')) = (chars.next(), chars.next()) else { continue };
+        let name = chars.as_str();
+        if name.is_empty() {
+            continue;
+        }
+        let mut item = GitItemStatus::default_status(name);
+        if assume_unchanged && tag.is_lowercase() {
+            item.is_assume_unchanged = true;
+            item.is_skip_worktree = tag == 's';
+        } else if skip_worktree && (tag == 'S' || tag == 's') {
+            item.is_skip_worktree = true;
+        } else {
+            continue;
+        }
+        items.push(item);
+    }
+    items
+}
+
 /// Parses `git diff -z --raw` output (port of `GetDiffChangedFilesFromString`).
 pub fn parse_diff_raw(output: &str, staged: StagedStatus) -> Vec<GitItemStatus> {
     let mut diff_files = Vec::new();
@@ -411,4 +438,15 @@ mod tests {
         assert_eq!(i.old_name.as_deref(), Some("new"));
         assert!(i.is_deleted && !i.is_new);
     }
+
+    #[test]
+    fn ls_files_flags() {
+        let out = "H a.txt\0h assumed.txt\0S skipped.txt\0s both.txt\0";
+        let names = |a, s| parse_ls_files_flags(out, a, s).into_iter().map(|i| (i.name, i.is_assume_unchanged, i.is_skip_worktree)).collect::<Vec<_>>();
+        assert_eq!(names(true, false), [("assumed.txt".to_string(), true, false), ("both.txt".to_string(), true, true)]);
+        assert_eq!(names(false, true), [("skipped.txt".to_string(), false, true), ("both.txt".to_string(), false, true)]);
+        assert_eq!(names(true, true).len(), 3);
+        assert!(parse_ls_files_flags(out, true, true).iter().all(|i| i.staged == StagedStatus::WorkTree && i.is_tracked));
+    }
+
 }
