@@ -4,12 +4,13 @@ use egui::{RichText, Ui, Vec2};
 use gitext_core::exec::{clear_command_log, command_log_entries};
 
 use super::{Action, Cx, Dialog, DialogKind};
+use crate::i18n::{tr, trf};
 
 pub struct CommandLogDialog;
 
 impl Dialog for CommandLogDialog {
     fn title(&self) -> String {
-        "Git command log".into()
+        tr("Git command log").into()
     }
 
     fn kind(&self) -> DialogKind {
@@ -19,11 +20,11 @@ impl Dialog for CommandLogDialog {
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         let entries = command_log_entries();
         ui.horizontal(|ui| {
-            ui.label(format!("{} commands", entries.len()));
-            if ui.button("Clear").clicked() {
+            ui.label(trf("{0} commands", &[&entries.len()]));
+            if ui.button(tr("Clear")).clicked() {
                 clear_command_log();
             }
-            if ui.button("Copy all").clicked() {
+            if ui.button(tr("Copy all")).clicked() {
                 cx.push(Action::Copy(entries.iter().map(|e| e.column_line()).collect::<Vec<_>>().join("\n")));
             }
         });

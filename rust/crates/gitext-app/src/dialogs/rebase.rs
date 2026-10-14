@@ -5,6 +5,7 @@ use gitext_core::commands::{self, RebaseOptions};
 use gitext_core::GitArgs;
 
 use super::{branch_combo, ok_cancel, Cx, Dialog, GitRun};
+use crate::i18n::{tr, trf};
 use crate::repo::RepoData;
 
 pub struct RebaseDialog {
@@ -41,7 +42,7 @@ impl RebaseDialog {
 
 impl Dialog for RebaseDialog {
     fn title(&self) -> String {
-        "Rebase".into()
+        tr("Rebase").into()
     }
 
     fn kind(&self) -> super::DialogKind {
@@ -50,25 +51,25 @@ impl Dialog for RebaseDialog {
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         let current = cx.current_branch().unwrap_or_else(|| "HEAD".into());
-        ui.label(format!("Rebase current branch {current} on top of:"));
+        ui.label(trf("Rebase current branch {0} on top of:", &[&current]));
         branch_combo(ui, "rebase_onto", &mut self.onto, &self.items, 440.0);
-        ui.checkbox(&mut self.interactive, "Interactive rebase");
+        ui.checkbox(&mut self.interactive, tr("Interactive rebase"));
         if self.interactive {
             ui.indent("ia", |ui| {
-                ui.checkbox(&mut self.auto_squash, "Autosquash");
-                ui.label(egui::RichText::new("The todo list opens in the editor configured in git (core.editor / GIT_SEQUENCE_EDITOR).").small());
+                ui.checkbox(&mut self.auto_squash, tr("Autosquash"));
+                ui.label(egui::RichText::new(tr("The todo list opens in the editor configured in git (core.editor / GIT_SEQUENCE_EDITOR).")).small());
             });
         }
-        ui.checkbox(&mut self.preserve_merges, "Rebase merges (--rebase-merges)");
-        ui.checkbox(&mut self.auto_stash, "Auto stash local changes");
-        ui.checkbox(&mut self.update_refs, "Update dependent branches (--update-refs)");
-        ui.checkbox(&mut self.ignore_date, "Ignore date");
-        ui.checkbox(&mut self.committer_date, "Committer date is author date");
-        ui.checkbox(&mut self.specific_range, "Specific range (--onto): rebase commits after");
+        ui.checkbox(&mut self.preserve_merges, tr("Rebase merges (--rebase-merges)"));
+        ui.checkbox(&mut self.auto_stash, tr("Auto stash local changes"));
+        ui.checkbox(&mut self.update_refs, tr("Update dependent branches (--update-refs)"));
+        ui.checkbox(&mut self.ignore_date, tr("Ignore date"));
+        ui.checkbox(&mut self.committer_date, tr("Committer date is author date"));
+        ui.checkbox(&mut self.specific_range, tr("Specific range (--onto): rebase commits after"));
         if self.specific_range {
-            ui.add(egui::TextEdit::singleline(&mut self.from).hint_text("upstream / from revision").desired_width(440.0));
+            ui.add(egui::TextEdit::singleline(&mut self.from).hint_text(tr("upstream / from revision")).desired_width(440.0));
         }
-        let (ok, cancel) = ok_cancel(ui, "Rebase", !self.onto.trim().is_empty());
+        let (ok, cancel) = ok_cancel(ui, tr("Rebase"), !self.onto.trim().is_empty());
         if ok {
             let o = RebaseOptions {
                 branch_name: if self.specific_range { current.clone() } else { self.onto.trim().to_string() },
@@ -90,9 +91,9 @@ impl Dialog for RebaseDialog {
                         let v: Vec<String> = args.as_slice().to_vec();
                         args = GitArgs::empty().args(v);
                     }
-                    cx.run(GitRun::new("Rebase", args).conflicts().keep_open());
+                    cx.run(GitRun::new(tr("Rebase"), args).conflicts().keep_open());
                 }
-                Err(e) => cx.error("Rebase", e),
+                Err(e) => cx.error(tr("Rebase"), e),
             }
             return false;
         }

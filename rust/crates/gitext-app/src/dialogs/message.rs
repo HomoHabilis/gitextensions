@@ -3,6 +3,7 @@
 use egui::{RichText, Ui};
 
 use super::{Cx, Dialog, DialogKind};
+use crate::i18n::tr;
 use crate::theme::Palette;
 
 pub struct MessageDialog {
@@ -35,7 +36,7 @@ impl Dialog for MessageDialog {
         ui.add_space(6.0);
         let mut keep = true;
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("  OK  ").clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Escape)) {
+            if ui.button(format!("  {}  ", tr("OK"))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Escape)) {
                 keep = false;
             }
         });

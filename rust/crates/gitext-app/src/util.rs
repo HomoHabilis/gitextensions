@@ -2,6 +2,8 @@
 
 use chrono::{DateTime, Local, TimeZone};
 
+use crate::i18n::{n_, trf};
+
 /// Absolute date (`yyyy-MM-dd HH:mm:ss`).
 pub fn format_date(unix: i64) -> String {
     if unix == 0 {
@@ -23,26 +25,23 @@ pub fn relative_date(unix: i64, now: DateTime<Local>) -> String {
     if secs < 0 {
         return format_date(unix);
     }
-    let (n, unit) = if secs < 60 {
-        (secs, "second")
+    let n = |d: i64| secs / d;
+    let (n, one, many) = if secs < 60 {
+        (secs, n_("{0} second ago"), n_("{0} seconds ago"))
     } else if secs < 3600 {
-        (secs / 60, "minute")
+        (n(60), n_("{0} minute ago"), n_("{0} minutes ago"))
     } else if secs < 86_400 {
-        (secs / 3600, "hour")
+        (n(3600), n_("{0} hour ago"), n_("{0} hours ago"))
     } else if secs < 7 * 86_400 {
-        (secs / 86_400, "day")
+        (n(86_400), n_("{0} day ago"), n_("{0} days ago"))
     } else if secs < 31 * 86_400 {
-        (secs / (7 * 86_400), "week")
+        (n(7 * 86_400), n_("{0} week ago"), n_("{0} weeks ago"))
     } else if secs < 365 * 86_400 {
-        (secs / (30 * 86_400), "month")
+        (n(30 * 86_400), n_("{0} month ago"), n_("{0} months ago"))
     } else {
-        (secs / (365 * 86_400), "year")
+        (n(365 * 86_400), n_("{0} year ago"), n_("{0} years ago"))
     };
-    if n == 1 {
-        format!("1 {unit} ago")
-    } else {
-        format!("{n} {unit}s ago")
-    }
+    trf(if n == 1 { one } else { many }, &[&n])
 }
 
 pub fn short_date(unix: i64) -> String {

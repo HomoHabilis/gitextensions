@@ -123,15 +123,28 @@ def split_suffix(s):
     return s, ""
 
 
-def translate(text, table):
+def match_case(target, text):
+    """Gives the translation the case of the first letter of the port's text."""
+    if not target or not text[0].isalpha():
+        return target
+    first = target[0].lower() if text[0].islower() else target[0].upper()
+    return first + target[1:]
+
+
+def translate(text, table, folded):
     if text in table:
         return table[text]
-    # the port writes "…" where upstream wrote "...", and drops or adds a label's colon
+    # the port writes "…" where upstream wrote "...", drops or adds a label's colon, and
+    # sometimes capitalizes differently
     base, suffix = split_suffix(text)
     for candidate in [base] + [base + s for s in ELLIPSES + COLONS]:
         if candidate != text and candidate in table:
             target, _ = split_suffix(table[candidate])
             return target + suffix
+    for candidate in [base] + [base + s for s in ELLIPSES + COLONS]:
+        if candidate.lower() in folded:
+            target, _ = split_suffix(table[folded[candidate.lower()]])
+            return match_case(target, text) + suffix
     return None
 
 
@@ -140,9 +153,12 @@ def main():
     print(f"{len(strings)} strings marked for translation")
     for code, name in LANGUAGES.items():
         table = read_xlf(name)
+        folded = {}
+        for source in sorted(table):
+            folded.setdefault(source.lower(), source)
         catalog = {}
         for text in strings:
-            target = translate(text, table)
+            target = translate(text, table, folded)
             if target and sorted(set(PLACEHOLDER.findall(target))) == sorted(set(PLACEHOLDER.findall(text))):
                 catalog[text] = target
         with open(os.path.join(HERE, f"{code}.json"), "w", encoding="utf-8", newline="\n") as fh:

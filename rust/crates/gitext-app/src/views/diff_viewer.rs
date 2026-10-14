@@ -7,6 +7,7 @@ use gitext_core::patch::{parse_diff_lines, strip_ansi, DiffLine, DiffLineKind};
 use gitext_core::settings::{AppSettings, DiffAppearance};
 
 use super::highlight::{highlight_diff, highlight_text, parse_ansi, Span};
+use crate::i18n::{tr, trf};
 use crate::tasks::Task;
 use crate::theme::Palette;
 
@@ -90,13 +91,13 @@ pub enum ViewerCommand {
 impl ViewerCommand {
     fn label(self) -> &'static str {
         match self {
-            ViewerCommand::StageSelectedLines => "Stage selected lines",
-            ViewerCommand::UnstageSelectedLines => "Unstage selected lines",
-            ViewerCommand::ResetSelectedLines => "Reset selected lines…",
-            ViewerCommand::CopyPatch => "Copy",
-            ViewerCommand::CopyOldVersion => "Copy old version",
-            ViewerCommand::CopyNewVersion => "Copy new version",
-            ViewerCommand::AddToCommitMessage => "Add selection to commit message",
+            ViewerCommand::StageSelectedLines => tr("Stage selected lines"),
+            ViewerCommand::UnstageSelectedLines => tr("Unstage selected lines"),
+            ViewerCommand::ResetSelectedLines => tr("Reset selected lines…"),
+            ViewerCommand::CopyPatch => tr("Copy"),
+            ViewerCommand::CopyOldVersion => tr("Copy old version"),
+            ViewerCommand::CopyNewVersion => tr("Copy new version"),
+            ViewerCommand::AddToCommitMessage => tr("Add selection to commit message"),
         }
     }
 
@@ -297,66 +298,66 @@ impl DiffViewer {
         ui.horizontal_wrapped(|ui| {
             ui.set_max_width(ui.available_width());
             ui.spacing_mut().item_spacing.x = 4.0;
-            if ui.add_enabled(diff, egui::Button::new("⏶").small()).on_hover_text("Previous change (Alt+Up)").clicked() {
+            if ui.add_enabled(diff, egui::Button::new("⏶").small()).on_hover_text(format!("{} (Alt+Up)", tr("Previous change"))).clicked() {
                 self.select_change(true);
             }
-            if ui.add_enabled(diff, egui::Button::new("⏷").small()).on_hover_text("Next change (Alt+Down)").clicked() {
+            if ui.add_enabled(diff, egui::Button::new("⏷").small()).on_hover_text(format!("{} (Alt+Down)", tr("Next change"))).clicked() {
                 self.select_change(false);
             }
             ui.separator();
             ui.add_enabled_ui(options, |ui| {
                 // the label says which option is on, so an ignored change is never a surprise
                 let label = if settings.ignore_whitespace {
-                    "Whitespace: ignore all"
+                    tr("Whitespace: ignore all")
                 } else if settings.ignore_whitespace_changes {
-                    "Whitespace: ignore amount"
+                    tr("Whitespace: ignore amount")
                 } else if settings.ignore_whitespace_at_eol {
-                    "Whitespace: ignore at EOL"
+                    tr("Whitespace: ignore at EOL")
                 } else {
-                    "Whitespace"
+                    tr("Whitespace")
                 };
                 ui.menu_button(RichText::new(label).small(), |ui| {
-                    ui.checkbox(&mut settings.ignore_whitespace, "Ignore all whitespace changes (-w)");
-                    ui.add_enabled(!settings.ignore_whitespace, egui::Checkbox::new(&mut settings.ignore_whitespace_changes, "Ignore changes in amount of whitespace (-b)"));
+                    ui.checkbox(&mut settings.ignore_whitespace, tr("Ignore all whitespace changes (-w)"));
+                    ui.add_enabled(!settings.ignore_whitespace, egui::Checkbox::new(&mut settings.ignore_whitespace_changes, tr("Ignore changes in amount of whitespace (-b)")));
                     ui.add_enabled(
                         !settings.ignore_whitespace && !settings.ignore_whitespace_changes,
-                        egui::Checkbox::new(&mut settings.ignore_whitespace_at_eol, "Ignore whitespace changes at end of line"),
+                        egui::Checkbox::new(&mut settings.ignore_whitespace_at_eol, tr("Ignore whitespace changes at end of line")),
                     );
                 });
             });
-            if ui.selectable_label(settings.show_whitespace, RichText::new("Show whitespace").small()).on_hover_text("Show whitespace characters").clicked() {
+            if ui.selectable_label(settings.show_whitespace, RichText::new(tr("Show whitespace")).small()).on_hover_text(tr("Show whitespace characters")).clicked() {
                 settings.show_whitespace = !settings.show_whitespace;
             }
             ui.separator();
             ui.add_enabled_ui(options && !settings.show_entire_file, |ui| {
-                if ui.add_enabled(settings.context_lines > 0, egui::Button::new("−").small()).on_hover_text("Fewer lines of context").clicked() {
+                if ui.add_enabled(settings.context_lines > 0, egui::Button::new("−").small()).on_hover_text(tr("Fewer lines of context")).clicked() {
                     settings.context_lines -= 1;
                 }
-                ui.label(RichText::new(format!("{} lines", settings.context_lines)).small()).on_hover_text("Lines of context around the changes");
-                if ui.add(egui::Button::new("+").small()).on_hover_text("More lines of context").clicked() {
+                ui.label(RichText::new(trf("{0} lines", &[&settings.context_lines])).small()).on_hover_text(tr("Lines of context around the changes"));
+                if ui.add(egui::Button::new("+").small()).on_hover_text(tr("More lines of context")).clicked() {
                     settings.context_lines += 1;
                 }
             });
-            if ui.add_enabled(options, egui::Button::new(RichText::new("Entire file").small()).selected(settings.show_entire_file)).on_hover_text("Show the entire file with the changes").clicked() {
+            if ui.add_enabled(options, egui::Button::new(RichText::new(tr("Entire file")).small()).selected(settings.show_entire_file)).on_hover_text(tr("Show the entire file with the changes")).clicked() {
                 settings.show_entire_file = !settings.show_entire_file;
             }
             ui.separator();
-            if ui.add(egui::Button::new(RichText::new("Go to line…").small()).selected(self.goto_open)).on_hover_text("Ctrl+G").clicked() {
+            if ui.add(egui::Button::new(RichText::new(tr("Go to line…")).small()).selected(self.goto_open)).on_hover_text("Ctrl+G").clicked() {
                 self.open_go_to_line();
             }
-            if ui.selectable_label(settings.syntax_highlighting, RichText::new("Syntax colours").small()).on_hover_text("Colour the code by its language").clicked() {
+            if ui.selectable_label(settings.syntax_highlighting, RichText::new(tr("Syntax colours")).small()).on_hover_text(tr("Colour the code by its language")).clicked() {
                 settings.syntax_highlighting = !settings.syntax_highlighting;
             }
             if self.appearance_menu {
                 let label = match settings.diff_appearance {
-                    DiffAppearance::Patch => "View: patch",
-                    DiffAppearance::WordDiff => "View: word diff",
-                    DiffAppearance::Difftastic => "View: difftastic",
+                    DiffAppearance::Patch => tr("View: patch"),
+                    DiffAppearance::WordDiff => tr("View: word diff"),
+                    DiffAppearance::Difftastic => tr("View: difftastic"),
                 };
                 ui.menu_button(RichText::new(label).small(), |ui| {
-                    ui.radio_value(&mut settings.diff_appearance, DiffAppearance::Patch, "Patch");
-                    ui.radio_value(&mut settings.diff_appearance, DiffAppearance::WordDiff, "Git word diff");
-                    ui.radio_value(&mut settings.diff_appearance, DiffAppearance::Difftastic, "Difftastic").on_hover_text("Structural diff, needs difftastic set up as a git difftool (difftool.difftastic.cmd)");
+                    ui.radio_value(&mut settings.diff_appearance, DiffAppearance::Patch, tr("Patch"));
+                    ui.radio_value(&mut settings.diff_appearance, DiffAppearance::WordDiff, tr("Git word diff"));
+                    ui.radio_value(&mut settings.diff_appearance, DiffAppearance::Difftastic, tr("Difftastic")).on_hover_text(tr("Structural diff, needs difftastic set up as a git difftool (difftool.difftastic.cmd)"));
                 });
             }
         });
@@ -447,7 +448,7 @@ impl DiffViewer {
             }
             ViewerContent::Diff(t) | ViewerContent::Text(t) if t.len() > LARGE_CONTENT && !self.show_large => {
                 ui.centered_and_justified(|ui| {
-                    let text = format!("This file is over {} MB. Click to show it.", LARGE_CONTENT / (1024 * 1024));
+                    let text = trf("This file is over {0} MB. Click to show it.", &[&(LARGE_CONTENT / (1024 * 1024))]);
                     if ui.link(RichText::new(text).italics()).clicked() {
                         self.show_large = true;
                     }
@@ -467,13 +468,13 @@ impl DiffViewer {
         }
         if self.goto_open {
             ui.horizontal(|ui| {
-                ui.label("Go to line:");
+                ui.label(tr("Go to line:"));
                 let r = ui.add(egui::TextEdit::singleline(&mut self.goto_text).desired_width(80.0));
                 if std::mem::take(&mut self.goto_focus) {
                     r.request_focus();
                 }
                 let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if enter || ui.button("Go").clicked() {
+                if enter || ui.button(tr("Go")).clicked() {
                     if let Ok(n) = self.goto_text.trim().parse::<usize>() {
                         self.go_to_line(n);
                         self.goto_open = false;
@@ -487,12 +488,12 @@ impl DiffViewer {
         }
         if self.find_open {
             ui.horizontal(|ui| {
-                let r = ui.add(egui::TextEdit::singleline(&mut self.find).hint_text("Find…").desired_width(220.0));
+                let r = ui.add(egui::TextEdit::singleline(&mut self.find).hint_text(tr("Find…")).desired_width(220.0));
                 if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     self.find_next(false);
                     r.request_focus();
                 }
-                if ui.button("Next").on_hover_text("F3 (Shift+F3: previous)").clicked() {
+                if ui.button(tr("Next")).on_hover_text(tr("F3 (Shift+F3: previous)")).clicked() {
                     self.find_next(false);
                 }
                 if ui.button("✖").clicked() {
@@ -617,7 +618,7 @@ impl DiffViewer {
                             ui.close_kind(egui::UiKind::Menu);
                         }
                     }
-                    if ui.add(egui::Button::new("Find…").shortcut_text(ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::F)))).clicked() {
+                    if ui.add(egui::Button::new(tr("Find…")).shortcut_text(ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::F)))).clicked() {
                         self.find_open = true;
                         ui.close_kind(egui::UiKind::Menu);
                     }
@@ -731,7 +732,7 @@ impl DiffViewer {
 pub fn content_from_bytes(bytes: &[u8]) -> ViewerContent {
     let probe = &bytes[..bytes.len().min(8000)];
     if probe.contains(&0) {
-        return ViewerContent::Binary(format!("Binary file ({} bytes)", bytes.len()));
+        return ViewerContent::Binary(trf("Binary file ({0} bytes)", &[&bytes.len()]));
     }
     ViewerContent::Text(String::from_utf8_lossy(bytes).into_owned())
 }

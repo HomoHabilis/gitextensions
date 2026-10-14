@@ -332,6 +332,9 @@ mod tests {
     fn no_translation_of_formatted_strings() {
         let re = regex::Regex::new(r"\btrf?\(\s*&?format!").unwrap();
         for (path, text) in sources() {
+            if path.ends_with("i18n.rs") {
+                continue;
+            }
             assert!(!re.is_match(&text), "{}: use trf(\"… {{0}} …\", &[&x]) instead of tr(&format!(…))", path.display());
         }
     }

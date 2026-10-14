@@ -10,6 +10,7 @@ use gitext_core::{GitModule, ObjectId};
 
 use super::diff_viewer::{content_from_bytes, DiffViewer, ViewerContent};
 use super::revision_diff::DiffCommand;
+use crate::i18n::tr;
 use crate::tasks::Loader;
 use crate::theme::Palette;
 
@@ -89,13 +90,13 @@ impl FileTreeView {
     pub fn ui(&mut self, ui: &mut Ui, module: &GitModule, rev: Option<ObjectId>, settings: &mut AppSettings) -> Option<DiffCommand> {
         let palette = Palette::for_ui(ui);
         let Some(rev) = rev else {
-            ui.label(RichText::new("No commit selected").italics().color(palette.muted));
+            ui.label(RichText::new(tr("No commit selected")).italics().color(palette.muted));
             return None;
         };
         // The caller maps the work tree / index to HEAD (no git call per frame here)
         let tree_rev = rev;
         if tree_rev.is_zero() {
-            ui.label(RichText::new("No files").italics().color(palette.muted));
+            ui.label(RichText::new(tr("No files")).italics().color(palette.muted));
             return None;
         }
         if self.rev != Some(tree_rev) {
@@ -107,7 +108,7 @@ impl FileTreeView {
         let mut cmd = None;
         self.handle_keys(ui);
         egui::SidePanel::left("filetree_tree").resizable(true).default_width(300.0).show_inside(ui, |ui| {
-            let find = ui.add(egui::TextEdit::singleline(&mut self.find).hint_text("🔍 Find file…").desired_width(f32::INFINITY));
+            let find = ui.add(egui::TextEdit::singleline(&mut self.find).hint_text(format!("🔍 {}", tr("Find file…"))).desired_width(f32::INFINITY));
             if std::mem::take(&mut self.focus_find) {
                 find.request_focus();
             }
@@ -144,13 +145,13 @@ impl FileTreeView {
         if let Some(path) = self.selected.clone() {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(&path).strong());
-                if ui.small_button("Blame").clicked() {
+                if ui.small_button(tr("Blame")).clicked() {
                     cmd = Some(DiffCommand::Blame { file: path.clone(), rev: tree_rev });
                 }
-                if ui.small_button("History").clicked() {
+                if ui.small_button(tr("History")).clicked() {
                     cmd = Some(DiffCommand::FileHistory(path.clone()));
                 }
-                if ui.small_button("Save as…").clicked() {
+                if ui.small_button(tr("Save as…")).clicked() {
                     cmd = Some(DiffCommand::SaveAs { rev: tree_rev, file: path.clone() });
                 }
             });
@@ -163,7 +164,7 @@ impl FileTreeView {
                     Err(e) => ViewerContent::Empty(e.to_string()),
                 })
                 .cloned()
-                .unwrap_or(ViewerContent::Empty("Loading…".into()));
+                .unwrap_or(ViewerContent::Empty(tr("Loading…").into()));
             self.viewer.set_file_name(Some(&path));
             if self.viewer.toolbar(ui, &content, settings) {
                 cmd = Some(DiffCommand::SaveSettings);
@@ -171,7 +172,7 @@ impl FileTreeView {
             self.viewer.ui(ui, &content, settings.show_line_numbers, &[]);
         } else {
             ui.centered_and_justified(|ui| {
-                ui.label(RichText::new("Select a file").italics().color(palette.muted));
+                ui.label(RichText::new(tr("Select a file")).italics().color(palette.muted));
             });
         }
         cmd
@@ -239,11 +240,11 @@ impl FileTreeView {
                     }
                     let r = header.show(ui, |ui| self.dir_ui(ui, module, rev, &full, palette, cmd, depth + 1));
                     r.header_response.context_menu(|ui| {
-                        if ui.button("File history").clicked() {
+                        if ui.button(tr("File history")).clicked() {
                             *cmd = Some(DiffCommand::FileHistory(full.clone()));
                             ui.close_kind(egui::UiKind::Menu);
                         }
-                        if ui.button("Filter commits by this path").clicked() {
+                        if ui.button(tr("Filter commits by this path")).clicked() {
                             *cmd = Some(DiffCommand::FilterPath(full.clone()));
                             ui.close_kind(egui::UiKind::Menu);
                         }
@@ -267,35 +268,35 @@ impl FileTreeView {
                         *cmd = Some(DiffCommand::Blame { file: full.clone(), rev });
                     }
                     r.context_menu(|ui| {
-                        if ui.button("Blame").clicked() {
+                        if ui.button(tr("Blame")).clicked() {
                             *cmd = Some(DiffCommand::Blame { file: full.clone(), rev });
                             ui.close_kind(egui::UiKind::Menu);
                         }
-                        if ui.button("File history").clicked() {
+                        if ui.button(tr("File history")).clicked() {
                             *cmd = Some(DiffCommand::FileHistory(full.clone()));
                             ui.close_kind(egui::UiKind::Menu);
                         }
-                        if ui.button("Open this revision (temp file)").clicked() {
+                        if ui.button(tr("Open this revision (temp file)")).clicked() {
                             *cmd = Some(DiffCommand::OpenRevisionFile { rev, file: full.clone() });
                             ui.close_kind(egui::UiKind::Menu);
                         }
-                        if ui.button("Open working directory file").clicked() {
+                        if ui.button(tr("Open working directory file")).clicked() {
                             *cmd = Some(DiffCommand::OpenWorkFile(full.clone()));
                             ui.close_kind(egui::UiKind::Menu);
                         }
-                        if ui.button("Save as…").clicked() {
+                        if ui.button(tr("Save as…")).clicked() {
                             *cmd = Some(DiffCommand::SaveAs { rev, file: full.clone() });
                             ui.close_kind(egui::UiKind::Menu);
                         }
-                        if ui.button("Reset file to this revision…").clicked() {
+                        if ui.button(tr("Reset file to this revision…")).clicked() {
                             *cmd = Some(DiffCommand::ResetFileTo { rev, files: vec![full.clone()] });
                             ui.close_kind(egui::UiKind::Menu);
                         }
-                        if ui.button("Filter commits by this path").clicked() {
+                        if ui.button(tr("Filter commits by this path")).clicked() {
                             *cmd = Some(DiffCommand::FilterPath(full.clone()));
                             ui.close_kind(egui::UiKind::Menu);
                         }
-                        if ui.button("Copy path").clicked() {
+                        if ui.button(tr("Copy path")).clicked() {
                             *cmd = Some(DiffCommand::CopyPaths(vec![full.clone()]));
                             ui.close_kind(egui::UiKind::Menu);
                         }

@@ -6,6 +6,7 @@ use gitext_core::status::StagedStatus;
 use gitext_core::{GitArgs, ObjectId};
 
 use super::{ok_cancel, Action, Cx, Dialog, GitRun};
+use crate::i18n::{tr, trf};
 use crate::repo::RepoData;
 use crate::theme::Palette;
 
@@ -23,7 +24,7 @@ impl ResetBranchDialog {
 
 impl Dialog for ResetBranchDialog {
     fn title(&self) -> String {
-        "Reset current branch".into()
+        tr("Reset current branch").into()
     }
 
     fn kind(&self) -> super::DialogKind {
@@ -32,20 +33,20 @@ impl Dialog for ResetBranchDialog {
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         let palette = Palette::for_ui(ui);
-        ui.label(format!("Reset branch '{}' to {}", self.branch, self.id.to_short_string()));
+        ui.label(trf("Reset branch '{0}' to {1}", &[&self.branch, &self.id.to_short_string()]));
         ui.add_space(4.0);
-        ui.radio_value(&mut self.mode, ResetMode::Soft, "Soft: leave working directory and index untouched");
-        ui.radio_value(&mut self.mode, ResetMode::Mixed, "Mixed: leave working directory untouched, reset index");
-        ui.radio_value(&mut self.mode, ResetMode::Keep, "Keep: update working directory to the commit, keep local changes");
-        ui.radio_value(&mut self.mode, ResetMode::Merge, "Merge: reset index, update files that differ, keep local changes");
-        ui.radio_value(&mut self.mode, ResetMode::Hard, "Hard: reset working directory and index (discard ALL local changes)");
+        ui.radio_value(&mut self.mode, ResetMode::Soft, tr("Soft: leave working directory and index untouched"));
+        ui.radio_value(&mut self.mode, ResetMode::Mixed, tr("Mixed: leave working directory untouched, reset index"));
+        ui.radio_value(&mut self.mode, ResetMode::Keep, tr("Keep: update working directory to the commit, keep local changes"));
+        ui.radio_value(&mut self.mode, ResetMode::Merge, tr("Merge: reset index, update files that differ, keep local changes"));
+        ui.radio_value(&mut self.mode, ResetMode::Hard, tr("Hard: reset working directory and index (discard ALL local changes)"));
         if self.mode == ResetMode::Hard {
-            ui.label(RichText::new("⚠ All uncommitted changes will be lost!").color(palette.error));
+            ui.label(RichText::new(format!("⚠ {}", tr("All uncommitted changes will be lost!"))).color(palette.error));
         }
-        let (ok, cancel) = ok_cancel(ui, "Reset", true);
+        let (ok, cancel) = ok_cancel(ui, tr("Reset"), true);
         if ok {
             if let Ok(args) = commands::reset(self.mode, Some(&self.id.to_string()), None, false) {
-                cx.run(GitRun::new("Reset current branch", args));
+                cx.run(GitRun::new(tr("Reset current branch"), args));
             }
             return false;
         }
@@ -81,23 +82,23 @@ impl ResetChangesDialog {
 
 impl Dialog for ResetChangesDialog {
     fn title(&self) -> String {
-        "Reset changes".into()
+        tr("Reset changes").into()
     }
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         let palette = Palette::for_ui(ui);
         match &self.files {
-            None if self.work_tree_only => ui.label("Reset the unstaged changes in the working directory? Staged changes are kept."),
-            None => ui.label("Reset all changes in the working directory and the index?"),
+            None if self.work_tree_only => ui.label(tr("Reset the unstaged changes in the working directory? Staged changes are kept.")),
+            None => ui.label(tr("Reset all changes in the working directory and the index?")),
             Some(f) => {
-                let r = ui.label(format!("Reset changes of {} file(s)?", f.len()));
+                let r = ui.label(trf("Reset changes of {0} file(s)?", &[&f.len()]));
                 super::scroll_list(ui, "reset_files", f);
                 r
             }
         };
-        ui.checkbox(&mut self.include_untracked, "Also delete new (untracked) files");
-        ui.label(RichText::new("⚠ This cannot be undone.").color(palette.error));
-        let (ok, cancel) = ok_cancel(ui, "Reset", true);
+        ui.checkbox(&mut self.include_untracked, tr("Also delete new (untracked) files"));
+        ui.label(RichText::new(format!("⚠ {}", tr("This cannot be undone."))).color(palette.error));
+        let (ok, cancel) = ok_cancel(ui, tr("Reset"), true);
         if ok {
             let Some(m) = cx.module else { return false };
             match &self.files {
@@ -111,7 +112,7 @@ impl Dialog for ResetChangesDialog {
                         cmds.push(commands::clean(commands::CleanMode::OnlyNonIgnored, false, true, &[], &[]));
                     }
                     if !cmds.is_empty() {
-                        cx.run(GitRun::many("Reset unstaged changes", cmds));
+                        cx.run(GitRun::many(tr("Reset unstaged changes"), cmds));
                     }
                 }
                 None => {
@@ -119,7 +120,7 @@ impl Dialog for ResetChangesDialog {
                     if self.include_untracked {
                         cmds.push(commands::clean(commands::CleanMode::OnlyNonIgnored, false, true, &[], &[]));
                     }
-                    cx.run(GitRun::many("Reset changes", cmds));
+                    cx.run(GitRun::many(tr("Reset changes"), cmds));
                 }
                 Some(files) => {
                     let status = m.get_status(commands::UntrackedFilesMode::All, false).unwrap_or_default();
@@ -139,14 +140,14 @@ impl Dialog for ResetChangesDialog {
                         if let Err(e) = m.run_checked(&args) {
                             // file might not exist in HEAD; fall back to the index
                             if m.reset_files(&tracked).is_err() {
-                                cx.error("Reset changes", e.to_string());
+                                cx.error(tr("Reset changes"), e.to_string());
                             }
                         }
                     }
                     if self.include_untracked {
                         let refs: Vec<&str> = untracked.iter().map(|s| s.as_str()).chain(added.iter().copied()).collect();
                         if let Err(e) = m.delete_untracked(&refs) {
-                            cx.error("Reset changes", e.to_string());
+                            cx.error(tr("Reset changes"), e.to_string());
                         }
                     }
                     cx.push(Action::Refresh);
@@ -194,7 +195,7 @@ impl ResetAnotherBranchDialog {
 
 impl Dialog for ResetAnotherBranchDialog {
     fn title(&self) -> String {
-        "Reset branch".into()
+        tr("Reset branch").into()
     }
 
     fn kind(&self) -> super::DialogKind {
@@ -203,11 +204,11 @@ impl Dialog for ResetAnotherBranchDialog {
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         let palette = Palette::for_ui(ui);
-        ui.label(format!("Reset to {}  {}", self.id.to_short_string(), self.subject));
+        ui.label(trf("Reset to {0}  {1}", &[&self.id.to_short_string(), &self.subject]));
         ui.add_space(4.0);
         let names: Vec<String> = self.branches.iter().map(|(n, ..)| n.clone()).collect();
         ui.horizontal(|ui| {
-            ui.label("Reset local branch:");
+            ui.label(tr("Reset local branch:"));
             super::branch_combo(ui, "reset_another_branch", &mut self.branch, &names, 300.0);
         });
         let selected = self.branches.iter().find(|(n, ..)| *n == self.branch.trim()).cloned();
@@ -218,23 +219,23 @@ impl Dialog for ResetAnotherBranchDialog {
             }
             _ => None,
         };
-        ui.checkbox(&mut self.force, "Force reset for a non-fast-forward reset");
+        ui.checkbox(&mut self.force, tr("Force reset for a non-fast-forward reset"));
         ui.label(
-            RichText::new("You can only reset a branch safely if there is a direct path from it to the selected revision.\nForcing a branch to reset if it has not been merged might leave some commits unreachable.")
+            RichText::new(tr("You can only reset a branch safely if there is a direct path from it to the selected revision.\nForcing a branch to reset if it has not been merged might leave some commits unreachable."))
                 .small()
                 .color(palette.muted),
         );
         if selected.is_none() && !self.branch.trim().is_empty() {
-            ui.label(RichText::new(format!("'{}' is not the name of an existing local branch.", self.branch.trim())).color(palette.error));
+            ui.label(RichText::new(trf("'{0}' is not the name of an existing local branch.", &[&self.branch.trim()])).color(palette.error));
         } else if fast_forward == Some(false) && !self.force {
-            ui.label(RichText::new("This is not a fast-forward: check \"Force\" to reset anyway.").color(palette.warning));
+            ui.label(RichText::new(tr("This is not a fast-forward: check \"Force\" to reset anyway.")).color(palette.warning));
         }
-        ui.checkbox(&mut cx.settings.checkout_other_branch_after_reset, "Checkout branch after reset");
+        ui.checkbox(&mut cx.settings.checkout_other_branch_after_reset, tr("Checkout branch after reset"));
         let enabled = selected.is_some() && (self.force || fast_forward == Some(true));
-        let (ok, cancel) = ok_cancel(ui, "Reset", enabled);
+        let (ok, cancel) = ok_cancel(ui, tr("Reset"), enabled);
         if ok {
             let Some((name, complete, _)) = selected else { return true };
-            let mut run = GitRun::new(format!("Reset {name}"), commands::update_ref(&complete, self.id));
+            let mut run = GitRun::new(trf("Reset {0}", &[&name]), commands::update_ref(&complete, self.id));
             if cx.settings.checkout_other_branch_after_reset {
                 if let Some(d) = cx.data {
                     run = run.then(Action::OpenDialog(Box::new(super::checkout::CheckoutBranchDialog::new(d, Some(name), false))));

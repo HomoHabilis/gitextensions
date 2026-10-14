@@ -5,6 +5,7 @@ use gitext_core::patch::create_patches_from_string;
 use gitext_core::{commands, GitArgs, ObjectId};
 
 use super::{ok_cancel, Cx, Dialog, DialogKind, GitRun};
+use crate::i18n::tr;
 use crate::views::diff_viewer::{DiffViewer, ViewerContent};
 
 pub struct FormatPatchDialog {
@@ -25,18 +26,18 @@ impl FormatPatchDialog {
 
 impl Dialog for FormatPatchDialog {
     fn title(&self) -> String {
-        "Format patch".into()
+        tr("Format patch").into()
     }
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         egui::Grid::new("fp").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-            ui.label("From (exclusive)");
+            ui.label(tr("From (exclusive)"));
             ui.add(egui::TextEdit::singleline(&mut self.from).desired_width(320.0));
             ui.end_row();
-            ui.label("To (inclusive)");
+            ui.label(tr("To (inclusive)"));
             ui.add(egui::TextEdit::singleline(&mut self.to).desired_width(320.0));
             ui.end_row();
-            ui.label("Output directory");
+            ui.label(tr("Output directory"));
             ui.horizontal(|ui| {
                 ui.add(egui::TextEdit::singleline(&mut self.output_dir).desired_width(260.0));
                 if ui.button("…").clicked() {
@@ -47,10 +48,10 @@ impl Dialog for FormatPatchDialog {
             });
             ui.end_row();
         });
-        let (ok, cancel) = ok_cancel(ui, "Create patches", !self.output_dir.trim().is_empty());
+        let (ok, cancel) = ok_cancel(ui, tr("Create patches"), !self.output_dir.trim().is_empty());
         if ok {
             let args = GitArgs::new("format-patch").arg("-M").arg("-C").arg("-o").arg(self.output_dir.trim()).arg(format!("{}..{}", self.from.trim(), self.to.trim()));
-            cx.run(GitRun::new("Format patch", args).no_refresh().keep_open());
+            cx.run(GitRun::new(tr("Format patch"), args).no_refresh().keep_open());
             return false;
         }
         !cancel
@@ -72,42 +73,42 @@ impl ApplyPatchDialog {
 
 impl Dialog for ApplyPatchDialog {
     fn title(&self) -> String {
-        "Apply patch".into()
+        tr("Apply patch").into()
     }
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         let applying = cx.data.is_some_and(|d| d.state.applying_patch);
         if applying {
-            ui.label(RichText::new("A patch is being applied (git am).").strong());
+            ui.label(RichText::new(tr("A patch is being applied (git am).")).strong());
             ui.horizontal(|ui| {
-                if ui.button("Continue (resolved)").clicked() {
-                    cx.run(GitRun::new("Resolved", commands::resolved_mailbox()).conflicts());
+                if ui.button(tr("Continue (resolved)")).clicked() {
+                    cx.run(GitRun::new(tr("Resolved"), commands::resolved_mailbox()).conflicts());
                 }
-                if ui.button("Skip patch").clicked() {
-                    cx.run(GitRun::new("Skip", commands::skip_mailbox()).conflicts());
+                if ui.button(tr("Skip patch")).clicked() {
+                    cx.run(GitRun::new(tr("Skip"), commands::skip_mailbox()).conflicts());
                 }
-                if ui.button("Abort").clicked() {
-                    cx.run(GitRun::new("Abort", commands::abort_mailbox()));
+                if ui.button(tr("Abort")).clicked() {
+                    cx.run(GitRun::new(tr("Abort"), commands::abort_mailbox()));
                 }
             });
             ui.separator();
         }
         ui.horizontal(|ui| {
-            ui.radio_value(&mut self.is_dir, false, "Patch file");
-            ui.radio_value(&mut self.is_dir, true, "Directory with patches");
+            ui.radio_value(&mut self.is_dir, false, tr("Patch file"));
+            ui.radio_value(&mut self.is_dir, true, tr("Directory with patches"));
         });
         ui.horizontal(|ui| {
             ui.add(egui::TextEdit::singleline(&mut self.path).desired_width(330.0));
             if ui.button("…").clicked() {
-                let p = if self.is_dir { crate::util::pick_folder(None) } else { crate::util::pick_file(None, Some(("Patch", &["patch", "diff", "eml"]))) };
+                let p = if self.is_dir { crate::util::pick_folder(None) } else { crate::util::pick_file(None, Some((tr("Patch"), &["patch", "diff", "eml"]))) };
                 if let Some(p) = p {
                     self.path = p;
                 }
             }
         });
-        ui.checkbox(&mut self.sign_off, "Sign off");
-        ui.checkbox(&mut self.ignore_whitespace, "Ignore whitespace");
-        let (ok, cancel) = ok_cancel(ui, "Apply", !self.path.trim().is_empty());
+        ui.checkbox(&mut self.sign_off, tr("Sign off"));
+        ui.checkbox(&mut self.ignore_whitespace, tr("Ignore whitespace"));
+        let (ok, cancel) = ok_cancel(ui, tr("Apply"), !self.path.trim().is_empty());
         if ok {
             let p = self.path.trim();
             let is_mailbox = self.is_dir || std::fs::read_to_string(p).map(|t| t.starts_with("From ")).unwrap_or(false);
@@ -122,7 +123,7 @@ impl Dialog for ApplyPatchDialog {
             } else {
                 commands::apply_diff_patch(self.ignore_whitespace, p)
             };
-            cx.run(GitRun::new("Apply patch", args).conflicts());
+            cx.run(GitRun::new(tr("Apply patch"), args).conflicts());
             return false;
         }
         !cancel
@@ -139,7 +140,7 @@ pub struct ViewPatchDialog {
 
 impl Dialog for ViewPatchDialog {
     fn title(&self) -> String {
-        "View patch file".into()
+        tr("View patch file").into()
     }
 
     fn kind(&self) -> DialogKind {
@@ -149,18 +150,18 @@ impl Dialog for ViewPatchDialog {
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         ui.horizontal(|ui| {
             ui.add(egui::TextEdit::singleline(&mut self.path).desired_width(420.0));
-            if ui.button("Browse…").clicked() {
-                if let Some(p) = crate::util::pick_file(None, Some(("Patch", &["patch", "diff"]))) {
+            if ui.button(tr("Browse…")).clicked() {
+                if let Some(p) = crate::util::pick_file(None, Some((tr("Patch"), &["patch", "diff"]))) {
                     self.path = p;
                 }
             }
-            if ui.button("Load").clicked() {
+            if ui.button(tr("Load")).clicked() {
                 match std::fs::read(&self.path) {
                     Ok(b) => {
                         self.patches = create_patches_from_string(&String::from_utf8_lossy(&b));
                         self.selected = 0;
                     }
-                    Err(e) => cx.error("View patch", e.to_string()),
+                    Err(e) => cx.error(tr("View patch"), e.to_string()),
                 }
             }
         });
@@ -172,7 +173,7 @@ impl Dialog for ViewPatchDialog {
                 }
             }
         });
-        let content = self.patches.get(self.selected).map(|p| ViewerContent::Diff(p.text.clone())).unwrap_or(ViewerContent::Empty("Load a patch file".into()));
+        let content = self.patches.get(self.selected).map(|p| ViewerContent::Diff(p.text.clone())).unwrap_or(ViewerContent::Empty(tr("Load a patch file").into()));
         self.viewer.ui(ui, &content, true, &[]);
         !ui.input(|i| i.key_pressed(egui::Key::Escape))
     }

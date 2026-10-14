@@ -12,6 +12,7 @@ use gitext_core::{GitArgs, GitModule, ObjectId};
 use super::diff_viewer::{content_from_bytes, DiffViewer, ViewerCommand, ViewerContent};
 use super::file_actions;
 use super::file_list::FileList;
+use crate::i18n::{tr, trf};
 use crate::tasks::{Loader, Task};
 use crate::theme::Palette;
 
@@ -183,7 +184,7 @@ fn load_word_diff(m: &GitModule, first: Option<ObjectId>, second: ObjectId, f: &
         .args(diff_paths(f));
     match m.run(&args) {
         Ok(r) if r.stdout.is_empty() && r.success() => None,
-        r => Some(colored(r, "No differences")),
+        r => Some(colored(r, tr("No differences"))),
     }
 }
 
@@ -192,7 +193,7 @@ fn load_word_diff(m: &GitModule, first: Option<ObjectId>, second: ObjectId, f: &
 fn load_difftastic(m: &GitModule, first: Option<ObjectId>, second: ObjectId, f: &GitItemStatus, settings: &DifftasticSettings) -> ViewerContent {
     let configured = m.run(&GitArgs::new("config").args(["--get", "difftool.difftastic.cmd"])).is_ok_and(|r| !r.stdout_str().trim().is_empty());
     if !configured {
-        return ViewerContent::Empty("Difftastic is not set up as a git difftool. Install difftastic and set difftool.difftastic.cmd (difft \"$LOCAL\" \"$REMOTE\") in your git config.".into());
+        return ViewerContent::Empty(tr("Difftastic is not set up as a git difftool. Install difftastic and set difftool.difftastic.cmd (difft \"$LOCAL\" \"$REMOTE\") in your git config.").into());
     }
     let mut exe = m.git();
     exe.env = [
@@ -207,7 +208,7 @@ fn load_difftastic(m: &GitModule, first: Option<ObjectId>, second: ObjectId, f: 
     .map(|(k, v)| (k.to_string(), v))
     .collect();
     let args = GitArgs::new("difftool").args(["--find-renames", "--find-copies", "-y", "--tool=difftastic"]).args(diff_revs(first, second)).arg("--").args(diff_paths(f));
-    colored(exe.run(&args), "No differences")
+    colored(exe.run(&args), tr("No differences"))
 }
 
 /// What the difftastic view depends on, besides the revisions and the file.
@@ -228,7 +229,7 @@ fn load_range_diff(m: &GitModule, first: ObjectId, second: ObjectId, opts: &Diff
         .args(["--find-renames", "--find-copies", "--color=always"])
         .args(opts.extra_args())
         .arg(format!("{}...{}", rev(first), rev(second)));
-    colored(m.run(&args), "The commits are the same")
+    colored(m.run(&args), tr("The commits are the same"))
 }
 
 /// The options of "find in commit files using git grep".
@@ -296,7 +297,7 @@ fn grep_file(m: &GitModule, second: ObjectId, file: &str, q: &GrepQuery, context
         .args(grep_rev(second))
         .arg("--")
         .arg(file);
-    colored(m.run(&args), "No matches")
+    colored(m.run(&args), tr("No matches"))
 }
 
 /// What to show for the diff of `f`.
@@ -305,12 +306,12 @@ fn diff_content(m: &GitModule, second: ObjectId, f: &GitItemStatus, result: Resu
         return ViewerContent::Diff(result.unwrap_or_default());
     }
     match result {
-        Ok(d) if d.contains("Binary files") && !d.contains("\n@@") => ViewerContent::Binary(format!("Binary file {} changed", f.name)),
+        Ok(d) if d.contains("Binary files") && !d.contains("\n@@") => ViewerContent::Binary(trf("Binary file {0} changed", &[&f.name])),
         Ok(d) if d.trim().is_empty() => {
             if f.is_new && second == ObjectId::WORK_TREE {
-                m.get_file_bytes(second, &f.name).map(|b| content_from_bytes(&b)).unwrap_or(ViewerContent::Empty("Empty file".into()))
+                m.get_file_bytes(second, &f.name).map(|b| content_from_bytes(&b)).unwrap_or(ViewerContent::Empty(tr("Empty file").into()))
             } else {
-                ViewerContent::Empty("No differences (possibly only whitespace or file mode changes)".into())
+                ViewerContent::Empty(tr("No differences (possibly only whitespace or file mode changes)").into())
             }
         }
         Ok(d) => ViewerContent::Diff(d),
@@ -423,18 +424,18 @@ impl RevisionDiffView {
         // right to left: the box takes the room the buttons leave, never widening the panel
         let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
         ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.small_button("✖").on_hover_text("Close (Esc)").clicked() {
+            if ui.small_button("✖").on_hover_text(tr("Close (Esc)")).clicked() {
                 self.grep.open = false;
             }
-            if ui.selectable_label(settings.grep_match_whole_word, "W").on_hover_text("Match whole word").clicked() {
+            if ui.selectable_label(settings.grep_match_whole_word, "W").on_hover_text(tr("Match whole word")).clicked() {
                 settings.grep_match_whole_word = !settings.grep_match_whole_word;
                 changed = true;
             }
-            if ui.selectable_label(!settings.grep_ignore_case, "Aa").on_hover_text("Match case").clicked() {
+            if ui.selectable_label(!settings.grep_ignore_case, "Aa").on_hover_text(tr("Match case")).clicked() {
                 settings.grep_ignore_case = !settings.grep_ignore_case;
                 changed = true;
             }
-            let r = ui.add(egui::TextEdit::singleline(&mut self.grep.text).hint_text("Find in commit files (git grep)").desired_width(ui.available_width()));
+            let r = ui.add(egui::TextEdit::singleline(&mut self.grep.text).hint_text(tr("Find in commit files (git grep)")).desired_width(ui.available_width()));
             if std::mem::take(&mut self.grep.focus) {
                 r.request_focus();
             }
@@ -459,14 +460,14 @@ impl RevisionDiffView {
             None => {
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label(RichText::new("Searching…").small().color(palette.muted));
+                    ui.label(RichText::new(tr("Searching…")).small().color(palette.muted));
                 });
             }
             Some(Err(e)) => {
                 ui.colored_label(palette.error, e);
             }
             Some(Ok(files)) => {
-                ui.label(RichText::new(format!("{} file{} found", files.len(), if files.len() == 1 { "" } else { "s" })).small().color(palette.muted));
+                ui.label(RichText::new(if files.len() == 1 { trf("{0} file found", &[&files.len()]) } else { trf("{0} files found", &[&files.len()]) }).small().color(palette.muted));
                 egui::ScrollArea::vertical().id_salt("grep_files").max_height(ui.available_height() * 0.4).auto_shrink([false, true]).show(ui, |ui| {
                     for f in &files {
                         let selected = self.grep.selected.as_deref() == Some(f.as_str());
@@ -573,7 +574,7 @@ impl RevisionDiffView {
             }
         };
         let content = self.diff.request(ui.ctx(), key, move || Arc::new(load())).cloned();
-        Some(content.unwrap_or_else(|| Arc::new(ViewerContent::Empty("Loading…".into()))))
+        Some(content.unwrap_or_else(|| Arc::new(ViewerContent::Empty(tr("Loading…").into()))))
     }
 
     /// Shows the diff between `first` (older, `None` = parent) and `second`.
@@ -589,7 +590,7 @@ impl RevisionDiffView {
     ) -> Option<DiffCommand> {
         let palette = Palette::for_ui(ui);
         let Some(second) = second else {
-            ui.label(RichText::new("No commit selected").italics().color(palette.muted));
+            ui.label(RichText::new(tr("No commit selected")).italics().color(palette.muted));
             return None;
         };
         let mut cmd = None;
@@ -601,16 +602,16 @@ impl RevisionDiffView {
         let mut first = first;
         if first.is_none() && parents.len() > 1 {
             ui.horizontal(|ui| {
-                ui.label("Compare with:");
+                ui.label(tr("Compare with:"));
                 egui::ComboBox::from_id_salt((id, "parent")).selected_text(if self.parent_index < parents.len() {
-                    format!("Parent {} ({})", self.parent_index + 1, parents[self.parent_index].to_short_string())
+                    trf("Parent {0} ({1})", &[&(self.parent_index + 1), &parents[self.parent_index].to_short_string()])
                 } else {
-                    "Combined diff".to_string()
+                    tr("Combined diff").to_string()
                 }).show_ui(ui, |ui| {
                     for (i, p) in parents.iter().enumerate() {
-                        ui.selectable_value(&mut self.parent_index, i, format!("Parent {} ({})", i + 1, p.to_short_string()));
+                        ui.selectable_value(&mut self.parent_index, i, trf("Parent {0} ({1})", &[&(i + 1), &p.to_short_string()]));
                     }
-                    ui.selectable_value(&mut self.parent_index, parents.len(), "Combined diff");
+                    ui.selectable_value(&mut self.parent_index, parents.len(), tr("Combined diff"));
                 });
             });
             if self.parent_index < parents.len() {
@@ -659,7 +660,7 @@ impl RevisionDiffView {
         let Some(files) = files else {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label("Loading changes…");
+                ui.label(tr("Loading changes…"));
             });
             return None;
         };
@@ -682,10 +683,10 @@ impl RevisionDiffView {
         let is_index = second == ObjectId::INDEX;
         let mut list_focus = false;
         egui::SidePanel::left(format!("{id}_files")).resizable(true).default_width(300.0).width_range(150.0..=900.0).show_inside(ui, |ui| {
-            ui.label(RichText::new(format!("{} changed file{}", files.len(), if files.len() == 1 { "" } else { "s" })).small().color(palette.muted));
+            ui.label(RichText::new(if files.len() == 1 { trf("{0} changed file", &[&files.len()]) } else { trf("{0} changed files", &[&files.len()]) }).small().color(palette.muted));
             self.list.toolbar(ui);
             ui.horizontal(|ui| {
-                if ui.selectable_label(self.grep.open, RichText::new("🔍 Find in files").small()).on_hover_text("Find in commit files using git grep (Ctrl+Shift+F)").clicked() {
+                if ui.selectable_label(self.grep.open, RichText::new(format!("🔍 {}", tr("Find in files"))).small()).on_hover_text(format!("{} (Ctrl+Shift+F)", tr("Find in commit files using git grep"))).clicked() {
                     if self.grep.open {
                         self.grep.open = false;
                         self.grep.selected = None;
@@ -694,8 +695,8 @@ impl RevisionDiffView {
                     }
                 }
                 if let Some(f) = selected_first {
-                    let hover = format!("Compare the commits of both branches: git range-diff {}...{}", f.to_short_string(), second.to_short_string());
-                    if ui.selectable_label(self.range_diff, RichText::new("Range diff").small()).on_hover_text(hover).clicked() {
+                    let hover = format!("{}: git range-diff {}...{}", tr("Compare the commits of both branches"), f.to_short_string(), second.to_short_string());
+                    if ui.selectable_label(self.range_diff, RichText::new(tr("Range diff")).small()).on_hover_text(hover).clicked() {
                         self.range_diff = !self.range_diff;
                         self.grep.selected = None;
                     }
@@ -708,70 +709,70 @@ impl RevisionDiffView {
                 let names: Vec<String> = sel.iter().filter_map(|&i| files.get(i)).map(|f| f.name.clone()).collect();
                 let Some(first_name) = names.first().cloned() else { return };
                 if is_work_tree {
-                    if menu_item(ui, "Stage", "S") {
+                    if menu_item(ui, tr("Stage"), "S") {
                         cmd = Some(DiffCommand::Stage(names.clone()));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if menu_item(ui, "Reset file changes…", "R") {
+                    if menu_item(ui, tr("Reset file changes…"), "R") {
                         cmd = Some(DiffCommand::ResetWorkFiles(names.clone()));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.button("Add to .gitignore…").clicked() {
+                    if ui.button(tr("Add to .gitignore…")).clicked() {
                         cmd = Some(DiffCommand::AddToGitIgnore(names.clone()));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                } else if is_index && menu_item(ui, "Unstage", "U") {
+                } else if is_index && menu_item(ui, tr("Unstage"), "U") {
                     cmd = Some(DiffCommand::Unstage(names.clone()));
                     ui.close_kind(egui::UiKind::Menu);
                 }
                 if !second.is_artificial() {
-                    if menu_item(ui, "Reset file(s) to this revision…", "R") {
+                    if menu_item(ui, tr("Reset file(s) to this revision…"), "R") {
                         cmd = Some(DiffCommand::ResetFileTo { rev: second, files: names.clone() });
                         ui.close_kind(egui::UiKind::Menu);
                     }
                     if let Some(f) = first.filter(|f| !f.is_artificial()) {
-                        if ui.button("Reset file(s) to parent revision…").clicked() {
+                        if ui.button(tr("Reset file(s) to parent revision…")).clicked() {
                             cmd = Some(DiffCommand::ResetFileTo { rev: f, files: names.clone() });
                             ui.close_kind(egui::UiKind::Menu);
                         }
                     }
                 }
                 ui.separator();
-                if menu_item(ui, "Open working directory file", "F4") {
+                if menu_item(ui, tr("Open working directory file"), "F4") {
                     cmd = Some(DiffCommand::OpenWorkFile(first_name.clone()));
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if !second.is_artificial() && menu_item(ui, "Open this revision (temp file)", "Ctrl+F3") {
+                if !second.is_artificial() && menu_item(ui, tr("Open this revision (temp file)"), "Ctrl+F3") {
                     cmd = Some(DiffCommand::OpenRevisionFile { rev: second, file: first_name.clone() });
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if !second.is_artificial() && ui.button("Save as…").clicked() {
+                if !second.is_artificial() && ui.button(tr("Save as…")).clicked() {
                     cmd = Some(DiffCommand::SaveAs { rev: second, file: first_name.clone() });
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if menu_item(ui, "Open with external difftool", "F3") {
+                if menu_item(ui, tr("Open with external difftool"), "F3") {
                     cmd = Some(DiffCommand::ExternalDiff { first, second, file: first_name.clone() });
                     ui.close_kind(egui::UiKind::Menu);
                 }
                 ui.separator();
-                if menu_item(ui, "Blame", "B") {
+                if menu_item(ui, tr("Blame"), "B") {
                     cmd = Some(DiffCommand::Blame { file: first_name.clone(), rev: second });
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if menu_item(ui, "File history", "H") {
+                if menu_item(ui, tr("File history"), "H") {
                     cmd = Some(DiffCommand::FileHistory(first_name.clone()));
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if !second.is_artificial() && menu_item(ui, "Show in file tree", "T") {
+                if !second.is_artificial() && menu_item(ui, tr("Show in file tree"), "T") {
                     cmd = Some(DiffCommand::ShowInFileTree { rev: second, file: first_name.clone() });
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if menu_item(ui, "Filter commits by this path", "F") {
+                if menu_item(ui, tr("Filter commits by this path"), "F") {
                     cmd = Some(DiffCommand::FilterPath(first_name.clone()));
                     ui.close_kind(egui::UiKind::Menu);
                 }
                 ui.separator();
-                if ui.button("Open containing folder").clicked() {
+                if ui.button(tr("Open containing folder")).clicked() {
                     cmd = Some(DiffCommand::OpenContainingFolder(first_name.clone()));
                     ui.close_kind(egui::UiKind::Menu);
                 }
@@ -844,7 +845,7 @@ impl RevisionDiffView {
         let content: Content = if let Some(content) = special {
             content
         } else { match selected {
-            None => Arc::new(ViewerContent::Empty(if files.is_empty() { "No changes".into() } else { "Select a file".into() })),
+            None => Arc::new(ViewerContent::Empty(if files.is_empty() { tr("No changes").into() } else { tr("Select a file").into() })),
             Some(index) => match &self.shown {
                 Some((k, content)) if k.matches(&files, index, first, second, combined, &opts) => Arc::clone(content),
                 _ => {
@@ -877,21 +878,21 @@ impl RevisionDiffView {
                             self.shown = Some((key, Arc::clone(&content)));
                             content
                         }
-                        None => Arc::new(ViewerContent::Empty("Loading…".into())),
+                        None => Arc::new(ViewerContent::Empty(tr("Loading…").into())),
                     }
                 }
             },
         } };
         ui.horizontal(|ui| {
             if let (true, Some(f)) = (self.range_diff, selected_first) {
-                ui.label(RichText::new(format!("Range diff {}...{}", f.to_short_string(), second.to_short_string())).strong());
+                ui.label(RichText::new(format!("{} {}...{}", tr("Range diff"), f.to_short_string(), second.to_short_string())).strong());
             } else if let Some(f) = &self.grep.selected {
                 ui.label(RichText::new(f).strong());
-                ui.label(RichText::new(format!("matches of \"{}\"", self.grep.text)).small().color(palette.muted));
+                ui.label(RichText::new(trf("matches of \"{0}\"", &[&self.grep.text])).small().color(palette.muted));
             } else if let Some(f) = selected_file {
                 ui.label(RichText::new(&f.name).strong());
                 if let Some(p) = &f.rename_copy_percentage {
-                    ui.label(RichText::new(format!("({}% similar to {})", p, f.old_name.as_deref().unwrap_or_default())).small().color(palette.muted));
+                    ui.label(RichText::new(trf("({0}% similar to {1})", &[p, &f.old_name.as_deref().unwrap_or_default()])).small().color(palette.muted));
                 }
             }
         });

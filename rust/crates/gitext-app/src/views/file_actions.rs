@@ -11,6 +11,7 @@ use gitext_core::status::{GitItemStatus, StagedStatus};
 use gitext_core::{GitArgs, GitModule, ObjectId};
 
 use crate::dialogs::{ok_cancel, Action, Confirm, Cx, Dialog};
+use crate::i18n::{n_, tr, trf};
 use crate::views::{plain_key, shortcut};
 
 /// How "Copy path" writes the paths.
@@ -107,16 +108,16 @@ fn item(ui: &mut Ui, text: &str, shortcut_text: &str) -> bool {
 /// The "Copy path" submenu.
 pub fn copy_path_menu(ui: &mut Ui, files: &[String]) -> Option<FileAction> {
     let mut action = None;
-    ui.menu_button("Copy path", |ui| {
+    ui.menu_button(tr("Copy path"), |ui| {
         let kinds = [
-            ("Full path", PathKind::FullNative),
-            ("Relative path", PathKind::RelativeNative),
-            ("Relative path (POSIX)", PathKind::RelativePosix),
-            ("Full path (WSL)", PathKind::FullWsl),
-            ("Full path (Cygwin)", PathKind::FullCygwin),
+            (n_("Full path"), PathKind::FullNative),
+            (n_("Relative path"), PathKind::RelativeNative),
+            (n_("Relative path (POSIX)"), PathKind::RelativePosix),
+            (n_("Full path (WSL)"), PathKind::FullWsl),
+            (n_("Full path (Cygwin)"), PathKind::FullCygwin),
         ];
         for (label, kind) in kinds {
-            if item(ui, label, "") {
+            if item(ui, tr(label), "") {
                 action = Some(FileAction::CopyPaths { files: files.to_vec(), kind });
             }
         }
@@ -136,21 +137,21 @@ pub fn menu(ui: &mut Ui, sel: &Selection) -> Option<FileAction> {
     ui.separator();
     if work_tree {
         if let Some(f) = sel.single().filter(|f| !f.is_deleted) {
-            if item(ui, if cfg!(windows) { "Open working directory file with…" } else { "Open with default application" }, "Shift+F4") {
+            if item(ui, if cfg!(windows) { tr("Open working directory file with…") } else { tr("Open with default application") }, "Shift+F4") {
                 action = Some(FileAction::OpenWith(f.name.clone()));
             }
-            if item(ui, "Rename / move…", "F2") {
+            if item(ui, tr("Rename / move…"), "F2") {
                 action = Some(FileAction::RenameMove(f.name.clone()));
             }
         }
-        if !files.is_empty() && item(ui, if files.len() == 1 { "Delete file…" } else { "Delete files…" }, "Del") {
+        if !files.is_empty() && item(ui, if files.len() == 1 { tr("Delete file…") } else { tr("Delete files…") }, "Del") {
             action = Some(FileAction::Delete(files.iter().map(|f| f.name.clone()).collect()));
         }
     }
-    if (work_tree || sel.second == ObjectId::INDEX) && files.iter().any(|f| f.is_tracked && !f.is_new) && item(ui, "Stop tracking", "") {
+    if (work_tree || sel.second == ObjectId::INDEX) && files.iter().any(|f| f.is_tracked && !f.is_new) && item(ui, tr("Stop tracking"), "") {
         action = Some(FileAction::StopTracking(files.iter().filter(|f| f.is_tracked && !f.is_new).map(|f| f.name.clone()).collect()));
     }
-    if !sel.second.is_artificial() && !files.is_empty() && item(ui, "Cherry pick changes", "") {
+    if !sel.second.is_artificial() && !files.is_empty() && item(ui, tr("Cherry pick changes"), "") {
         action = Some(FileAction::CherryPick { first: sel.first, second: sel.second, files: files.iter().map(|f| f.name.clone()).collect() });
     }
     if let Some(a) = copy_path_menu(ui, &names) {
@@ -159,22 +160,22 @@ pub fn menu(ui: &mut Ui, sel: &Selection) -> Option<FileAction> {
     let commitish = sel.commitish();
     let second = sel.second_commitish();
     if commitish.is_some() || second.is_some() {
-        ui.menu_button("Remember file for diff", |ui| {
+        ui.menu_button(tr("Remember file for diff"), |ui| {
             let remembered = remembered();
             if let Some(c) = &commitish {
-                let label = format!("{} @ {}", sel.items[0].name, if sel.second == ObjectId::INDEX { "index".to_string() } else { sel.second.to_short_string() });
-                if item(ui, "Remember this file", "") {
+                let label = format!("{} @ {}", sel.items[0].name, if sel.second == ObjectId::INDEX { tr("index").to_string() } else { sel.second.to_short_string() });
+                if item(ui, tr("Remember this file"), "") {
                     action = Some(FileAction::Remember { label, commitish: c.clone() });
                 }
             }
             match (&remembered, &second) {
                 (Some((label, _)), Some(s)) => {
-                    if item(ui, &format!("Diff with remembered {label}"), "") {
+                    if item(ui, &trf("Diff with remembered {0}", &[label]), "") {
                         action = Some(FileAction::DiffWithRemembered(s.clone()));
                     }
                 }
                 _ => {
-                    ui.add_enabled(false, egui::Button::new("Diff with remembered file"));
+                    ui.add_enabled(false, egui::Button::new(tr("Diff with remembered file")));
                 }
             }
         });
@@ -243,11 +244,11 @@ pub fn run(action: FileAction, m: &GitModule, actions: &mut Vec<Action>) {
         FileAction::RenameMove(f) => actions.push(Action::OpenDialog(Box::new(RenameMoveDialog::new(f)))),
         FileAction::Delete(files) => {
             let list = files.clone();
-            let text = format!("Are you sure you want to delete the {} selected file(s) from disk?", files.len());
-            actions.push(Action::OpenDialog(Box::new(Confirm::new("Delete", text, "Delete", move |cx| {
+            let text = trf("Are you sure you want to delete the {0} selected file(s) from disk?", &[&files.len()]);
+            actions.push(Action::OpenDialog(Box::new(Confirm::new(tr("Delete"), text, tr("Delete"), move |cx| {
                 if let Some(m) = cx.module {
                     if let Err(e) = delete_files(m, cx, &files) {
-                        cx.error("Delete file failed", e);
+                        cx.error(tr("Delete file failed"), e);
                     }
                 }
                 cx.push(Action::RefreshStatus);
@@ -256,14 +257,14 @@ pub fn run(action: FileAction, m: &GitModule, actions: &mut Vec<Action>) {
         FileAction::StopTracking(files) => {
             let refs: Vec<&str> = files.iter().map(String::as_str).collect();
             if let Err(e) = m.stop_tracking(&refs) {
-                error(actions, "Stop tracking", e.to_string());
+                error(actions, tr("Stop tracking"), e.to_string());
             }
             actions.push(Action::RefreshStatus);
         }
         FileAction::CherryPick { first, second, files } => {
             let refs: Vec<&str> = files.iter().map(String::as_str).collect();
             if let Err(e) = m.cherry_pick_file_changes(first, second, &refs) {
-                error(actions, "Cherry pick changes", e.to_string());
+                error(actions, tr("Cherry pick changes"), e.to_string());
             }
             actions.push(Action::RefreshStatus);
         }
@@ -311,11 +312,11 @@ impl RenameMoveDialog {
 
 impl Dialog for RenameMoveDialog {
     fn title(&self) -> String {
-        "Rename / move".into()
+        tr("Rename / move").into()
     }
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
-        ui.label(format!("Rename or move '{}' to:", self.old));
+        ui.label(trf("Rename or move '{0}' to:", &[&self.old]));
         let r = ui.add(egui::TextEdit::singleline(&mut self.new).desired_width(380.0));
         if std::mem::take(&mut self.focus) {
             r.request_focus();
@@ -325,7 +326,7 @@ impl Dialog for RenameMoveDialog {
         }
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
         let valid = !self.new.trim().is_empty() && self.new.trim() != self.old;
-        let (ok, cancel) = ok_cancel(ui, "Rename", valid);
+        let (ok, cancel) = ok_cancel(ui, tr("Rename"), valid);
         if (ok || enter) && valid {
             let Some(m) = cx.module else { return false };
             match m.move_file(&self.old, &self.new) {

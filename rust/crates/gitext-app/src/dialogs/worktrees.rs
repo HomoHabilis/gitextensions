@@ -4,6 +4,7 @@ use egui::{RichText, Ui, Vec2};
 use gitext_core::GitArgs;
 
 use super::{ok_cancel, Action, Confirm, Cx, Dialog, DialogKind, GitRun};
+use crate::i18n::{tr, trf};
 use crate::theme::Palette;
 
 #[derive(Default)]
@@ -11,7 +12,7 @@ pub struct WorktreesDialog;
 
 impl Dialog for WorktreesDialog {
     fn title(&self) -> String {
-        "Worktrees".into()
+        tr("Worktrees").into()
     }
 
     fn kind(&self) -> DialogKind {
@@ -22,18 +23,18 @@ impl Dialog for WorktreesDialog {
         let palette = Palette::for_ui(ui);
         let wts = cx.data.map(|d| d.worktrees.clone()).unwrap_or_default();
         ui.horizontal(|ui| {
-            if ui.button("✚ Create worktree…").clicked() {
+            if ui.button(tr("✚ Create worktree…")).clicked() {
                 cx.open(CreateWorktreeDialog::default());
             }
-            if ui.button("Prune").clicked() {
-                cx.run(GitRun::new("Prune worktrees", GitArgs::new("worktree").arg("prune")));
+            if ui.button(tr("Prune")).clicked() {
+                cx.run(GitRun::new(tr("Prune worktrees"), GitArgs::new("worktree").arg("prune")));
             }
         });
         ui.separator();
         egui::Grid::new("wts").striped(true).num_columns(4).show(ui, |ui| {
-            ui.strong("Path");
+            ui.strong(tr("Path"));
             ui.strong("HEAD");
-            ui.strong("Branch");
+            ui.strong(tr("Branch"));
             ui.strong("");
             ui.end_row();
             for w in &wts {
@@ -41,13 +42,13 @@ impl Dialog for WorktreesDialog {
                 ui.label(RichText::new(w.sha1.as_deref().map(|s| &s[..s.len().min(8)]).unwrap_or("-")).monospace());
                 ui.label(w.branch.clone().unwrap_or_else(|| format!("{:?}", w.head_type)));
                 ui.horizontal(|ui| {
-                    if !w.is_deleted && ui.small_button("Open").clicked() {
+                    if !w.is_deleted && ui.small_button(tr("Open")).clicked() {
                         cx.push(Action::OpenRepo(w.path.clone().into()));
                     }
-                    if !w.is_main && ui.small_button("Remove…").clicked() {
+                    if !w.is_main && ui.small_button(tr("Remove…")).clicked() {
                         let p = w.path.clone();
-                        cx.open(Confirm::new("Remove worktree", format!("Remove worktree '{p}'?"), "Remove", move |cx| {
-                            cx.run(GitRun::new("Remove worktree", GitArgs::new("worktree").arg("remove").arg("--force").arg(p)));
+                        cx.open(Confirm::new(tr("Remove worktree"), trf("Remove worktree '{0}'?", &[&p]), tr("Remove"), move |cx| {
+                            cx.run(GitRun::new(tr("Remove worktree"), GitArgs::new("worktree").arg("remove").arg("--force").arg(p)));
                         }));
                     }
                 });
@@ -68,15 +69,15 @@ pub struct CreateWorktreeDialog {
 
 impl Dialog for CreateWorktreeDialog {
     fn title(&self) -> String {
-        "Create worktree".into()
+        tr("Create worktree").into()
     }
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         let branches = cx.data.map(|d| d.branch_names(false)).unwrap_or_default();
-        ui.checkbox(&mut self.new_branch, "Create a new branch");
-        ui.label(if self.new_branch { "New branch name" } else { "Existing branch" });
+        ui.checkbox(&mut self.new_branch, tr("Create a new branch"));
+        ui.label(if self.new_branch { tr("New branch name") } else { tr("Existing branch") });
         super::branch_combo(ui, "wt_branch", &mut self.branch, if self.new_branch { &[] } else { &branches }, 360.0);
-        ui.label("Worktree directory");
+        ui.label(tr("Worktree directory"));
         ui.horizontal(|ui| {
             ui.add(egui::TextEdit::singleline(&mut self.path).desired_width(300.0));
             if ui.button("…").clicked() {
@@ -92,8 +93,8 @@ impl Dialog for CreateWorktreeDialog {
                 }
             }
         }
-        ui.checkbox(&mut self.open_after, "Open the new worktree");
-        let (ok, cancel) = ok_cancel(ui, "Create", !self.path.trim().is_empty() && !self.branch.trim().is_empty());
+        ui.checkbox(&mut self.open_after, tr("Open the new worktree"));
+        let (ok, cancel) = ok_cancel(ui, tr("Create"), !self.path.trim().is_empty() && !self.branch.trim().is_empty());
         if ok {
             let mut args = GitArgs::new("worktree").arg("add");
             if self.new_branch {
@@ -104,7 +105,7 @@ impl Dialog for CreateWorktreeDialog {
                 args.add(self.path.trim());
                 args.add(self.branch.trim());
             }
-            let mut run = GitRun::new("Create worktree", args);
+            let mut run = GitRun::new(tr("Create worktree"), args);
             if self.open_after {
                 run = run.then(Action::OpenRepo(self.path.trim().into()));
             }

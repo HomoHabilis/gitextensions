@@ -31,6 +31,8 @@ use cli::CliExit;
 
 fn main() -> eframe::Result<()> {
     wsl::prefer_x11();
+    // messages shown before the window opens are translated too
+    i18n::set_language(&load_settings().translation);
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cwd = std::env::current_dir().unwrap_or_default();
     let (repo, command) = match cli::parse(&args, &cwd) {
@@ -107,13 +109,13 @@ fn report_error(message: &str) {
 /// A repository command was run outside of a repository (e.g. from the Explorer menu):
 /// offers to create a repository in `dir` (Windows). Returns the directory to initialize.
 fn offer_init(dir: &Path) -> Option<PathBuf> {
-    let message = format!("'{}' is not inside a git repository.", dir.display());
+    let message = i18n::trf("'{0}' is not inside a git repository.", &[&dir.display()]);
     #[cfg(windows)]
     {
         let answer = rfd::MessageDialog::new()
             .set_level(rfd::MessageLevel::Info)
             .set_title("Git Extensions")
-            .set_description(format!("{message}\n\nCreate a new repository here?"))
+            .set_description(format!("{message}\n\n{}", i18n::tr("Create a new repository here?")))
             .set_buttons(rfd::MessageButtons::YesNo)
             .show();
         (answer == rfd::MessageDialogResult::Yes).then(|| dir.to_path_buf())
@@ -135,15 +137,15 @@ fn run_difftool(repo: &Path, file: &str) -> Result<(), String> {
     let exe = module.git();
     let status = exe.run(&GitArgs::new("status").arg("--porcelain").arg("--").arg(file)).map_err(|e| e.to_string())?;
     if status.success() && status.stdout_str().trim().is_empty() {
-        return Err(format!("'{file}' has no changes."));
+        return Err(i18n::trf("'{0}' has no changes.", &[&file]));
     }
     // the git of a WSL distro uses the tools configured in the distro
     let launch = if exe.wsl_distro.is_empty() { diff_tools::resolve_launch(&ToolConfigStore::new(exe.clone()), ToolType::Diff) } else { Some(ToolLaunch::Configured) };
-    let launch = launch.ok_or_else(|| format!("No diff tool is installed.\n\n{}", diff_tools::install_hint()))?;
+    let launch = launch.ok_or_else(|| format!("{}\n\n{}", i18n::tr("No diff tool is installed."), diff_tools::install_hint()))?;
     let args = diff_tools::launch_args(&launch, ToolType::Diff, &GitArgs::new("difftool").arg("--").arg(file));
     let result = exe.run(&args).map_err(|e| e.to_string())?;
     if !result.success() {
-        return Err(format!("The diff tool exited with code {}.\n\n{}", result.exit_code, result.all_output().trim()));
+        return Err(format!("{}\n\n{}", i18n::trf("The diff tool exited with code {0}.", &[&result.exit_code]), result.all_output().trim()));
     }
     Ok(())
 }

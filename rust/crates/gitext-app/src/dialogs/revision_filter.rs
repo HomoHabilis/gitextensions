@@ -4,6 +4,7 @@ use egui::{RichText, Ui};
 use gitext_core::settings::BranchFilterMode;
 
 use super::{ok_cancel, Action, Cx, Dialog, DialogKind};
+use crate::i18n::tr;
 use crate::theme::Palette;
 use crate::views::revision_grid::RevisionFilter;
 
@@ -72,7 +73,7 @@ impl RevisionFilterDialog {
 
 impl Dialog for RevisionFilterDialog {
     fn title(&self) -> String {
-        "Filter".into()
+        tr("Filter").into()
     }
 
     fn kind(&self) -> DialogKind {
@@ -87,44 +88,44 @@ impl Dialog for RevisionFilterDialog {
             ui.end_row();
         };
         egui::Grid::new("revision_filter").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-            text_row(ui, &mut self.by_since, "Since", &mut self.filter.since, "2024-01-31, 2 weeks ago…");
-            text_row(ui, &mut self.by_until, "Until", &mut self.filter.until, "2024-12-31, yesterday…");
-            text_row(ui, &mut self.by_author, "Author", &mut self.filter.author, "regular expression");
-            text_row(ui, &mut self.by_committer, "Committer", &mut self.filter.committer, "regular expression");
-            text_row(ui, &mut self.by_message, "Message", &mut self.filter.message, "regular expression");
-            text_row(ui, &mut self.by_diff, "Diff contains", &mut self.filter.diff_contains, "regular expression (slow)");
+            text_row(ui, &mut self.by_since, tr("Since"), &mut self.filter.since, tr("2024-01-31, 2 weeks ago…"));
+            text_row(ui, &mut self.by_until, tr("Until"), &mut self.filter.until, tr("2024-12-31, yesterday…"));
+            text_row(ui, &mut self.by_author, tr("Author"), &mut self.filter.author, tr("regular expression"));
+            text_row(ui, &mut self.by_committer, tr("Committer"), &mut self.filter.committer, tr("regular expression"));
+            text_row(ui, &mut self.by_message, tr("Message"), &mut self.filter.message, tr("regular expression"));
+            text_row(ui, &mut self.by_diff, tr("Diff contains"), &mut self.filter.diff_contains, tr("regular expression (slow)"));
             ui.label("");
             let any_text = self.by_author || self.by_committer || self.by_message || self.by_diff;
             let mut ignore_case = !self.filter.match_case;
-            if ui.add_enabled(any_text, egui::Checkbox::new(&mut ignore_case, "Ignore case")).changed() {
+            if ui.add_enabled(any_text, egui::Checkbox::new(&mut ignore_case, tr("Ignore case"))).changed() {
                 self.filter.match_case = !ignore_case;
             }
             ui.end_row();
-            ui.checkbox(&mut self.by_limit, "Limit");
+            ui.checkbox(&mut self.by_limit, tr("Limit"));
             ui.add_enabled(self.by_limit, egui::DragValue::new(&mut self.limit).range(1..=10_000_000).speed(10));
             ui.end_row();
-            text_row(ui, &mut self.by_path, "Path filter", &mut self.filter.path, "path or pathspec");
-            ui.checkbox(&mut self.branches, "Branches");
-            ui.add_enabled(self.branches, egui::TextEdit::singleline(&mut self.branch_filter).hint_text("branch names or patterns (feature/*)").desired_width(360.0));
+            text_row(ui, &mut self.by_path, tr("Path filter"), &mut self.filter.path, tr("path or pathspec"));
+            ui.checkbox(&mut self.branches, tr("Branches"));
+            ui.add_enabled(self.branches, egui::TextEdit::singleline(&mut self.branch_filter).hint_text(tr("branch names or patterns (feature/*)")).desired_width(360.0));
             ui.end_row();
         });
         ui.add_space(6.0);
-        if ui.checkbox(&mut self.current_branch_only, "Show current branch only").changed() && self.current_branch_only {
+        if ui.checkbox(&mut self.current_branch_only, tr("Show current branch only")).changed() && self.current_branch_only {
             self.branches = false;
         }
         if self.branches {
             self.current_branch_only = false;
         }
-        ui.checkbox(&mut self.reflog, "Show reflog");
-        ui.checkbox(&mut self.first_parent, "Show only first parent");
-        ui.checkbox(&mut self.hide_merges, "Hide merge commits");
-        ui.checkbox(&mut self.filter.simplify_by_decoration, "Simplify by decoration");
+        ui.checkbox(&mut self.reflog, tr("Show reflog"));
+        ui.checkbox(&mut self.first_parent, tr("Show only first parent"));
+        ui.checkbox(&mut self.hide_merges, tr("Hide merge commits"));
+        ui.checkbox(&mut self.filter.simplify_by_decoration, tr("Simplify by decoration"));
         ui.add_enabled_ui(self.by_path, |ui| {
-            ui.checkbox(&mut self.filter.full_history, "Full history");
-            ui.add_enabled(self.filter.full_history, egui::Checkbox::new(&mut self.filter.simplify_merges, "Simplify merges"));
+            ui.checkbox(&mut self.filter.full_history, tr("Full history"));
+            ui.add_enabled(self.filter.full_history, egui::Checkbox::new(&mut self.filter.simplify_merges, tr("Simplify merges")));
         });
-        ui.label(RichText::new("Full history and simplify merges apply with a path filter.").small().color(palette.muted));
-        let (ok, cancel) = ok_cancel(ui, "OK", true);
+        ui.label(RichText::new(tr("Full history and simplify merges apply with a path filter.")).small().color(palette.muted));
+        let (ok, cancel) = ok_cancel(ui, tr("OK"), true);
         if ok {
             let s = &mut *cx.settings;
             s.branch_filter_mode = if self.branches && !self.branch_filter.trim().is_empty() {

@@ -8,6 +8,7 @@ use gitext_core::status::{GitItemStatus, StagedStatus};
 use gitext_core::{GitModule, ObjectId};
 
 use super::{Action, Confirm, Cx, Dialog, DialogKind};
+use crate::i18n::{n_, tr, trf};
 use crate::tasks::{Loader, Task};
 use crate::theme::Palette;
 use crate::views::diff_viewer::{content_from_bytes, DiffViewer, ViewerCommand, ViewerContent};
@@ -18,24 +19,24 @@ use crate::views::{plain_key, shortcut};
 /// The context menu entries of the unstaged files: label, command, key.
 /// (Delete, rename, open with, copy path and the like come from [`file_actions`].)
 const UNSTAGED_MENU: &[(&str, &str, Option<(Modifiers, Key)>)] = &[
-    ("Stage", "stage", Some((Modifiers::NONE, Key::S))),
-    ("Reset file changes…", "reset", Some((Modifiers::NONE, Key::R))),
-    ("Add to .gitignore…", "ignore", None),
-    ("Edit file", "open", Some((Modifiers::NONE, Key::F4))),
-    ("Open with difftool", "difftool", Some((Modifiers::NONE, Key::F3))),
-    ("File history", "history", Some((Modifiers::NONE, Key::H))),
-    ("Blame", "blame", Some((Modifiers::NONE, Key::B))),
+    (n_("Stage"), "stage", Some((Modifiers::NONE, Key::S))),
+    (n_("Reset file changes…"), "reset", Some((Modifiers::NONE, Key::R))),
+    (n_("Add to .gitignore…"), "ignore", None),
+    (n_("Edit file"), "open", Some((Modifiers::NONE, Key::F4))),
+    (n_("Open with difftool"), "difftool", Some((Modifiers::NONE, Key::F3))),
+    (n_("File history"), "history", Some((Modifiers::NONE, Key::H))),
+    (n_("Blame"), "blame", Some((Modifiers::NONE, Key::B))),
 ];
 
 /// The context menu entries of the staged files.
 const STAGED_MENU: &[(&str, &str, Option<(Modifiers, Key)>)] = &[
-    ("Unstage", "unstage", Some((Modifiers::NONE, Key::U))),
-    ("Reset file changes…", "reset", Some((Modifiers::NONE, Key::R))),
-    ("Edit file", "open", Some((Modifiers::NONE, Key::F4))),
-    ("Open", "open_with", Some((Modifiers::SHIFT, Key::F4))),
-    ("Open with difftool", "difftool", Some((Modifiers::NONE, Key::F3))),
-    ("File history", "history", Some((Modifiers::NONE, Key::H))),
-    ("Blame", "blame", Some((Modifiers::NONE, Key::B))),
+    (n_("Unstage"), "unstage", Some((Modifiers::NONE, Key::U))),
+    (n_("Reset file changes…"), "reset", Some((Modifiers::NONE, Key::R))),
+    (n_("Edit file"), "open", Some((Modifiers::NONE, Key::F4))),
+    (n_("Open"), "open_with", Some((Modifiers::SHIFT, Key::F4))),
+    (n_("Open with difftool"), "difftool", Some((Modifiers::NONE, Key::F3))),
+    (n_("File history"), "history", Some((Modifiers::NONE, Key::H))),
+    (n_("Blame"), "blame", Some((Modifiers::NONE, Key::B))),
 ];
 
 /// Shows the file context menu `entries`; returns the command clicked.
@@ -43,7 +44,7 @@ fn file_menu(ui: &mut Ui, entries: &[(&str, &'static str, Option<(Modifiers, Key
     let mut cmd = None;
     for &(label, key, shortcut) in entries {
         let text = shortcut.map(|(m, k)| ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(m, k))).unwrap_or_default();
-        if ui.add(egui::Button::new(label).shortcut_text(text)).clicked() {
+        if ui.add(egui::Button::new(tr(label)).shortcut_text(text)).clicked() {
             cmd = Some(key);
             ui.close_kind(egui::UiKind::Menu);
         }
@@ -65,13 +66,13 @@ fn index_flags_menu(ui: &mut Ui, items: &[&GitItemStatus]) -> Option<&'static st
     let assumed = items.iter().any(|f| f.is_assume_unchanged);
     let skipped = items.iter().any(|f| f.is_skip_worktree);
     let mut cmd = None;
-    let r = ui.add(egui::Button::new(format!("{}Assume unchanged", if assumed { "✔ " } else { "" })));
-    if r.on_hover_text("Tell git not to check the status of this file (a big file that never changes).").clicked() {
+    let r = ui.add(egui::Button::new(format!("{}{}", if assumed { "✔ " } else { "" }, tr("Assume unchanged"))));
+    if r.on_hover_text(tr("Tell git not to check the status of this file (a big file that never changes).")).clicked() {
         cmd = Some(if assumed { "no_assume" } else { "assume" });
         ui.close_kind(egui::UiKind::Menu);
     }
-    let r = ui.add(egui::Button::new(format!("{}Skip worktree", if skipped { "✔ " } else { "" })));
-    if r.on_hover_text("Hide local changes of a tracked file you don't want to commit (e.g. a config file).").clicked() {
+    let r = ui.add(egui::Button::new(format!("{}{}", if skipped { "✔ " } else { "" }, tr("Skip worktree"))));
+    if r.on_hover_text(tr("Hide local changes of a tracked file you don't want to commit (e.g. a config file).")).clicked() {
         cmd = Some(if skipped { "no_skip" } else { "skip" });
         ui.close_kind(egui::UiKind::Menu);
     }
@@ -180,7 +181,7 @@ impl CommitDialog {
         let refs: Vec<&str> = files.iter().map(String::as_str).collect();
         let r = if stage { m.stage_files(&refs) } else { m.unstage_files(&refs) };
         if let Err(e) = r {
-            cx.error(if stage { "Stage" } else { "Unstage" }, e.to_string());
+            cx.error(if stage { tr("Stage") } else { tr("Unstage") }, e.to_string());
         }
         self.refresh();
         cx.push(Action::RefreshStatus);
@@ -188,18 +189,18 @@ impl CommitDialog {
 
     fn start_commit(&mut self, cx: &mut Cx, m: &GitModule, push: bool) {
         if self.has_conflicts {
-            self.error = Some("There are unresolved merge conflicts, solve merge conflicts before committing.".into());
+            self.error = Some(tr("There are unresolved merge conflicts, solve merge conflicts before committing.").into());
             return;
         }
         let using_template = self.template_text.is_some();
         let message = format_commit_message(&self.message, using_template, cx.settings.ensure_commit_message_second_line_empty);
         if message.trim().is_empty() {
-            self.error = Some("Please enter a commit message.".into());
+            self.error = Some(tr("Please enter a commit message.").into());
             return;
         }
         if let Some(t) = &self.template_text {
             if self.message.trim() == t.trim() {
-                self.error = Some("The commit message is the unchanged commit template.".into());
+                self.error = Some(tr("The commit message is the unchanged commit template.").into());
                 return;
             }
         }
@@ -224,7 +225,7 @@ impl CommitDialog {
 
 impl Dialog for CommitDialog {
     fn title(&self) -> String {
-        "Commit".into()
+        tr("Commit").into()
     }
 
     fn kind(&self) -> DialogKind {
@@ -233,8 +234,8 @@ impl Dialog for CommitDialog {
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         let Some(m) = cx.module.cloned() else {
-            ui.label("No repository");
-            return !ui.button("Close").clicked();
+            ui.label(tr("No repository"));
+            return !ui.button(tr("Close")).clicked();
         };
         if !self.initialized {
             self.init(cx, &m);
@@ -312,8 +313,8 @@ impl Dialog for CommitDialog {
             egui::TopBottomPanel::top("commit_conflicts").show_inside(ui, |ui| {
                 egui::Frame::new().fill(palette.status_conflict.gamma_multiply(0.25)).inner_margin(6.0).corner_radius(4.0).show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("⚠ There are unresolved merge conflicts").strong());
-                        if ui.button("Solve conflicts…").clicked() {
+                        ui.label(RichText::new(format!("⚠ {}", tr("There are unresolved merge conflicts"))).strong());
+                        if ui.button(tr("Solve conflicts…")).clicked() {
                             cx.open(super::conflicts::ConflictsDialog::default());
                         }
                     });
@@ -324,30 +325,30 @@ impl Dialog for CommitDialog {
             let total_h = ui.available_height();
             // Unstaged
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("Unstaged ({})", unstaged.len())).strong());
+                ui.label(RichText::new(trf("Unstaged ({0})", &[&unstaged.len()])).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("⬇⬇ Stage all").on_hover_text("Ctrl+S").clicked() {
+                    if ui.button(format!("⬇⬇ {}", tr("Stage all"))).on_hover_text("Ctrl+S").clicked() {
                         if let Err(e) = m.stage_all() {
-                            cx.error("Stage", e.to_string());
+                            cx.error(tr("Stage"), e.to_string());
                         }
                         self.refresh();
                     }
-                    if ui.add_enabled(!self.unstaged.selected.is_empty(), egui::Button::new("⬇ Stage")).on_hover_text("S").clicked() {
+                    if ui.add_enabled(!self.unstaged.selected.is_empty(), egui::Button::new(format!("⬇ {}", tr("Stage")))).on_hover_text("S").clicked() {
                         let files: Vec<String> = self.unstaged.selected_items(&unstaged).iter().map(|s| s.name.clone()).collect();
                         self.do_stage(&m, files, true, cx);
                     }
-                    if ui.button("⟳").on_hover_text("Refresh (F5)").clicked() {
+                    if ui.button("⟳").on_hover_text(format!("{} (F5)", tr("Refresh"))).clicked() {
                         self.refresh();
                     }
                     let shown = [self.show_untracked, self.show_ignored, self.show_assumed, self.show_skipped];
                     ui.menu_button("👁", |ui| {
-                        ui.checkbox(&mut self.show_untracked, "Show untracked files");
-                        ui.checkbox(&mut self.show_ignored, "Show ignored files");
-                        ui.checkbox(&mut self.show_assumed, "Show assumed-unchanged files");
-                        ui.checkbox(&mut self.show_skipped, "Show skip-worktree files");
+                        ui.checkbox(&mut self.show_untracked, tr("Show untracked files"));
+                        ui.checkbox(&mut self.show_ignored, tr("Show ignored files"));
+                        ui.checkbox(&mut self.show_assumed, tr("Show assumed-unchanged files"));
+                        ui.checkbox(&mut self.show_skipped, tr("Show skip-worktree files"));
                     })
                     .response
-                    .on_hover_text("Files to show");
+                    .on_hover_text(tr("Files to show"));
                     if shown != [self.show_untracked, self.show_ignored, self.show_assumed, self.show_skipped] {
                         self.refresh();
                     }
@@ -398,15 +399,15 @@ impl Dialog for CommitDialog {
             ui.separator();
             // Staged
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("Staged ({})", staged.len())).strong());
+                ui.label(RichText::new(trf("Staged ({0})", &[&staged.len()])).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("⬆⬆ Unstage all").clicked() {
+                    if ui.button(format!("⬆⬆ {}", tr("Unstage all"))).clicked() {
                         if let Err(e) = m.unstage_all() {
-                            cx.error("Unstage", e.to_string());
+                            cx.error(tr("Unstage"), e.to_string());
                         }
                         self.refresh();
                     }
-                    if ui.add_enabled(!self.staged.selected.is_empty(), egui::Button::new("⬆ Unstage")).on_hover_text("U").clicked() {
+                    if ui.add_enabled(!self.staged.selected.is_empty(), egui::Button::new(format!("⬆ {}", tr("Unstage")))).on_hover_text("U").clicked() {
                         let files: Vec<String> = self.staged.selected_items(&staged).iter().map(|s| s.name.clone()).collect();
                         self.do_stage(&m, files, false, cx);
                     }
@@ -452,10 +453,10 @@ impl Dialog for CommitDialog {
         egui::TopBottomPanel::bottom("commit_message").resizable(true).default_height(250.0).min_height(160.0).max_height(max_message_h).show_inside(ui, |ui| {
             ui.set_min_height(ui.available_height());
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Commit message").strong());
-                ui.menu_button("Templates…", |ui| {
+                ui.label(RichText::new(tr("Commit message")).strong());
+                ui.menu_button(tr("Templates…"), |ui| {
                     if cx.settings.commit_templates.is_empty() {
-                        ui.label(RichText::new("No templates (add them in Settings)").italics());
+                        ui.label(RichText::new(tr("No templates (add them in Settings)")).italics());
                     }
                     for t in cx.settings.commit_templates.clone() {
                         if ui.button(&t.name).clicked() {
@@ -464,7 +465,7 @@ impl Dialog for CommitDialog {
                         }
                     }
                 });
-                ui.menu_button("History…", |ui| {
+                ui.menu_button(tr("History…"), |ui| {
                     egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
                         for msg in self.recent_messages.clone() {
                             let first = msg.lines().next().unwrap_or_default().to_string();
@@ -475,23 +476,23 @@ impl Dialog for CommitDialog {
                         }
                     });
                 });
-                ui.menu_button("Options…", |ui| {
-                    ui.checkbox(&mut self.sign_off, "Sign-off commit");
-                    ui.checkbox(&mut self.no_verify, "No verify (skip hooks)");
-                    ui.checkbox(&mut self.reset_author, "Reset author (with amend)");
+                ui.menu_button(tr("Options…"), |ui| {
+                    ui.checkbox(&mut self.sign_off, tr("Sign-off commit"));
+                    ui.checkbox(&mut self.no_verify, tr("No verify (skip hooks)"));
+                    ui.checkbox(&mut self.reset_author, tr("Reset author (with amend)"));
                     ui.horizontal(|ui| {
-                        ui.label("GPG sign:");
-                        ui.radio_value(&mut self.gpg_sign, None, "config");
-                        ui.radio_value(&mut self.gpg_sign, Some(true), "yes");
-                        ui.radio_value(&mut self.gpg_sign, Some(false), "no");
+                        ui.label(tr("GPG sign:"));
+                        ui.radio_value(&mut self.gpg_sign, None, tr("config"));
+                        ui.radio_value(&mut self.gpg_sign, Some(true), tr("yes"));
+                        ui.radio_value(&mut self.gpg_sign, Some(false), tr("no"));
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Author:");
-                        ui.add(egui::TextEdit::singleline(&mut self.author).hint_text("Name <email>").desired_width(220.0));
+                        ui.label(tr("Author:"));
+                        ui.add(egui::TextEdit::singleline(&mut self.author).hint_text(tr("Name <email>")).desired_width(220.0));
                     });
                 });
                 let amend_before = self.amend;
-                ui.checkbox(&mut self.amend, "Amend commit");
+                ui.checkbox(&mut self.amend, tr("Amend commit"));
                 if self.amend && !amend_before {
                     if self.message.trim().is_empty() {
                         self.message = m.get_commit_message("HEAD");
@@ -510,14 +511,14 @@ impl Dialog for CommitDialog {
             let mut warnings = Vec::new();
             let max_first = cx.settings.commit_validation_max_cnt_chars_first_line;
             if max_first > 0 && first_len > max_first {
-                warnings.push(format!("First line has {first_len} characters (max {max_first})"));
+                warnings.push(trf("First line has {0} characters (max {1})", &[&first_len, &max_first]));
             }
             let max_line = cx.settings.commit_validation_max_cnt_chars_per_line;
             if max_line > 0 && self.message.lines().any(|l| l.chars().count() > max_line) {
-                warnings.push(format!("Lines longer than {max_line} characters"));
+                warnings.push(trf("Lines longer than {0} characters", &[&max_line]));
             }
             if cx.settings.commit_validation_second_line_must_be_empty && self.message.lines().nth(1).is_some_and(|l| !l.trim().is_empty()) {
-                warnings.push("Second line should be empty".into());
+                warnings.push(tr("Second line should be empty").into());
             }
             let buttons_h = 34.0;
             // room for the error below the buttons, else the panel grows by it every frame
@@ -529,56 +530,56 @@ impl Dialog for CommitDialog {
                     egui::TextEdit::multiline(&mut self.message)
                         .id(message_id())
                         .font(egui::TextStyle::Monospace)
-                        .hint_text("Commit message (first line: summary)")
+                        .hint_text(tr("Commit message (first line: summary)"))
                         .desired_rows(8),
                 );
             });
             ui.horizontal(|ui| {
-                let branch = cx.current_branch().unwrap_or_else(|| "(no branch)".into());
+                let branch = cx.current_branch().unwrap_or_else(|| tr("(no branch)").into());
                 let committable = !staged.is_empty() || self.amend || cx.data.is_some_and(|d| d.state.merging);
                 if self.busy.is_some() {
                     ui.spinner();
-                    ui.label("Committing…");
+                    ui.label(tr("Committing…"));
                 } else {
-                    let label = if self.amend { "Amend commit" } else { "Commit" };
-                    if ui.add_enabled(committable, egui::Button::new(RichText::new(format!("✔ {label}")).strong())).on_hover_text("Ctrl+Enter in the message").clicked() {
+                    let label = if self.amend { tr("Amend commit") } else { tr("Commit") };
+                    if ui.add_enabled(committable, egui::Button::new(RichText::new(format!("✔ {label}")).strong())).on_hover_text(tr("Ctrl+Enter in the message")).clicked() {
                         self.start_commit(cx, &m, false);
                     }
-                    if ui.add_enabled(committable, egui::Button::new(format!("{label} & push"))).clicked() {
+                    if ui.add_enabled(committable, egui::Button::new(trf("{0} & push", &[&label]))).clicked() {
                         self.start_commit(cx, &m, true);
                     }
-                    if !committable && !unstaged.is_empty() && ui.button("Stage all and commit").clicked() {
+                    if !committable && !unstaged.is_empty() && ui.button(tr("Stage all and commit")).clicked() {
                         if m.stage_all().is_ok() {
                             self.start_commit(cx, &m, false);
                         }
                         self.refresh();
                     }
                 }
-                ui.label(RichText::new(format!("on {branch}")).color(palette.muted));
-                if ui.small_button("Create branch…").on_hover_text("Ctrl+B").clicked() {
+                ui.label(RichText::new(trf("on {0}", &[&branch])).color(palette.muted));
+                if ui.small_button(tr("Create branch…")).on_hover_text("Ctrl+B").clicked() {
                     if let Some(d) = cx.data {
                         cx.open(super::branch::CreateBranchDialog::new(d.head));
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.menu_button("Reset / stash ⏷", |ui| {
-                        if ui.button("Reset all changes…").clicked() {
+                    ui.menu_button(format!("{} ⏷", tr("Reset / stash")), |ui| {
+                        if ui.button(tr("Reset all changes…")).clicked() {
                             cx.open(super::reset::ResetChangesDialog::all());
                             ui.close_kind(egui::UiKind::Menu);
                         }
-                        if ui.add_enabled(!unstaged.is_empty(), egui::Button::new("Reset unstaged changes…")).clicked() {
+                        if ui.add_enabled(!unstaged.is_empty(), egui::Button::new(tr("Reset unstaged changes…"))).clicked() {
                             let tracked = unstaged.iter().any(|f| f.is_tracked && !f.is_new);
                             cx.open(super::reset::ResetChangesDialog::unstaged(tracked));
                             ui.close_kind(egui::UiKind::Menu);
                         }
                         ui.separator();
-                        if ui.button("Stash all changes").clicked() {
-                            cx.run(super::GitRun::new("Stash", gitext_core::commands::stash_save(self.show_untracked, false, None, &[])));
+                        if ui.button(tr("Stash all changes")).clicked() {
+                            cx.run(super::GitRun::new(tr("Stash"), gitext_core::commands::stash_save(self.show_untracked, false, None, &[])));
                             self.refresh();
                             ui.close_kind(egui::UiKind::Menu);
                         }
-                        if ui.add_enabled(!staged.is_empty(), egui::Button::new("Stash staged changes")).clicked() {
-                            cx.run(super::GitRun::new("Stash staged changes", gitext_core::GitArgs::new("stash").arg("push").arg("--staged")));
+                        if ui.add_enabled(!staged.is_empty(), egui::Button::new(tr("Stash staged changes"))).clicked() {
+                            cx.run(super::GitRun::new(tr("Stash staged changes"), gitext_core::GitArgs::new("stash").arg("push").arg("--staged")));
                             self.refresh();
                             ui.close_kind(egui::UiKind::Menu);
                         }
@@ -586,9 +587,9 @@ impl Dialog for CommitDialog {
                     for w in &warnings {
                         ui.label(RichText::new(format!("⚠ {w}")).color(palette.warning));
                     }
-                    ui.label(RichText::new(format!("{first_len}")).color(palette.muted)).on_hover_text("Length of the first line");
+                    ui.label(RichText::new(format!("{first_len}")).color(palette.muted)).on_hover_text(tr("Length of the first line"));
                     let (line, column) = cursor_line_column(ui.ctx(), &self.message);
-                    ui.label(RichText::new(format!("Ln {line}, Col {column}")).color(palette.muted));
+                    ui.label(RichText::new(trf("Ln {0}, Col {1}", &[&line, &column])).color(palette.muted));
                 });
             });
             if let Some(e) = &self.error {
@@ -606,7 +607,7 @@ impl Dialog for CommitDialog {
             };
             let file = list.selected.last().and_then(|&i| items.get(i)).cloned();
             let content = match &file {
-                None => ViewerContent::Empty("Select a file to see the changes".into()),
+                None => ViewerContent::Empty(tr("Select a file to see the changes").into()),
                 Some(f) => {
                     let opts = crate::views::revision_diff::diff_options(cx.settings);
                     let key = format!("{}|{}|{:?}|{}", staged_side, f.name, opts, self.generation);
@@ -616,16 +617,16 @@ impl Dialog for CommitDialog {
                         .request(cx.ctx, key, move || {
                             let (first, second) = if staged_side { (None, ObjectId::INDEX) } else { (Some(ObjectId::INDEX), ObjectId::WORK_TREE) };
                             if f2.is_new && !f2.is_tracked {
-                                return mm.get_file_bytes(ObjectId::WORK_TREE, &f2.name).map(|b| content_from_bytes(&b)).unwrap_or(ViewerContent::Empty("Cannot read file".into()));
+                                return mm.get_file_bytes(ObjectId::WORK_TREE, &f2.name).map(|b| content_from_bytes(&b)).unwrap_or(ViewerContent::Empty(tr("Cannot read file").into()));
                             }
                             match mm.get_file_diff(first, second, &f2.name, f2.old_name.as_deref(), &opts) {
-                                Ok(d) if d.trim().is_empty() => ViewerContent::Empty("No differences".into()),
+                                Ok(d) if d.trim().is_empty() => ViewerContent::Empty(tr("No differences").into()),
                                 Ok(d) => ViewerContent::Diff(d),
                                 Err(e) => ViewerContent::Empty(e.to_string()),
                             }
                         })
                         .cloned()
-                        .unwrap_or(ViewerContent::Empty("Loading…".into()))
+                        .unwrap_or(ViewerContent::Empty(tr("Loading…").into()))
                 }
             };
             if let Some(f) = &file {
@@ -649,17 +650,17 @@ impl Dialog for CommitDialog {
                             let reverse = c == ViewerCommand::UnstageSelectedLines;
                             if let Some(p) = create_partial_patch(d, &sel, reverse) {
                                 if let Err(e) = m.apply_patch_text(&p, true, reverse) {
-                                    cx.error("Stage lines", e.to_string());
+                                    cx.error(tr("Stage lines"), e.to_string());
                                 }
                                 self.refresh();
                             }
                         }
                         ViewerCommand::ResetSelectedLines => {
                             if let Some(p) = create_partial_patch(d, &sel, true) {
-                                cx.open(Confirm::new("Reset lines", "Reset the selected lines? This cannot be undone.", "Reset", move |cx| {
+                                cx.open(Confirm::new(tr("Reset lines"), tr("Reset the selected lines? This cannot be undone."), tr("Reset"), move |cx| {
                                     if let Some(m) = cx.module {
                                         if let Err(e) = m.apply_patch_text(&p, false, true) {
-                                            cx.error("Reset lines", e.to_string());
+                                            cx.error(tr("Reset lines"), e.to_string());
                                         }
                                     }
                                     cx.push(Action::RefreshStatus);
@@ -712,7 +713,7 @@ impl CommitDialog {
         }
         if shortcut(ui.ctx(), Modifiers::COMMAND, Key::S) && !unstaged.is_empty() {
             if let Err(e) = m.stage_all() {
-                cx.error("Stage", e.to_string());
+                cx.error(tr("Stage"), e.to_string());
             }
             self.refresh();
             cx.push(Action::RefreshStatus);
@@ -794,7 +795,7 @@ impl CommitDialog {
                     _ => m.skip_worktree(&refs, key == "skip"),
                 };
                 if let Err(e) = r {
-                    cx.error("Update index", e.to_string());
+                    cx.error(tr("Update index"), e.to_string());
                 }
                 self.refresh();
             }

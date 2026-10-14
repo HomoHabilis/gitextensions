@@ -5,6 +5,7 @@ use gitext_core::module::Remote;
 use gitext_core::GitArgs;
 
 use super::{Confirm, Cx, Dialog, DialogKind, GitRun};
+use crate::i18n::{tr, trf};
 use crate::tasks::Task;
 use crate::theme::Palette;
 
@@ -49,7 +50,7 @@ impl RemotesDialog {
 
 impl Dialog for RemotesDialog {
     fn title(&self) -> String {
-        "Remote repositories".into()
+        tr("Remote repositories").into()
     }
 
     fn kind(&self) -> DialogKind {
@@ -79,31 +80,31 @@ impl Dialog for RemotesDialog {
                 }
             }
             ui.add_space(8.0);
-            if ui.button("✚ New remote").clicked() {
+            if ui.button(tr("✚ New remote")).clicked() {
                 self.select(None);
             }
         });
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            ui.label(RichText::new(if self.selected.is_some() { "Edit remote" } else { "New remote" }).strong());
+            ui.label(RichText::new(if self.selected.is_some() { tr("Edit remote") } else { tr("New remote") }).strong());
             egui::Grid::new("remote_edit").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-                ui.label("Name");
+                ui.label(tr("Name"));
                 ui.add(egui::TextEdit::singleline(&mut self.name).desired_width(360.0));
                 ui.end_row();
-                ui.label("Url");
+                ui.label(tr("Url"));
                 ui.add(egui::TextEdit::singleline(&mut self.url).desired_width(360.0));
                 ui.end_row();
                 ui.label("");
-                ui.checkbox(&mut self.separate_push, "Separate push url");
+                ui.checkbox(&mut self.separate_push, tr("Separate push url"));
                 ui.end_row();
                 if self.separate_push {
-                    ui.label("Push url");
+                    ui.label(tr("Push url"));
                     ui.add(egui::TextEdit::singleline(&mut self.push_url).desired_width(360.0));
                     ui.end_row();
                 }
             });
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                if ui.button(if self.selected.is_some() { "Save changes" } else { "Add" }).clicked() {
+                if ui.button(if self.selected.is_some() { tr("Save changes") } else { tr("Add") }).clicked() {
                     let result = match self.selected.and_then(|i| remotes.get(i)) {
                         None => m.add_remote(&self.name, &self.url).map(|_| ()),
                         Some(old) => {
@@ -126,11 +127,11 @@ impl Dialog for RemotesDialog {
                     });
                     match result {
                         Ok(()) => {
-                            self.status = Some("Saved.".into());
+                            self.status = Some(tr("Saved.").into());
                             if self.selected.is_none() {
                                 let name = self.name.trim().to_string();
-                                cx.open(Confirm::new("Fetch", format!("Fetch branches from the new remote '{name}'?"), "Fetch", move |cx| {
-                                    cx.run(GitRun::new(format!("Fetch {name}"), GitArgs::new("fetch").arg("--progress").arg(name)));
+                                cx.open(Confirm::new(tr("Fetch"), trf("Fetch branches from the new remote '{0}'?", &[&name]), tr("Fetch"), move |cx| {
+                                    cx.run(GitRun::new(trf("Fetch {0}", &[&name]), GitArgs::new("fetch").arg("--progress").arg(name)));
                                 }));
                             }
                         }
@@ -140,19 +141,19 @@ impl Dialog for RemotesDialog {
                     cx.push(super::Action::RefreshStatus);
                 }
                 if let Some(r) = self.selected.and_then(|i| remotes.get(i)) {
-                    if ui.button("Delete…").clicked() {
+                    if ui.button(tr("Delete…")).clicked() {
                         let name = r.name.clone();
-                        cx.open(Confirm::new("Delete remote", format!("Delete remote '{name}' and its remote tracking branches?"), "Delete", move |cx| {
-                            cx.run(GitRun::new("Delete remote", GitArgs::new("remote").arg("rm").arg(name)));
+                        cx.open(Confirm::new(tr("Delete remote"), trf("Delete remote '{0}' and its remote tracking branches?", &[&name]), tr("Delete"), move |cx| {
+                            cx.run(GitRun::new(tr("Delete remote"), GitArgs::new("remote").arg("rm").arg(name)));
                         }));
                         self.remotes = None;
                         self.selected = None;
                     }
-                    if ui.button("Prune").clicked() {
-                        cx.run(GitRun::new("Prune", GitArgs::new("remote").arg("prune").arg(&r.name)).keep_open());
+                    if ui.button(tr("Prune")).clicked() {
+                        cx.run(GitRun::new(tr("Prune"), GitArgs::new("remote").arg("prune").arg(&r.name)).keep_open());
                     }
-                    if ui.button("Fetch").clicked() {
-                        cx.run(GitRun::new("Fetch", GitArgs::new("fetch").arg("--progress").arg(&r.name)));
+                    if ui.button(tr("Fetch")).clicked() {
+                        cx.run(GitRun::new(tr("Fetch"), GitArgs::new("fetch").arg("--progress").arg(&r.name)));
                     }
                 }
             });
@@ -161,7 +162,7 @@ impl Dialog for RemotesDialog {
             }
             ui.add_space(12.0);
             ui.separator();
-            ui.label(RichText::new("Default pull behaviour of local branches").strong());
+            ui.label(RichText::new(tr("Default pull behaviour of local branches")).strong());
             egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
                 if let Some(d) = cx.data {
                     egui::Grid::new("default_pull").striped(true).show(ui, |ui| {

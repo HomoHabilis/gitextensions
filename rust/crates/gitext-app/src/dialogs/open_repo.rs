@@ -8,6 +8,7 @@ use egui::{RichText, Ui, Vec2};
 use gitext_core::GitModule;
 
 use super::{Action, Cx, Dialog, DialogKind};
+use crate::i18n::{tr, trf};
 use crate::theme::Palette;
 
 pub struct OpenRepoDialog {
@@ -35,7 +36,7 @@ fn find_repository(path: &str) -> Option<PathBuf> {
 
 impl Dialog for OpenRepoDialog {
     fn title(&self) -> String {
-        "Open local repository".into()
+        tr("Open local repository").into()
     }
 
     fn kind(&self) -> DialogKind {
@@ -47,7 +48,7 @@ impl Dialog for OpenRepoDialog {
         let mut open = false;
         let mut keep = true;
         ui.horizontal(|ui| {
-            ui.label("Directory");
+            ui.label(tr("Directory"));
             let w = ui.available_width() - 150.0;
             let r = ui.add(egui::TextEdit::singleline(&mut self.path).desired_width(w - 26.0).hint_text(if cfg!(windows) {
                 r"C:\src\repo or \\wsl$\Ubuntu\home\me\repo"
@@ -69,12 +70,12 @@ impl Dialog for OpenRepoDialog {
                     }
                 }
             });
-            if ui.button("⬆").on_hover_text("Go to parent directory").clicked() {
+            if ui.button("⬆").on_hover_text(tr("Go to parent directory")).clicked() {
                 if let Some(parent) = Path::new(self.path.trim()).parent() {
                     self.path = parent.display().to_string();
                 }
             }
-            if ui.button("Browse…").clicked() {
+            if ui.button(tr("Browse…")).clicked() {
                 let start = Some(self.path.trim()).filter(|p| Path::new(p).is_dir()).map(str::to_string);
                 if let Some(p) = crate::util::pick_folder(start.as_deref()) {
                     self.path = p;
@@ -86,31 +87,31 @@ impl Dialog for OpenRepoDialog {
         ui.add_space(4.0);
         if crate::util::file_dialog_unavailable() {
             ui.label(
-                RichText::new("No folder dialog is available here: type or paste the path (installing zenity or kdialog adds the dialog).")
+                RichText::new(tr("No folder dialog is available here: type or paste the path (installing zenity or kdialog adds the dialog)."))
                     .small()
                     .color(palette.warning),
             );
         }
         if self.path.trim().is_empty() {
-            ui.label(RichText::new("Choose the folder of a git repository.").small().color(palette.muted));
+            ui.label(RichText::new(tr("Choose the folder of a git repository.")).small().color(palette.muted));
         } else if !Path::new(self.path.trim()).is_dir() {
-            ui.label(RichText::new("This folder does not exist.").small().color(palette.warning));
+            ui.label(RichText::new(tr("This folder does not exist.")).small().color(palette.warning));
         } else if repo.is_none() {
-            ui.label(RichText::new("This folder is not in a git repository.").small().color(palette.warning));
+            ui.label(RichText::new(tr("This folder is not in a git repository.")).small().color(palette.warning));
         } else if let Some(r) = repo.as_deref().filter(|r| *r != Path::new(self.path.trim())) {
-            ui.label(RichText::new(format!("Opens the repository {}", r.display())).small().color(palette.muted));
+            ui.label(RichText::new(trf("Opens the repository {0}", &[&r.display()])).small().color(palette.muted));
         }
 
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("Cancel")).clicked() {
                     keep = false;
                 }
                 // a folder git accepts but the file system check does not (e.g. a WSL path
                 // with odd permissions) can still be tried
                 let can_open = Path::new(self.path.trim()).is_dir();
-                if ui.add_enabled(can_open, egui::Button::new(RichText::new("Open").strong())).clicked() {
+                if ui.add_enabled(can_open, egui::Button::new(RichText::new(tr("Open")).strong())).clicked() {
                     open = true;
                 }
             });
