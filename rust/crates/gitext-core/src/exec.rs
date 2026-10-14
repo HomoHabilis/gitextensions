@@ -263,11 +263,6 @@ impl Executable {
         Executable { file_name: file_name.into(), working_dir: working_dir.into(), env: Vec::new(), wsl_distro: String::new() }
     }
 
-    /// Converts a path of the app to the path git sees (`/home/…` for a WSL distro).
-    pub fn path_for_git(&self, path: &str) -> String {
-        crate::wsl::path_for_git(path, &self.wsl_distro)
-    }
-
     /// Converts a path printed by git to a path of the app.
     pub fn app_path(&self, path: &str) -> PathBuf {
         PathBuf::from(crate::wsl::windows_path(path, &self.wsl_distro))
@@ -280,10 +275,11 @@ impl Executable {
         }
         // `--cd` because the working directory is not always passed to the distro; `--exec`
         // bypasses the login shell, which would re-parse the arguments (as GitExecutor does).
-        let dir = self.path_for_git(&self.working_dir.to_string_lossy());
+        let dir = crate::wsl::path_for_git(&self.working_dir.to_string_lossy(), &self.wsl_distro);
         let mut v = vec!["-d".to_string(), self.wsl_distro.clone(), "--cd".to_string(), dir, "--exec".to_string(), "git".to_string()];
-        v.extend(args.iter().map(|a| crate::wsl::convert_arg(a, &self.wsl_distro)));
-        ("wsl".to_string(), v)
+        v.extend(crate::wsl::convert_args(args, &self.wsl_distro));
+        // `wsl.exe` rather than `wsl`: the same on Windows, and it also starts from inside WSL
+        ("wsl.exe".to_string(), v)
     }
 
     /// Name shown in the command log.
@@ -501,23 +497,62 @@ fn stream_lines(mut reader: impl Read, mut emit: impl FnMut(String, bool)) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::wsl::normalize_wsl_path;
 
     #[test]
     fn wsl_command_line() {
         let exe = Executable::wsl_git(r"\\wsl.localhost\Ubuntu-22.04\home\jack\repo", "Ubuntu-22.04");
         let args: Vec<String> = ["apply", "--cached", "C:/Users/jack/AppData/Local/Temp/p.patch"].iter().map(|s| s.to_string()).collect();
         let (program, v) = exe.command_line(&args);
-        assert_eq!(program, "wsl");
+        assert_eq!(program, "wsl.exe");
         assert_eq!(
             v,
             ["-d", "Ubuntu-22.04", "--cd", "/home/jack/repo", "--exec", "git", "apply", "--cached", "/mnt/c/Users/jack/AppData/Local/Temp/p.patch"]
         );
         assert_eq!(exe.app_path("/home/jack/repo/.git"), PathBuf::from(r"\\wsl$\Ubuntu-22.04\home\jack\repo\.git"));
         assert_eq!(exe.display_name(), "wsl -d Ubuntu-22.04 git");
+        // a message is not a path
+        let msg: Vec<String> = ["stash", "push", "-m", r"C:\temp cleanup"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(exe.command_line(&msg).1[6..], msg[..]);
         // not a WSL repository: unchanged
         let exe = Executable::new("git", "/tmp");
         assert_eq!(exe.command_line(&args), ("git".to_string(), args.clone()));
         assert_eq!(exe.app_path("/tmp/x"), PathBuf::from("/tmp/x"));
+    }
+
+    /// The git of a distro through `wsl.exe`, as the Windows app runs it for `\\wsl$\` repositories.
+    /// Only inside WSL, where `wsl.exe` is reachable through interop; elsewhere it is skipped.
+    #[test]
+    fn wsl_git_end_to_end() {
+        let distro = std::env::var("WSL_DISTRO_NAME").unwrap_or_default();
+        if !cfg!(target_os = "linux") || distro.is_empty() || crate::diff_tools::find_in_path("wsl.exe").is_none() {
+            eprintln!("wsl_git_end_to_end: skipped (not in WSL)");
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("dépôt é");
+        std::fs::create_dir(&repo).unwrap();
+        Executable::new("git", &repo).run_checked(&GitArgs::new("init").arg("-q")).unwrap();
+        // the path the Windows app has for the repository
+        let win_path = format!(r"\\wsl.localhost\{distro}{}", repo.display().to_string().replace('/', "\\"));
+        let exe = Executable::wsl_git(&win_path, &distro);
+
+        let started = Instant::now();
+        let top = exe.output(&GitArgs::new("rev-parse").arg("--show-toplevel")).unwrap();
+        let first_call = started.elapsed();
+        assert_eq!(exe.app_path(top.trim()), PathBuf::from(normalize_wsl_path(&win_path)));
+
+        let message = r"C:\temp is not a path here";
+        let commit = GitArgs::with_config(&[("user.name", "t"), ("user.email", "t@t")], "commit").args(["-q", "--allow-empty", "-m", message]);
+        exe.run_checked(&commit).unwrap();
+        let started = Instant::now();
+        let subject = exe.output(&GitArgs::new("log").args(["-1", "--format=%s"])).unwrap();
+        let next_call = started.elapsed();
+        assert_eq!(subject.trim(), message);
+
+        eprintln!("wsl_git_end_to_end: first call {first_call:?}, next call {next_call:?}");
+        // wsl.exe takes a few hundred ms per call; the budget catches a hang, not a slowdown
+        assert!(next_call < Duration::from_secs(10), "{next_call:?}");
     }
 
     #[test]

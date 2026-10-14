@@ -74,7 +74,7 @@ fn main() -> eframe::Result<()> {
             .with_min_inner_size([720.0, 460.0]),
         ..Default::default()
     };
-    let maximize = startup_window::defer_maximize(&mut options);
+    let maximize = startup_window::adjust_restored_window(&mut options);
     eframe::run_native(
         "Git Extensions",
         options,

@@ -7,47 +7,45 @@
 
 const WSL_PREFIX: &str = r"\\wsl$\";
 const WSL_LOCALHOST_PREFIX: &str = r"\\wsl.localhost\";
+const PREFIXES: [&str; 2] = [WSL_PREFIX, WSL_LOCALHOST_PREFIX];
 
-fn starts_with_ignore_case(s: &str, prefix: &str) -> bool {
-    s.len() >= prefix.len() && s.is_char_boundary(prefix.len()) && s[..prefix.len()].eq_ignore_ascii_case(prefix)
+/// The length of the `\\wsl$\` or `\\wsl.localhost\` prefix of `path` (any case), if any. With
+/// `posix`, `/` separators are accepted too (as produced by [`crate::args::to_posix_path`]).
+fn prefix_len(path: &str, posix: bool) -> Option<usize> {
+    let b = path.as_bytes();
+    // the prefixes are ASCII: the length is a char boundary of `path`
+    PREFIXES
+        .into_iter()
+        .find(|p| b.len() >= p.len() && b.iter().zip(p.bytes()).all(|(&c, p)| c.eq_ignore_ascii_case(&p) || (posix && p == b'\\' && c == b'/')))
+        .map(str::len)
 }
 
-/// The length of the `\\wsl$\` or `\\wsl.localhost\` prefix (also with `/` separators, as
-/// produced by [`crate::args::to_posix_path`]), if any.
-fn prefix_len(path: &str) -> Option<usize> {
-    for prefix in [WSL_PREFIX, WSL_LOCALHOST_PREFIX] {
-        if starts_with_ignore_case(path, prefix) || starts_with_ignore_case(path, &prefix.replace('\\', "/")) {
-            return Some(prefix.len());
-        }
-    }
-    None
+/// Whether the path starts with a drive like `C:`.
+fn has_drive(b: &[u8]) -> bool {
+    b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':'
 }
 
 /// Whether the path is a WSL path (`\\wsl$\…` or `\\wsl.localhost\…`). Port of `IsWslPath`.
 pub fn is_wsl_path(path: &str) -> bool {
-    starts_with_ignore_case(path, WSL_PREFIX) || starts_with_ignore_case(path, WSL_LOCALHOST_PREFIX)
+    prefix_len(path, false).is_some()
 }
 
 /// Replaces `\\wsl.localhost\` with `\\wsl$\` and normalizes the case of the prefix.
 /// Port of `NormalizeWslPath`.
 pub fn normalize_wsl_path(path: &str) -> String {
-    if starts_with_ignore_case(path, WSL_LOCALHOST_PREFIX) {
-        return format!("{WSL_PREFIX}{}", &path[WSL_LOCALHOST_PREFIX.len()..]);
+    match prefix_len(path, false) {
+        Some(n) => format!("{WSL_PREFIX}{}", &path[n..]),
+        None => path.to_string(),
     }
-    if starts_with_ignore_case(path, WSL_PREFIX) {
-        return format!("{WSL_PREFIX}{}", &path[WSL_PREFIX.len()..]);
-    }
-    path.to_string()
 }
 
 /// The distro name (like `Ubuntu-22.04`) of a WSL path, empty otherwise. Port of `GetWslDistro`
 /// (which also accepts `\\wsl.localhost\`).
 pub fn distro(path: &str) -> String {
-    if !is_wsl_path(path) {
+    let Some(n) = prefix_len(path, false) else {
         return String::new();
-    }
-    let path = normalize_wsl_path(path);
-    let rest = &path[WSL_PREFIX.len()..];
+    };
+    let rest = &path[n..];
     match rest.find(['\\', '/']) {
         Some(n) if n > 0 => rest[..n].to_string(),
         _ => String::new(),
@@ -62,7 +60,7 @@ pub fn path_for_git(path: &str, wsl_distro: &str) -> String {
     if path.is_empty() || wsl_distro.is_empty() {
         return posix;
     }
-    if let Some(len) = prefix_len(path) {
+    if let Some(len) = prefix_len(path, true) {
         let rest = &posix[len..];
         let path_distro = rest.split('/').next().unwrap_or_default();
         if !path_distro.eq_ignore_ascii_case(wsl_distro) {
@@ -70,9 +68,8 @@ pub fn path_for_git(path: &str, wsl_distro: &str) -> String {
         }
         return rest[path_distro.len()..].to_string();
     }
-    let b = path.as_bytes();
-    if b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
-        return format!("/mnt/{}{}", (b[0] as char).to_ascii_lowercase(), &posix[2..]);
+    if has_drive(path.as_bytes()) {
+        return format!("/mnt/{}{}", (path.as_bytes()[0] as char).to_ascii_lowercase(), &posix[2..]);
     }
     posix
 }
@@ -80,13 +77,17 @@ pub fn path_for_git(path: &str, wsl_distro: &str) -> String {
 /// Converts a path printed by git to a path of the app (Windows path with `\` separators for
 /// a distro). Port of `GetWindowsPath`.
 pub fn windows_path(path: &str, wsl_distro: &str) -> String {
-    if path.is_empty() || wsl_distro.is_empty() || prefix_len(path).is_some() {
+    if path.is_empty() || wsl_distro.is_empty() || prefix_len(path, true).is_some() {
         return path.to_string();
     }
     let native = |p: &str| p.replace('/', "\\");
-    if path.starts_with("/mnt/") && path.len() > 7 {
-        let drive = path[5..6].to_ascii_uppercase();
-        return native(&format!("{drive}:{}", &path[6..]));
+    // only `/mnt/<drive letter>` is a Windows drive: `/mnt/wsl`, `/mnt/wslg` or `/mnt/data` are not
+    if let Some(rest) = path.strip_prefix("/mnt/") {
+        let b = rest.as_bytes();
+        if !b.is_empty() && b[0].is_ascii_alphabetic() && (b.len() == 1 || b[1] == b'/') {
+            let tail = if b.len() > 1 { &rest[1..] } else { "/" };
+            return native(&format!("{}:{tail}", (b[0] as char).to_ascii_uppercase()));
+        }
     }
     if path.starts_with(['\\', '/']) {
         return native(&format!("{WSL_PREFIX}{wsl_distro}{path}"));
@@ -94,13 +95,23 @@ pub fn windows_path(path: &str, wsl_distro: &str) -> String {
     native(&format!("{WSL_PREFIX}{wsl_distro}\\{path}"))
 }
 
+/// Converts the absolute paths of a git command line for a distro ([`convert_arg`]), except
+/// in messages (`-m <message>`, `--message=<message>`), which can start like a path (`C:\`).
+pub fn convert_args(args: &[String], wsl_distro: &str) -> Vec<String> {
+    let mut is_message = false;
+    args.iter()
+        .map(|arg| {
+            let keep = is_message || arg.starts_with("--message=");
+            is_message = arg == "-m" || arg == "--message";
+            if keep { arg.clone() } else { convert_arg(arg, wsl_distro) }
+        })
+        .collect()
+}
+
 /// Converts the absolute paths in a git argument for a distro: the whole argument
-/// (`C:/temp/patch`), or the value of an option (`--output=C:/temp/x`, `-Fc:/msg`).
+/// (`C:/temp/patch`), or the value of an option (`--output=C:/temp/x`).
 pub fn convert_arg(arg: &str, wsl_distro: &str) -> String {
-    let is_absolute = |s: &str| {
-        let b = s.as_bytes();
-        prefix_len(s).is_some() || (b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'/' || b[2] == b'\\'))
-    };
+    let is_absolute = |s: &str| prefix_len(s, true).is_some() || (has_drive(s.as_bytes()) && matches!(s.as_bytes()[2], b'/' | b'\\'));
     if is_absolute(arg) {
         return path_for_git(arg, wsl_distro);
     }
@@ -194,5 +205,79 @@ mod tests {
         assert_eq!(convert_arg("--format=%H", "Ubuntu"), "--format=%H");
         assert_eq!(convert_arg("src/main.rs", "Ubuntu"), "src/main.rs");
         assert_eq!(convert_arg("HEAD:src/a.txt", "Ubuntu"), "HEAD:src/a.txt");
+    }
+
+    #[test]
+    fn windows_path_only_converts_drive_mounts() {
+        // `/mnt/<not a drive letter>` stays in the distro (it was turned into `D:ata\repo`)
+        assert_eq!(windows_path("/mnt/data/repo", "Ubuntu"), r"\\wsl$\Ubuntu\mnt\data\repo");
+        assert_eq!(windows_path("/mnt/wslg/runtime-dir", "Ubuntu"), r"\\wsl$\Ubuntu\mnt\wslg\runtime-dir");
+        // the root of a drive
+        assert_eq!(windows_path("/mnt/c", "Ubuntu"), r"C:\");
+        assert_eq!(windows_path("/mnt/d/", "Ubuntu"), r"D:\");
+        assert_eq!(windows_path("/mnt/c/x", "Ubuntu"), r"C:\x");
+    }
+
+    #[test]
+    fn windows_path_non_ascii_does_not_panic() {
+        // panicked: byte index 6 is not a char boundary
+        assert_eq!(windows_path("/mnt/équipe/repo", "Ubuntu"), r"\\wsl$\Ubuntu\mnt\équipe\repo");
+        assert_eq!(windows_path("/mnt/c/Users/Jérémie/repo", "Ubuntu"), r"C:\Users\Jérémie\repo");
+        assert_eq!(windows_path("/home/日本/repo", "Ubuntu"), r"\\wsl$\Ubuntu\home\日本\repo");
+    }
+
+    #[test]
+    fn messages_are_not_converted() {
+        let args: Vec<String> = ["commit", "-m", r"C:\temp is no longer used", "--", "C:/x.txt"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(convert_args(&args, "Ubuntu"), ["commit", "-m", r"C:\temp is no longer used", "--", "/mnt/c/x.txt"]);
+        let args: Vec<String> = ["stash", "push", "--message=D:/notes", "--message", "C:/a"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(convert_args(&args, "Ubuntu"), ["stash", "push", "--message=D:/notes", "--message", "C:/a"]);
+        // `-m` only protects the next argument
+        let args: Vec<String> = ["merge", "-m", "msg", "C:/x"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(convert_args(&args, "Ubuntu"), ["merge", "-m", "msg", "/mnt/c/x"]);
+    }
+
+    /// Paths printed by git or typed by the user can be anything: no conversion may panic.
+    #[test]
+    fn conversions_never_panic() {
+        let pieces = ["", "/", "\\", "//", r"\\", "mnt", "/mnt/", "/mnt/c", "c:", "C:\\", "é", "日本", "wsl$", r"\\wsl$\", r"\\wsl.localhost\", "//wsl$/", "Ubuntu", "-", "--x=", "-m", "a b", "€", "\u{1F600}"];
+        let mut n = 0;
+        for a in pieces {
+            for b in pieces {
+                for c in pieces {
+                    let s = format!("{a}{b}{c}");
+                    for d in ["", "Ubuntu", "é"] {
+                        let _ = (is_wsl_path(&s), normalize_wsl_path(&s), distro(&s), path_for_git(&s, d), windows_path(&s, d), convert_arg(&s, d));
+                        n += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(n, pieces.len().pow(3) * 3);
+    }
+
+    /// Every git command of a WSL repository goes through these conversions, and every path git
+    /// prints comes back through them: they must stay cheap.
+    #[test]
+    fn conversion_throughput() {
+        let args: Vec<String> = ["log", "-z", "--format=%H", "-m", r"C:\message", "--output=D:/out.txt", r"\\wsl$\Ubuntu\home\jack\repo\src\main.rs", "src/lib.rs"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let paths = ["/home/jack/repo/.git", "/mnt/c/Users/jack/repo", "/mnt/wslg/x", "/home/jérémie/dépôt"];
+        let rounds = 20_000;
+        let started = std::time::Instant::now();
+        let mut total = 0;
+        for _ in 0..rounds {
+            total += convert_args(&args, "Ubuntu-22.04").len();
+            for p in paths {
+                total += windows_path(p, "Ubuntu-22.04").len();
+            }
+        }
+        let per_round = started.elapsed() / rounds;
+        eprintln!("wsl conversion: {per_round:?} per command line (8 arguments) and 4 printed paths");
+        assert!(total > 0);
+        // a few µs in debug builds; the budget only catches an accidental quadratic or allocation storm
+        assert!(per_round < std::time::Duration::from_micros(200), "{per_round:?}");
     }
 }

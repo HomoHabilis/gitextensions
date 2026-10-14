@@ -19,21 +19,32 @@ use std::sync::Arc;
 #[cfg(windows)]
 const HIDDEN_FRAMES: u32 = 2;
 
-/// Adds the hook that creates the window restored instead of maximized; returns whether it
-/// should be maximized once hidden (set when eframe builds the window).
-pub fn defer_maximize(options: &mut eframe::NativeOptions) -> Arc<AtomicBool> {
+/// Adds the hook that adjusts the window restored from the saved state (see [`sane_size`]),
+/// and on Windows creates it restored instead of maximized; returns whether it should be
+/// maximized once hidden (set when eframe builds the window).
+pub fn adjust_restored_window(options: &mut eframe::NativeOptions) -> Arc<AtomicBool> {
     let maximize = Arc::new(AtomicBool::new(false));
-    if cfg!(windows) {
-        let flag = maximize.clone();
-        options.window_builder = Some(Box::new(move |mut builder: egui::ViewportBuilder| {
-            if builder.maximized == Some(true) {
-                flag.store(true, Ordering::Relaxed);
-                builder.maximized = None;
-            }
-            builder
-        }));
-    }
+    let flag = maximize.clone();
+    let default_size = options.viewport.inner_size;
+    options.window_builder = Some(Box::new(move |mut builder: egui::ViewportBuilder| {
+        builder.inner_size = sane_size(builder.inner_size, builder.min_inner_size, default_size);
+        if cfg!(windows) && builder.maximized == Some(true) {
+            flag.store(true, Ordering::Relaxed);
+            builder.maximized = None;
+        }
+        builder
+    }));
     maximize
+}
+
+/// The size to create the window with. A window saved while minimized has a size of 0×0 on
+/// Windows, which eframe only enlarges to 64×64 when restoring it (the minimum size is not
+/// applied): a size below the minimum size is replaced with the default size.
+fn sane_size(size: Option<egui::Vec2>, min: Option<egui::Vec2>, default: Option<egui::Vec2>) -> Option<egui::Vec2> {
+    match (size, min) {
+        (Some(s), Some(m)) if s.x < m.x || s.y < m.y => default,
+        _ => size,
+    }
 }
 
 /// Reveals the window after its first frames (see the module documentation).
@@ -90,6 +101,25 @@ impl StartupWindow {
             let _ = ctx;
             true
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::vec2;
+
+    #[test]
+    fn sizes_below_the_minimum_are_replaced() {
+        let (min, default) = (Some(vec2(720.0, 460.0)), Some(vec2(1360.0, 860.0)));
+        // saved while minimized on Windows (0×0, enlarged to 64×64 by eframe)
+        assert_eq!(sane_size(Some(vec2(64.0, 64.0)), min, default), default);
+        assert_eq!(sane_size(Some(vec2(0.0, 0.0)), min, default), default);
+        assert_eq!(sane_size(Some(vec2(1600.0, 300.0)), min, default), default);
+        // a usable saved size is kept
+        assert_eq!(sane_size(Some(vec2(1000.0, 700.0)), min, default), Some(vec2(1000.0, 700.0)));
+        assert_eq!(sane_size(Some(vec2(720.0, 460.0)), min, default), Some(vec2(720.0, 460.0)));
+        assert_eq!(sane_size(None, min, default), None);
     }
 }
 
