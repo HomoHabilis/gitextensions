@@ -9,7 +9,7 @@
 //!
 //! The window is therefore created restored and cloaked (`DWMWA_CLOAK`: laid out and painted
 //! but not displayed), maximized during the first frame, and uncloaked once a frame of its
-//! final size has been presented.
+//! final size has been presented, and then brought to the front.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -83,6 +83,10 @@ impl StartupWindow {
             if let Some(hwnd) = self.hwnd {
                 dwm::set_cloaked(hwnd, false);
             }
+            // eframe shows the window with `SW_SHOWNOACTIVATE` (winit's first show): without a
+            // maximized state to restore (first launch), nothing activates it, and it stays
+            // behind the window it was started from, only visible in the taskbar.
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             true
         }
         #[cfg(not(windows))]
