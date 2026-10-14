@@ -272,6 +272,7 @@ impl Dialog for ConflictsDialog {
                     .id_salt("conflict_files")
                     .auto_shrink([false, true])
                     .min_scrolled_height(320.0)
+                    .max_height(360.0)
                     .show(ui, |ui| {
                         ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
                             for c in &files {
@@ -292,7 +293,7 @@ impl Dialog for ConflictsDialog {
                         });
                     });
             });
-            ui.separator();
+            ui.add_space(12.0);
             ui.vertical(|ui| {
                 ui.set_max_width(400.0);
                 if let Some(c) = &current {
