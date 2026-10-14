@@ -11,23 +11,20 @@ use super::{Action, Confirm, Cx, Dialog, DialogKind};
 use crate::tasks::{Loader, Task};
 use crate::theme::Palette;
 use crate::views::diff_viewer::{content_from_bytes, DiffViewer, ViewerCommand, ViewerContent};
+use crate::views::file_actions::{self, FileAction, Selection};
 use crate::views::file_list::FileList;
 use crate::views::{plain_key, shortcut};
 
 /// The context menu entries of the unstaged files: label, command, key.
+/// (Delete, rename, open with, copy path and the like come from [`file_actions`].)
 const UNSTAGED_MENU: &[(&str, &str, Option<(Modifiers, Key)>)] = &[
     ("Stage", "stage", Some((Modifiers::NONE, Key::S))),
     ("Reset file changes…", "reset", Some((Modifiers::NONE, Key::R))),
-    ("Delete file…", "delete", Some((Modifiers::NONE, Key::Delete))),
     ("Add to .gitignore…", "ignore", None),
-    ("Assume unchanged", "assume", None),
-    ("Skip worktree", "skip", None),
     ("Edit file", "open", Some((Modifiers::NONE, Key::F4))),
-    ("Open", "open_with", Some((Modifiers::SHIFT, Key::F4))),
     ("Open with difftool", "difftool", Some((Modifiers::NONE, Key::F3))),
     ("File history", "history", Some((Modifiers::NONE, Key::H))),
     ("Blame", "blame", Some((Modifiers::NONE, Key::B))),
-    ("Copy path", "copy", None),
 ];
 
 /// The context menu entries of the staged files.
@@ -39,7 +36,6 @@ const STAGED_MENU: &[(&str, &str, Option<(Modifiers, Key)>)] = &[
     ("Open with difftool", "difftool", Some((Modifiers::NONE, Key::F3))),
     ("File history", "history", Some((Modifiers::NONE, Key::H))),
     ("Blame", "blame", Some((Modifiers::NONE, Key::B))),
-    ("Copy path", "copy", None),
 ];
 
 /// Shows the file context menu `entries`; returns the command clicked.
@@ -58,6 +54,42 @@ fn file_menu(ui: &mut Ui, entries: &[(&str, &'static str, Option<(Modifiers, Key
 /// The command of the key pressed in a file list with the keyboard focus.
 fn file_key(ui: &Ui, entries: &[(&str, &'static str, Option<(Modifiers, Key)>)]) -> Option<&'static str> {
     entries.iter().find_map(|&(_, key, s)| s.filter(|&(m, k)| shortcut(ui.ctx(), m, k)).map(|_| key))
+}
+
+/// "Assume unchanged" and "Skip worktree", checked when the selection has the flag (clicking
+/// a checked one clears it, like upstream's check menu items).
+fn index_flags_menu(ui: &mut Ui, items: &[&GitItemStatus]) -> Option<&'static str> {
+    if !items.iter().any(|f| f.is_tracked && !f.is_new) {
+        return None;
+    }
+    let assumed = items.iter().any(|f| f.is_assume_unchanged);
+    let skipped = items.iter().any(|f| f.is_skip_worktree);
+    let mut cmd = None;
+    let r = ui.add(egui::Button::new(format!("{}Assume unchanged", if assumed { "✔ " } else { "" })));
+    if r.on_hover_text("Tell git not to check the status of this file (a big file that never changes).").clicked() {
+        cmd = Some(if assumed { "no_assume" } else { "assume" });
+        ui.close_kind(egui::UiKind::Menu);
+    }
+    let r = ui.add(egui::Button::new(format!("{}Skip worktree", if skipped { "✔ " } else { "" })));
+    if r.on_hover_text("Hide local changes of a tracked file you don't want to commit (e.g. a config file).").clicked() {
+        cmd = Some(if skipped { "no_skip" } else { "skip" });
+        ui.close_kind(egui::UiKind::Menu);
+    }
+    cmd
+}
+
+/// The line and column (1-based) of the text cursor in the commit message
+/// (`commitCursorLine` / `commitCursorColumn`).
+fn cursor_line_column(ctx: &egui::Context, text: &str) -> (usize, usize) {
+    let index = egui::TextEdit::load_state(ctx, message_id()).and_then(|s| s.cursor.char_range()).map(|r| r.primary.index).unwrap_or(0);
+    line_column(text, index)
+}
+
+fn line_column(text: &str, char_index: usize) -> (usize, usize) {
+    let before: Vec<char> = text.chars().take(char_index).collect();
+    let line = before.iter().filter(|&&c| c == '\n').count() + 1;
+    let column = before.iter().rev().take_while(|&&c| c != '\n').count() + 1;
+    (line, column)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -90,12 +122,18 @@ pub struct CommitDialog {
     push_after: bool,
     error: Option<String>,
     show_untracked: bool,
+    /// Also list the ignored, assumed-unchanged and skip-worktree files (`tsmiShowIgnoredFiles` & co).
+    show_ignored: bool,
+    show_assumed: bool,
+    show_skipped: bool,
     template_text: Option<String>,
     /// The status of the browse window last seen, to reload when it changes (e.g. files were
     /// reset by another dialog or changed on disk).
     repo_status: Option<Vec<GitItemStatus>>,
     /// Whether the application window had the focus last frame (refresh when it comes back).
     window_focused: bool,
+    /// The status lists unresolved merge conflicts (no commit until they are solved).
+    has_conflicts: bool,
 }
 
 /// Height of the commit error under the buttons (it scrolls when longer).
@@ -149,6 +187,10 @@ impl CommitDialog {
     }
 
     fn start_commit(&mut self, cx: &mut Cx, m: &GitModule, push: bool) {
+        if self.has_conflicts {
+            self.error = Some("There are unresolved merge conflicts, solve merge conflicts before committing.".into());
+            return;
+        }
         let using_template = self.template_text.is_some();
         let message = format_commit_message(&self.message, using_template, cx.settings.ensure_commit_message_second_line_empty);
         if message.trim().is_empty() {
@@ -236,7 +278,11 @@ impl Dialog for CommitDialog {
 
         let untracked = if self.show_untracked { UntrackedFilesMode::All } else { UntrackedFilesMode::No };
         let mm = m.clone();
-        let items = self.status.request(cx.ctx, self.generation, move || mm.get_status(untracked, false).map_err(|e| e.to_string())).cloned();
+        let (ignored, assumed, skipped) = (self.show_ignored, self.show_assumed, self.show_skipped);
+        let items = self
+            .status
+            .request(cx.ctx, self.generation, move || mm.get_status_with(untracked, ignored, assumed, skipped).map_err(|e| e.to_string()))
+            .cloned();
         let items = match items {
             Some(Ok(i)) => i,
             Some(Err(e)) => {
@@ -247,6 +293,8 @@ impl Dialog for CommitDialog {
         };
         let unstaged: Vec<GitItemStatus> = items.iter().filter(|s| s.staged == StagedStatus::WorkTree).cloned().collect();
         let staged: Vec<GitItemStatus> = items.iter().filter(|s| s.staged == StagedStatus::Index).cloned().collect();
+        let conflicts = items.iter().any(|s| s.is_unmerged);
+        self.has_conflicts = conflicts;
 
         if let Some(d) = cx.data {
             if self.repo_status.as_ref() != Some(&d.status) {
@@ -260,6 +308,18 @@ impl Dialog for CommitDialog {
         self.staged.keep_position = true;
         self.shortcuts(ui, cx, &m, &unstaged);
 
+        if conflicts {
+            egui::TopBottomPanel::top("commit_conflicts").show_inside(ui, |ui| {
+                egui::Frame::new().fill(palette.status_conflict.gamma_multiply(0.25)).inner_margin(6.0).corner_radius(4.0).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("⚠ There are unresolved merge conflicts").strong());
+                        if ui.button("Solve conflicts…").clicked() {
+                            cx.open(super::conflicts::ConflictsDialog::default());
+                        }
+                    });
+                });
+            });
+        }
         egui::SidePanel::left("commit_files").resizable(true).default_width(380.0).width_range(220.0..=800.0).show_inside(ui, |ui| {
             let total_h = ui.available_height();
             // Unstaged
@@ -279,23 +339,42 @@ impl Dialog for CommitDialog {
                     if ui.button("⟳").on_hover_text("Refresh (F5)").clicked() {
                         self.refresh();
                     }
-                    if ui.selectable_label(self.show_untracked, "?").on_hover_text("Show untracked files").clicked() {
-                        self.show_untracked = !self.show_untracked;
+                    let shown = [self.show_untracked, self.show_ignored, self.show_assumed, self.show_skipped];
+                    ui.menu_button("👁", |ui| {
+                        ui.checkbox(&mut self.show_untracked, "Show untracked files");
+                        ui.checkbox(&mut self.show_ignored, "Show ignored files");
+                        ui.checkbox(&mut self.show_assumed, "Show assumed-unchanged files");
+                        ui.checkbox(&mut self.show_skipped, "Show skip-worktree files");
+                    })
+                    .response
+                    .on_hover_text("Files to show");
+                    if shown != [self.show_untracked, self.show_ignored, self.show_assumed, self.show_skipped] {
                         self.refresh();
                     }
                 });
             });
             self.unstaged.toolbar(ui);
             let mut menu_cmd: Option<(&'static str, Vec<String>)> = None;
+            let mut action: Option<FileAction> = None;
             ui.allocate_ui(Vec2::new(ui.available_width(), total_h * 0.5 - 70.0), |ui| {
                 let r = self.unstaged.ui(ui, "commit_unstaged", &unstaged, |ui, sel| {
+                    let names: Vec<String> = sel.iter().filter_map(|&i| unstaged.get(i)).map(|f| f.name.clone()).collect();
                     if let Some(key) = file_menu(ui, UNSTAGED_MENU) {
-                        menu_cmd = Some((key, sel.iter().filter_map(|&i| unstaged.get(i)).map(|f| f.name.clone()).collect()));
+                        menu_cmd = Some((key, names.clone()));
+                    }
+                    let items: Vec<&GitItemStatus> = sel.iter().filter_map(|&i| unstaged.get(i)).collect();
+                    if let Some(key) = index_flags_menu(ui, &items) {
+                        menu_cmd = Some((key, names));
+                    }
+                    if let Some(a) = file_actions::menu(ui, &Selection { items, first: Some(ObjectId::INDEX), second: ObjectId::WORK_TREE }) {
+                        action = Some(a);
                     }
                 });
                 if r.has_focus && !self.unstaged.selected.is_empty() {
                     if let Some(key) = file_key(ui, UNSTAGED_MENU) {
                         menu_cmd = Some((key, self.unstaged.selected_items(&unstaged).iter().map(|f| f.name.clone()).collect()));
+                    } else if let Some(a) = file_actions::keys(ui.ctx(), &Selection { items: self.unstaged.selected_items(&unstaged), first: Some(ObjectId::INDEX), second: ObjectId::WORK_TREE }) {
+                        action = Some(a);
                     }
                 }
                 // (also reported when the list changed and has no selection)
@@ -311,6 +390,10 @@ impl Dialog for CommitDialog {
             });
             if let Some((key, names)) = menu_cmd {
                 self.file_command(key, names, &m, cx, false);
+            }
+            if let Some(a) = action {
+                file_actions::run(a, &m, cx.actions);
+                self.refresh();
             }
             ui.separator();
             // Staged
@@ -330,9 +413,14 @@ impl Dialog for CommitDialog {
                 });
             });
             let mut menu_cmd: Option<(&'static str, Vec<String>)> = None;
+            let mut action: Option<FileAction> = None;
             let r = self.staged.ui(ui, "commit_staged", &staged, |ui, sel| {
                 if let Some(key) = file_menu(ui, STAGED_MENU) {
                     menu_cmd = Some((key, sel.iter().filter_map(|&i| staged.get(i)).map(|f| f.name.clone()).collect()));
+                }
+                let items: Vec<&GitItemStatus> = sel.iter().filter_map(|&i| staged.get(i)).collect();
+                if let Some(a) = file_actions::menu(ui, &Selection { items, first: None, second: ObjectId::INDEX }) {
+                    action = Some(a);
                 }
             });
             if r.has_focus && !self.staged.selected.is_empty() {
@@ -351,6 +439,10 @@ impl Dialog for CommitDialog {
             }
             if let Some((key, names)) = menu_cmd {
                 self.file_command(key, names, &m, cx, true);
+            }
+            if let Some(a) = action {
+                file_actions::run(a, &m, cx.actions);
+                self.refresh();
             }
         });
 
@@ -463,18 +555,40 @@ impl Dialog for CommitDialog {
                     }
                 }
                 ui.label(RichText::new(format!("on {branch}")).color(palette.muted));
+                if ui.small_button("Create branch…").on_hover_text("Ctrl+B").clicked() {
+                    if let Some(d) = cx.data {
+                        cx.open(super::branch::CreateBranchDialog::new(d.head));
+                    }
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Reset all changes…").clicked() {
-                        cx.open(super::reset::ResetChangesDialog::all());
-                    }
-                    if ui.button("Stash").clicked() {
-                        cx.run(super::GitRun::new("Stash", gitext_core::commands::stash_save(self.show_untracked, false, None, &[])));
-                        self.refresh();
-                    }
+                    ui.menu_button("Reset / stash ⏷", |ui| {
+                        if ui.button("Reset all changes…").clicked() {
+                            cx.open(super::reset::ResetChangesDialog::all());
+                            ui.close_kind(egui::UiKind::Menu);
+                        }
+                        if ui.add_enabled(!unstaged.is_empty(), egui::Button::new("Reset unstaged changes…")).clicked() {
+                            let tracked = unstaged.iter().any(|f| f.is_tracked && !f.is_new);
+                            cx.open(super::reset::ResetChangesDialog::unstaged(tracked));
+                            ui.close_kind(egui::UiKind::Menu);
+                        }
+                        ui.separator();
+                        if ui.button("Stash all changes").clicked() {
+                            cx.run(super::GitRun::new("Stash", gitext_core::commands::stash_save(self.show_untracked, false, None, &[])));
+                            self.refresh();
+                            ui.close_kind(egui::UiKind::Menu);
+                        }
+                        if ui.add_enabled(!staged.is_empty(), egui::Button::new("Stash staged changes")).clicked() {
+                            cx.run(super::GitRun::new("Stash staged changes", gitext_core::GitArgs::new("stash").arg("push").arg("--staged")));
+                            self.refresh();
+                            ui.close_kind(egui::UiKind::Menu);
+                        }
+                    });
                     for w in &warnings {
                         ui.label(RichText::new(format!("⚠ {w}")).color(palette.warning));
                     }
                     ui.label(RichText::new(format!("{first_len}")).color(palette.muted)).on_hover_text("Length of the first line");
+                    let (line, column) = cursor_line_column(ui.ctx(), &self.message);
+                    ui.label(RichText::new(format!("Ln {line}, Col {column}")).color(palette.muted));
                 });
             });
             if let Some(e) = &self.error {
@@ -672,28 +786,16 @@ impl CommitDialog {
             "stage" => self.do_stage(m, names, true, cx),
             "unstage" => self.do_stage(m, names, false, cx),
             "reset" => cx.open(super::reset::ResetChangesDialog::files(names)),
-            "delete" => {
-                let list = names.join("\n");
-                cx.open(Confirm::new("Delete files", format!("Delete these files from disk?\n\n{list}"), "Delete", move |cx| {
-                    if let Some(m) = cx.module {
-                        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
-                        if let Err(e) = m.delete_untracked(&refs) {
-                            cx.error("Delete", e.to_string());
-                        }
-                    }
-                    cx.push(Action::RefreshStatus);
-                }));
-                self.refresh();
-            }
             "ignore" => cx.open(super::gitignore::AddToGitIgnoreDialog::new(names)),
-            "assume" => {
+            "assume" | "no_assume" | "skip" | "no_skip" => {
                 let refs: Vec<&str> = names.iter().map(String::as_str).collect();
-                let _ = m.assume_unchanged(&refs, true);
-                self.refresh();
-            }
-            "skip" => {
-                let refs: Vec<&str> = names.iter().map(String::as_str).collect();
-                let _ = m.skip_worktree(&refs, true);
+                let r = match key {
+                    "assume" | "no_assume" => m.assume_unchanged(&refs, key == "assume"),
+                    _ => m.skip_worktree(&refs, key == "skip"),
+                };
+                if let Err(e) = r {
+                    cx.error("Update index", e.to_string());
+                }
                 self.refresh();
             }
             "open" => crate::util::open_in_editor(&m.work_dir().join(&first), &cx.settings.editor),
@@ -704,7 +806,6 @@ impl CommitDialog {
             }
             "history" => cx.open(super::file_history::FileHistoryDialog::new(first)),
             "blame" => cx.open(super::blame::BlameDialog::new(first, ObjectId::ZERO)),
-            "copy" => cx.push(Action::Copy(names.join("\n"))),
             _ => {}
         }
     }
@@ -713,6 +814,14 @@ impl CommitDialog {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cursor_line_and_column() {
+        assert_eq!(line_column("", 0), (1, 1));
+        assert_eq!(line_column("summary\n\nbody", 3), (1, 4));
+        assert_eq!(line_column("summary\n\nbody", 8), (2, 1));
+        assert_eq!(line_column("summary\n\nbødy", 12), (3, 4));
+    }
     use gitext_core::repo_history::RepositoryHistory;
     use gitext_core::settings::AppSettings;
     use std::process::Command;

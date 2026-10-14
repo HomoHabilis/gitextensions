@@ -155,6 +155,28 @@ pub fn to_posix_path(path: &str) -> String {
     path.replace('\\', "/")
 }
 
+/// Converts a path to the platform's separators (port of `PathUtil.ToNativePath`).
+pub fn to_native_path(path: &str) -> String {
+    if cfg!(windows) {
+        path.replace('/', "\\")
+    } else {
+        path.to_string()
+    }
+}
+
+/// Converts a path to posix separators with the drive letter `X:` replaced by `<prefix>x`
+/// (port of `PathUtil.ToMountPath`; `/mnt/` for WSL, `/cygdrive/` for Cygwin).
+pub fn to_mount_path(path: &str, prefix: &str) -> String {
+    let path = to_posix_path(path);
+    let mut chars = path.chars();
+    if let (Some(drive), Some(':')) = (chars.next(), chars.next()) {
+        if drive.is_ascii_alphabetic() {
+            return format!("{prefix}{}{}", drive.to_ascii_lowercase(), chars.as_str());
+        }
+    }
+    path
+}
+
 #[cfg(test)]
 mod tests {
     //! Ported from GitExtensions.Extensibility.Tests/ArgumentBuilderTests.cs and
@@ -212,4 +234,13 @@ mod tests {
     fn posix_path() {
         assert_eq!(to_posix_path("hello\\world.patch"), "hello/world.patch");
     }
+
+    #[test]
+    fn mount_paths() {
+        assert_eq!(to_mount_path(r"C:\work\repo\a.txt", "/mnt/"), "/mnt/c/work/repo/a.txt");
+        assert_eq!(to_mount_path("D:/x", "/cygdrive/"), "/cygdrive/d/x");
+        assert_eq!(to_mount_path("/home/me/a.txt", "/mnt/"), "/home/me/a.txt");
+        assert_eq!(to_mount_path(r"\\server\share", "/mnt/"), "//server/share");
+    }
+
 }

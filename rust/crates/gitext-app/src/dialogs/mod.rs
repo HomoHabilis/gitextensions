@@ -222,17 +222,51 @@ pub fn branch_combo(ui: &mut Ui, id: &str, value: &mut String, items: &[String],
     });
 }
 
+/// The height a text or list of variable length may take in a small dialog before it scrolls
+/// (so that the buttons stay on screen).
+pub fn max_content_height(ui: &Ui) -> f32 {
+    (ui.ctx().screen_rect().height() * 0.5).clamp(120.0, 420.0)
+}
+
+/// A text of any length (wrapped), scrolling when taller than [`max_content_height`].
+pub fn scroll_text(ui: &mut Ui, id: &str, text: &str) {
+    egui::ScrollArea::vertical().id_salt((id, "text")).max_height(max_content_height(ui)).show(ui, |ui| {
+        ui.add(egui::Label::new(text).wrap());
+    });
+}
+
+/// A list of names (e.g. file paths), one per line and not wrapped, in a framed box that
+/// scrolls when it is taller than [`max_content_height`] or wider than the dialog.
+pub fn scroll_list(ui: &mut Ui, id: &str, items: &[String]) {
+    let max_h = max_content_height(ui);
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        let width = ui.available_width();
+        egui::ScrollArea::both().id_salt((id, "list")).max_height(max_h).max_width(width).auto_shrink([false, true]).show(ui, |ui| {
+            for item in items {
+                ui.add(egui::Label::new(item).extend());
+            }
+        });
+    });
+}
+
 /// Simple yes/no confirmation which runs actions on "yes".
 pub struct Confirm {
     pub title: String,
     pub text: String,
+    /// Names listed under the text (e.g. the files the action changes), in a scrolling box.
+    pub list: Vec<String>,
     pub yes: String,
     pub on_yes: Option<Box<dyn FnOnce(&mut Cx)>>,
 }
 
 impl Confirm {
     pub fn new(title: impl Into<String>, text: impl Into<String>, yes: impl Into<String>, on_yes: impl FnOnce(&mut Cx) + 'static) -> Self {
-        Confirm { title: title.into(), text: text.into(), yes: yes.into(), on_yes: Some(Box::new(on_yes)) }
+        Confirm { title: title.into(), text: text.into(), list: Vec::new(), yes: yes.into(), on_yes: Some(Box::new(on_yes)) }
+    }
+
+    pub fn with_list(mut self, list: Vec<String>) -> Self {
+        self.list = list;
+        self
     }
 }
 
@@ -242,11 +276,14 @@ impl Dialog for Confirm {
     }
 
     fn id(&self) -> String {
-        format!("{}:{}", self.title, self.text)
+        format!("{}:{}:{}", self.title, self.text, self.list.join("\n"))
     }
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
-        ui.label(&self.text);
+        scroll_text(ui, "confirm", &self.text);
+        if !self.list.is_empty() {
+            scroll_list(ui, "confirm", &self.list);
+        }
         let (ok, cancel) = ok_cancel(ui, &self.yes, true);
         if ok {
             if let Some(f) = self.on_yes.take() {

@@ -10,6 +10,7 @@ use gitext_core::status::GitItemStatus;
 use gitext_core::{GitModule, ObjectId};
 
 use super::diff_viewer::{content_from_bytes, DiffViewer, ViewerCommand, ViewerContent};
+use super::file_actions;
 use super::file_list::FileList;
 use crate::tasks::{Loader, Task};
 use crate::theme::Palette;
@@ -36,6 +37,8 @@ pub enum DiffCommand {
     ResetPatch(String),
     /// The viewer toolbar changed the diff options in the settings.
     SaveSettings,
+    /// A file action of the file list context menu.
+    File(file_actions::FileAction),
 }
 
 type FilesKey = (Option<ObjectId>, ObjectId, bool);
@@ -439,13 +442,13 @@ impl RevisionDiffView {
                     ui.close_kind(egui::UiKind::Menu);
                 }
                 ui.separator();
-                if ui.button("Copy path(s)").clicked() {
-                    cmd = Some(DiffCommand::CopyPaths(names.clone()));
-                    ui.close_kind(egui::UiKind::Menu);
-                }
                 if ui.button("Open containing folder").clicked() {
                     cmd = Some(DiffCommand::OpenContainingFolder(first_name.clone()));
                     ui.close_kind(egui::UiKind::Menu);
+                }
+                let selection = file_actions::Selection { items: sel.iter().filter_map(|&i| files.get(i)).collect(), first, second };
+                if let Some(a) = file_actions::menu(ui, &selection) {
+                    cmd = Some(DiffCommand::File(a));
                 }
             });
             // the keys of the file list (`RevisionDiffControl` hotkeys)
@@ -479,6 +482,8 @@ impl RevisionDiffView {
                         cmd = Some(DiffCommand::ShowInFileTree { rev: second, file: first_name });
                     } else if plain_key(&ctx, Key::F) {
                         cmd = Some(DiffCommand::FilterPath(first_name));
+                    } else if let Some(a) = file_actions::keys(&ctx, &file_actions::Selection { items: self.list.selected_items(&files), first, second }) {
+                        cmd = Some(DiffCommand::File(a));
                     }
                 }
                 if parents.len() > 1 {

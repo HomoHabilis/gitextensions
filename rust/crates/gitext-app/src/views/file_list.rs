@@ -79,13 +79,14 @@ pub struct FileListResponse {
 }
 
 pub fn status_badge(ui: &mut Ui, s: &GitItemStatus, palette: &Palette) {
-    let c = s.status_char();
+    // `git ls-files -v` tags: h = assumed unchanged, S = skip-worktree
+    let c = if s.is_assume_unchanged { 'h' } else if s.is_skip_worktree { 'S' } else { s.status_char() };
     let color = match c {
         'A' => palette.status_added,
         'D' => palette.status_deleted,
         'R' | 'C' => palette.status_renamed,
         'U' => palette.status_conflict,
-        '?' | '!' => palette.status_untracked,
+        '?' | '!' | 'h' | 'S' => palette.status_untracked,
         _ => palette.status_modified,
     };
     let (rect, _) = ui.allocate_exact_size(Vec2::new(16.0, 16.0), Sense::hover());

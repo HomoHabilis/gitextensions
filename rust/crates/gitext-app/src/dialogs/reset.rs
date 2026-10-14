@@ -56,17 +56,26 @@ impl Dialog for ResetBranchDialog {
 pub struct ResetChangesDialog {
     files: Option<Vec<String>>,
     include_untracked: bool,
+    /// Reset the unstaged changes only (`onlyWorkTree`): the index is kept.
+    work_tree_only: bool,
+    /// Whether tracked files have unstaged changes (`git checkout -- .` fails when none is tracked).
+    tracked_changes: bool,
 }
 
 impl ResetChangesDialog {
     /// Reset all changes of the working directory.
     pub fn all() -> Self {
-        ResetChangesDialog { files: None, include_untracked: false }
+        ResetChangesDialog { files: None, include_untracked: false, work_tree_only: false, tracked_changes: true }
+    }
+
+    /// Reset the unstaged changes of the work tree, keeping the index ("Reset unstaged").
+    pub fn unstaged(tracked_changes: bool) -> Self {
+        ResetChangesDialog { files: None, include_untracked: !tracked_changes, work_tree_only: true, tracked_changes }
     }
 
     /// Reset changes of the given files.
     pub fn files(files: Vec<String>) -> Self {
-        ResetChangesDialog { files: Some(files), include_untracked: true }
+        ResetChangesDialog { files: Some(files), include_untracked: true, work_tree_only: false, tracked_changes: true }
     }
 }
 
@@ -78,8 +87,13 @@ impl Dialog for ResetChangesDialog {
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         let palette = Palette::for_ui(ui);
         match &self.files {
+            None if self.work_tree_only => ui.label("Reset the unstaged changes in the working directory? Staged changes are kept."),
             None => ui.label("Reset all changes in the working directory and the index?"),
-            Some(f) => ui.label(format!("Reset changes of {} file(s)?\n{}", f.len(), f.iter().take(10).cloned().collect::<Vec<_>>().join("\n"))),
+            Some(f) => {
+                let r = ui.label(format!("Reset changes of {} file(s)?", f.len()));
+                super::scroll_list(ui, "reset_files", f);
+                r
+            }
         };
         ui.checkbox(&mut self.include_untracked, "Also delete new (untracked) files");
         ui.label(RichText::new("⚠ This cannot be undone.").color(palette.error));
@@ -87,6 +101,19 @@ impl Dialog for ResetChangesDialog {
         if ok {
             let Some(m) = cx.module else { return false };
             match &self.files {
+                None if self.work_tree_only => {
+                    // the tracked files are restored from the index, which keeps the staged changes
+                    let mut cmds = Vec::new();
+                    if self.tracked_changes {
+                        cmds.push(GitArgs::new("checkout").arg("--").arg("."));
+                    }
+                    if self.include_untracked {
+                        cmds.push(commands::clean(commands::CleanMode::OnlyNonIgnored, false, true, &[], &[]));
+                    }
+                    if !cmds.is_empty() {
+                        cx.run(GitRun::many("Reset unstaged changes", cmds));
+                    }
+                }
                 None => {
                     let mut cmds = vec![commands::reset(ResetMode::Hard, Some("HEAD"), None, false).unwrap()];
                     if self.include_untracked {
