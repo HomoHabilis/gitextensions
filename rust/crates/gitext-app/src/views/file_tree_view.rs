@@ -154,6 +154,7 @@ impl FileTreeView {
                 })
                 .cloned()
                 .unwrap_or(ViewerContent::Empty("Loading…".into()));
+            self.viewer.set_file_name(Some(&path));
             if self.viewer.toolbar(ui, &content, settings) {
                 cmd = Some(DiffCommand::SaveSettings);
             }

@@ -555,6 +555,7 @@ impl RevisionDiffView {
         } else {
             vec![ViewerCommand::CopyPatch]
         };
+        self.viewer.set_file_name(selected_file.map(|f| f.name.as_str()));
         if self.viewer.toolbar(ui, &content, settings) {
             cmd = Some(DiffCommand::SaveSettings);
         }

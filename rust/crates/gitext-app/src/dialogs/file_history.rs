@@ -116,6 +116,7 @@ impl Dialog for FileHistoryDialog {
                 })
                 .cloned()
                 .unwrap_or(ViewerContent::Empty("Loading…".into()));
+            self.viewer.set_file_name(Some(&self.file));
             if self.viewer.toolbar(ui, &content, cx.settings) {
                 cx.push(Action::SaveSettings);
             }

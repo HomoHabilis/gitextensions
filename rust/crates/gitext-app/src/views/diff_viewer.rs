@@ -6,6 +6,7 @@ use gitext_core::inline_diff::{inline_differences, LineMarks};
 use gitext_core::patch::{parse_diff_lines, strip_ansi, DiffLine, DiffLineKind};
 use gitext_core::settings::AppSettings;
 
+use super::highlight::{highlight_diff, highlight_text, parse_ansi, Span};
 use crate::tasks::Task;
 use crate::theme::Palette;
 
@@ -16,6 +17,8 @@ pub enum ViewerContent {
     Diff(String),
     Text(String),
     Binary(String),
+    /// git's coloured output (`--color=always`): word diff, difftastic, range-diff, grep.
+    Colored(String),
 }
 
 #[derive(Default)]
@@ -27,6 +30,15 @@ pub struct DiffViewer {
     marks: Vec<Option<LineMarks>>,
     /// The marks of a large diff, found in the background.
     marks_task: Option<Task<Vec<Option<LineMarks>>>>,
+    /// The colours of each line (syntax highlighting, or git's colours); none when empty.
+    styles: Vec<Vec<Span>>,
+    styles_task: Option<Task<Vec<Vec<Span>>>>,
+    /// What `styles` were made for: dark mode, syntax highlighting on.
+    styles_for: Option<(bool, bool)>,
+    /// The file shown as text, for its syntax.
+    file_name: Option<String>,
+    /// Don't colour the code (the `syntax_highlighting` setting, applied by the toolbar).
+    no_syntax: bool,
     text_lines: Vec<String>,
     is_diff: bool,
     /// The length in characters of the longest line.
@@ -109,6 +121,9 @@ impl DiffViewer {
             return;
         }
         self.content = Some(c.clone());
+        self.styles.clear();
+        self.styles_task = None;
+        self.styles_for = None;
         self.selected.clear();
         self.anchor = None;
         self.find_match = None;
@@ -134,6 +149,14 @@ impl DiffViewer {
                 self.marks_task = None;
                 self.text_lines = t.lines().map(|l| l.replace('\t', "    ")).collect();
             }
+            ViewerContent::Colored(t) => {
+                self.is_diff = false;
+                self.lines.clear();
+                self.marks.clear();
+                self.marks_task = None;
+                // the colours depend on the palette: parsed again in `update_styles`
+                self.text_lines = parse_ansi(t, &crate::theme::Palette::new(true)).0;
+            }
             _ => {
                 self.is_diff = false;
                 self.lines.clear();
@@ -143,6 +166,45 @@ impl DiffViewer {
             }
         }
         self.max_len = (0..self.line_count()).map(|i| self.line_text(i).chars().count()).max().unwrap_or(0);
+    }
+
+    /// Names the file shown as text, so that it is coloured by its language.
+    pub fn set_file_name(&mut self, name: Option<&str>) {
+        if self.file_name.as_deref() != name {
+            self.file_name = name.map(str::to_string);
+            self.styles_for = None;
+        }
+    }
+
+    /// Finds the colours of the lines when the content, the theme or the setting changed:
+    /// syntax highlighting runs in the background (syntect does about 300 KB/s).
+    fn update_styles(&mut self, ui: &Ui) {
+        if let Some(styles) = self.styles_task.as_mut().and_then(Task::try_take) {
+            self.styles = styles;
+            self.styles_task = None;
+        }
+        let key = (ui.visuals().dark_mode, !self.no_syntax);
+        if self.styles_for == Some(key) {
+            return;
+        }
+        self.styles_for = Some(key);
+        self.styles.clear();
+        self.styles_task = None;
+        let (dark, syntax) = key;
+        match &self.content {
+            Some(ViewerContent::Colored(t)) => self.styles = parse_ansi(t, &Palette::for_ui(ui)).1,
+            Some(ViewerContent::Diff(_)) if syntax => {
+                let lines = self.lines.clone();
+                self.styles_task = Some(Task::spawn(ui.ctx(), move || highlight_diff(&lines, dark)));
+            }
+            Some(ViewerContent::Text(_)) if syntax => {
+                if let Some(name) = self.file_name.clone().filter(|n| super::highlight::has_syntax(n)) {
+                    let lines = self.text_lines.clone();
+                    self.styles_task = Some(Task::spawn(ui.ctx(), move || highlight_text(&lines, &name, dark)));
+                }
+            }
+            _ => {}
+        }
     }
 
     /// The selected line indexes (for creating partial patches).
@@ -278,8 +340,12 @@ impl DiffViewer {
             if ui.add(egui::Button::new(RichText::new("Go to line…").small()).selected(self.goto_open)).on_hover_text("Ctrl+G").clicked() {
                 self.open_go_to_line();
             }
+            if ui.selectable_label(settings.syntax_highlighting, RichText::new("Syntax colours").small()).on_hover_text("Colour the code by its language").clicked() {
+                settings.syntax_highlighting = !settings.syntax_highlighting;
+            }
         });
         self.show_whitespace = settings.show_whitespace;
+        self.no_syntax = !settings.syntax_highlighting;
         *settings != before
     }
 
@@ -347,6 +413,7 @@ impl DiffViewer {
     /// Shows `content`. `can_stage` etc. enable the context menu entries.
     pub fn ui(&mut self, ui: &mut Ui, content: &ViewerContent, show_line_numbers: bool, menu: &[ViewerCommand]) -> Option<ViewerCommand> {
         self.set_content(ui.ctx(), content);
+        self.update_styles(ui);
         let palette = Palette::for_ui(ui);
         let mut command = None;
         match content {
@@ -449,10 +516,10 @@ impl DiffViewer {
                 let text_x = x + if show_line_numbers { gutter } else { 0.0 } + 4.0;
                 let text = self.line_text(i);
                 let kind = self.is_diff.then(|| self.lines[i].kind);
-                let galley = if self.show_whitespace {
-                    painter.layout_no_wrap(visible_whitespace(text, kind), font.clone(), fg)
-                } else {
-                    painter.layout_no_wrap(text.to_string(), font.clone(), fg)
+                let galley = match self.styles.get(i).filter(|s| !s.is_empty()) {
+                    Some(spans) => painter.layout_job(styled_line(text, kind, spans, self.show_whitespace, &font, fg)),
+                    None if self.show_whitespace => painter.layout_no_wrap(visible_whitespace(text, kind), font.clone(), fg),
+                    None => painter.layout_no_wrap(text.to_string(), font.clone(), fg),
                 };
                 let text_pos = Pos2::new(text_x, rect.center().y - galley.size().y / 2.0);
                 if let Some(marks) = self.marks.get(i).and_then(Option::as_ref) {
@@ -659,6 +726,40 @@ fn visible_whitespace(text: &str, kind: Option<DiffLineKind>) -> String {
     }
 }
 
+/// Where whitespace is shown in a line of `kind` (see [`visible_whitespace`]): after the
+/// prefix of diff content lines, nowhere in diff headers, everywhere in files.
+fn whitespace_from(text: &str, kind: Option<DiffLineKind>) -> Option<usize> {
+    match kind {
+        None => Some(0),
+        Some(DiffLineKind::Context | DiffLineKind::Added | DiffLineKind::Removed) => Some(text.chars().next().map_or(0, char::len_utf8)),
+        Some(_) => None,
+    }
+}
+
+/// A line with its colours (`spans`, in bytes; the rest has colour `fg`).
+fn styled_line(text: &str, kind: Option<DiffLineKind>, spans: &[Span], show_whitespace: bool, font: &FontId, fg: Color32) -> egui::text::LayoutJob {
+    let ws_from = whitespace_from(text, kind).filter(|_| show_whitespace);
+    let mut cuts: Vec<usize> = spans.iter().flat_map(|s| [s.range.start, s.range.end]).chain([0, text.len()]).chain(ws_from).filter(|&c| c <= text.len() && text.is_char_boundary(c)).collect();
+    cuts.sort_unstable();
+    cuts.dedup();
+    let mut job = egui::text::LayoutJob::default();
+    for w in cuts.windows(2) {
+        let (start, end) = (w[0], w[1]);
+        let span = spans.iter().find(|s| s.range.start <= start && end <= s.range.end);
+        let mut format = egui::TextFormat::simple(font.clone(), span.and_then(|s| s.fg).unwrap_or(fg));
+        if let Some(bg) = span.and_then(|s| s.bg) {
+            format.background = bg;
+        }
+        let piece = &text[start..end];
+        if ws_from.is_some_and(|p| start >= p) {
+            job.append(&piece.replace(' ', "·").replace('\t', "→   "), 0.0, format);
+        } else {
+            job.append(piece, 0.0, format);
+        }
+    }
+    job
+}
+
 /// The column of char `c` of a diff line once [`visible_whitespace`] made tabs 4 chars wide.
 fn whitespace_column(text: &str, c: usize) -> usize {
     c + 3 * text.chars().take(c).skip(1).filter(|&ch| ch == '\t').count()
@@ -667,6 +768,24 @@ fn whitespace_column(text: &str, c: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn styled_lines_show_whitespace_like_plain_ones() {
+        let font = FontId::monospace(12.0);
+        let spans = [Span { range: 1..4, fg: Some(Color32::RED), bg: None }, Span { range: 5..9, fg: None, bg: Some(Color32::BLUE) }];
+        for (text, kind) in [("+\tlet x = 1;", Some(DiffLineKind::Added)), ("@@ -1 +1 @@ x", Some(DiffLineKind::HunkHeader)), ("a b\tc d", None)] {
+            for ws in [false, true] {
+                let job = styled_line(text, kind, &spans, ws, &font, Color32::WHITE);
+                let expected = if ws { visible_whitespace(text, kind) } else { text.to_string() };
+                assert_eq!(job.text, expected, "{text:?} {ws}");
+            }
+        }
+        let job = styled_line("+abcdefgh", Some(DiffLineKind::Added), &spans, false, &font, Color32::WHITE);
+        let colours: Vec<(Color32, Color32)> = job.sections.iter().map(|s| (s.format.color, s.format.background)).collect();
+        assert_eq!(colours[0].0, Color32::WHITE, "the prefix keeps the line colour");
+        assert_eq!(colours[1].0, Color32::RED);
+        assert_eq!(colours[3].1, Color32::BLUE);
+    }
 
     #[test]
     fn whitespace_is_shown_in_content_only() {

@@ -132,6 +132,8 @@ pub struct AppSettings {
     pub use_histogram_diff: bool,
     pub show_line_numbers: bool,
     pub show_whitespace: bool,
+    /// Colour the code in diffs and files by its language.
+    pub syntax_highlighting: bool,
 
     // Blame
     pub detect_copy_in_file_on_blame: bool,
@@ -226,6 +228,7 @@ impl Default for AppSettings {
             use_histogram_diff: false,
             show_line_numbers: true,
             show_whitespace: false,
+            syntax_highlighting: true,
             detect_copy_in_file_on_blame: true,
             detect_copy_in_all_on_blame: false,
             ignore_whitespace_on_blame: true,
