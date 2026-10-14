@@ -56,6 +56,8 @@ pub struct FileTreeView {
     content: Loader<(ObjectId, String), ViewerContent>,
     viewer: DiffViewer,
     find: String,
+    /// Give the keyboard to the find box (`FindFileInSelectedCommit`).
+    focus_find: bool,
     all_files: Loader<ObjectId, Vec<String>>,
     /// Expand to this path on the next frame.
     pub reveal: Option<String>,
@@ -67,6 +69,11 @@ pub struct FileTreeView {
 }
 
 impl FileTreeView {
+    /// Gives the keyboard to the "find file" box.
+    pub fn focus_find(&mut self) {
+        self.focus_find = true;
+    }
+
     pub fn invalidate(&mut self) {
         self.tree.invalidate();
         self.dirs.clear();
@@ -100,7 +107,10 @@ impl FileTreeView {
         let mut cmd = None;
         self.handle_keys(ui);
         egui::SidePanel::left("filetree_tree").resizable(true).default_width(300.0).show_inside(ui, |ui| {
-            ui.add(egui::TextEdit::singleline(&mut self.find).hint_text("🔍 Find file…").desired_width(f32::INFINITY));
+            let find = ui.add(egui::TextEdit::singleline(&mut self.find).hint_text("🔍 Find file…").desired_width(f32::INFINITY));
+            if std::mem::take(&mut self.focus_find) {
+                find.request_focus();
+            }
             self.shown_files.clear();
             let out = egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
                 if self.find.trim().is_empty() {
@@ -154,6 +164,7 @@ impl FileTreeView {
                 })
                 .cloned()
                 .unwrap_or(ViewerContent::Empty("Loading…".into()));
+            self.viewer.set_file_name(Some(&path));
             if self.viewer.toolbar(ui, &content, settings) {
                 cmd = Some(DiffCommand::SaveSettings);
             }
