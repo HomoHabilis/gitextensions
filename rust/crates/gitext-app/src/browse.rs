@@ -218,9 +218,16 @@ impl BrowseView {
         self.data_task = Some(Task::spawn(ctx, move || RepoData::load(&m, untracked, refs_sort)));
         self.reload_log_after_data |= reload_log;
         self.last_status_refresh = Instant::now();
-        self.commit_info.invalidate();
-        self.diff.invalidate();
-        self.file_tree.invalidate();
+        // A commit's diff and files never change for the same id: only the working directory
+        // and the index need loading again, and the details that list refs. Reloading the rest
+        // made the details and the diff blink after every refresh (scripts, F5).
+        if self.grid.selected.iter().any(|s| s.is_artificial()) {
+            self.commit_info.invalidate();
+            self.diff.invalidate();
+            self.file_tree.invalidate();
+        } else {
+            self.commit_info.invalidate_refs();
+        }
     }
 
     pub fn reload_log(&mut self, ctx: &egui::Context, settings: &AppSettings) {
