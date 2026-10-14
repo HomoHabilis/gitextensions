@@ -23,6 +23,9 @@ enum Choice {
     MarkSolved,
 }
 
+/// Extensions of the backup files merge tools write next to the merged file.
+const BACKUP_EXTENSIONS: [&str; 2] = ["orig", "bak"];
+
 /// The merge tool runs while the dialog stays usable; the list is rescanned once it closes.
 struct MergeToolRun {
     file: String,
@@ -148,10 +151,24 @@ impl ConflictsDialog {
             cx.open(super::tools::NoToolDialog { tool_type: ToolType::Merge });
             return;
         };
-        let args = diff_tools::launch_args(&launch, ToolType::Merge, &GitArgs::new("mergetool").arg("--").arg(f));
+        // git leaves no `.orig` backup of the conflicted file
+        let mut args = GitArgs::empty().args(["-c", "mergetool.keepBackup=false"]);
+        args.add_all(diff_tools::launch_args(&launch, ToolType::Merge, &GitArgs::new("mergetool").arg("--").arg(f)).as_slice());
+        // backups the merge tool itself writes next to the file (KDiff3 `.orig`, WinMerge `.bak`)
+        let backups: Vec<std::path::PathBuf> = BACKUP_EXTENSIONS.iter().map(|ext| m.work_dir().join(format!("{f}.{ext}"))).filter(|p| !p.exists()).collect();
         let git = m.git();
         self.ask_solved = None;
-        self.merge_tool = Some(MergeToolRun { file: f.to_string(), task: Task::spawn(cx.ctx, move || git.run(&args).map_err(|e| e.to_string())) });
+        self.merge_tool = Some(MergeToolRun {
+            file: f.to_string(),
+            task: Task::spawn(cx.ctx, move || {
+                let r = git.run(&args).map_err(|e| e.to_string());
+                // only the ones created while the tool ran
+                for b in backups.iter().filter(|b| b.is_file()) {
+                    let _ = std::fs::remove_file(b);
+                }
+                r
+            }),
+        });
     }
 }
 
