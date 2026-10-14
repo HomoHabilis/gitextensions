@@ -98,6 +98,9 @@ pub struct CommitDialog {
     window_focused: bool,
 }
 
+/// Height of the commit error under the buttons (it scrolls when longer).
+const ERROR_H: f32 = 60.0;
+
 fn message_id() -> egui::Id {
     egui::Id::new("commit_message_text")
 }
@@ -352,7 +355,9 @@ impl Dialog for CommitDialog {
         });
 
         // Commit message area
-        egui::TopBottomPanel::bottom("commit_message").resizable(true).default_height(250.0).min_height(160.0).show_inside(ui, |ui| {
+        // the diff above keeps at least a third of the dialog
+        let max_message_h = (ui.available_height() * 2.0 / 3.0).max(160.0);
+        egui::TopBottomPanel::bottom("commit_message").resizable(true).default_height(250.0).min_height(160.0).max_height(max_message_h).show_inside(ui, |ui| {
             ui.set_min_height(ui.available_height());
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Commit message").strong());
@@ -423,7 +428,9 @@ impl Dialog for CommitDialog {
                 warnings.push("Second line should be empty".into());
             }
             let buttons_h = 34.0;
-            let text_h = (ui.available_height() - buttons_h - 10.0).max(60.0);
+            // room for the error below the buttons, else the panel grows by it every frame
+            let error_h = if self.error.is_some() { ERROR_H + ui.spacing().item_spacing.y } else { 0.0 };
+            let text_h = (ui.available_height() - buttons_h - error_h - 10.0).max(60.0);
             egui::ScrollArea::vertical().max_height(text_h).id_salt("commit_msg_scroll").show(ui, |ui| {
                 ui.add_sized(
                     Vec2::new(ui.available_width(), text_h),
@@ -471,7 +478,9 @@ impl Dialog for CommitDialog {
                 });
             });
             if let Some(e) = &self.error {
-                ui.colored_label(palette.error, e);
+                egui::ScrollArea::vertical().max_height(ERROR_H).id_salt("commit_error_scroll").show(ui, |ui| {
+                    ui.colored_label(palette.error, e);
+                });
             }
         });
 

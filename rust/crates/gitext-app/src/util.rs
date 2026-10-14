@@ -92,6 +92,39 @@ pub fn open_folder(path: &str, configured: &str) {
     }
 }
 
+/// Splits a command line into arguments: whitespace separates them, and double or single
+/// quotes group words (the quotes are removed).
+pub fn split_args(line: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut cur = String::new();
+    let mut in_arg = false;
+    let mut quote: Option<char> = None;
+    for c in line.chars() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => cur.push(c),
+            None if c == '"' || c == '\'' => {
+                quote = Some(c);
+                in_arg = true;
+            }
+            None if c.is_whitespace() => {
+                if in_arg {
+                    args.push(std::mem::take(&mut cur));
+                    in_arg = false;
+                }
+            }
+            None => {
+                cur.push(c);
+                in_arg = true;
+            }
+        }
+    }
+    if in_arg {
+        args.push(cur);
+    }
+    args
+}
+
 /// Starts a short-lived launcher (`xdg-open`, `explorer.exe`…) without waiting for it, and
 /// reaps it when it exits so that it does not stay a zombie process for the life of the app.
 pub fn spawn_detached(cmd: &mut std::process::Command) -> bool {
@@ -267,6 +300,14 @@ pub fn save_file(start: Option<&str>, name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn script_arguments_keep_quoted_words() {
+        assert_eq!(split_args(r#"-c 'echo a b' x"#), ["-c", "echo a b", "x"]);
+        assert_eq!(split_args(r#"log --format="%h %s"  -1"#), ["log", "--format=%h %s", "-1"]);
+        assert_eq!(split_args(r#"show "" end"#), ["show", "", "end"]);
+        assert!(split_args("   ").is_empty());
+    }
 
     #[test]
     fn relative_dates() {

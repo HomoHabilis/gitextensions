@@ -650,7 +650,9 @@ impl BrowseView {
             }
         };
         if right {
-            egui::SidePanel::right("browse_tabs_right").resizable(true).default_width(560.0).min_width(260.0).show_inside(ui, tabs);
+            // capped, else a wide diff line stretches the panel over the revision grid
+            let max_w = (ui.available_width() * 0.7).max(260.0);
+            egui::SidePanel::right("browse_tabs_right").resizable(true).default_width(560.0).min_width(260.0).max_width(max_w).show_inside(ui, tabs);
         } else {
             egui::TopBottomPanel::bottom("browse_tabs").resizable(true).default_height(380.0).min_height(120.0).show_inside(ui, tabs);
         }
@@ -818,15 +820,15 @@ impl BrowseView {
                     let work_dir = self.module.work_dir().to_path_buf();
                     let confirm_text = script.ask_confirmation.then(|| format!("Run the script '{}'?", script.name));
                     let run = move |actions: &mut Vec<Action>| {
-                        if script.command == "git" || script.command.is_empty() {
-                            let git = GitArgs::empty().args(args.split_whitespace());
-                            if script.run_in_background {
-                                actions.push(Action::RunGitInBackground { title: script.name.clone(), args: git });
-                            } else {
-                                actions.push(Action::RunGit(GitRun::new(script.name.clone(), git)));
-                            }
+                        let words = crate::util::split_args(&args);
+                        let is_git = script.command == "git" || script.command.is_empty();
+                        if script.run_in_background {
+                            let program = (!is_git).then(|| script.command.clone());
+                            actions.push(Action::RunInBackground { title: script.name.clone(), program, args: GitArgs::empty().args(words) });
+                        } else if is_git {
+                            actions.push(Action::RunGit(GitRun::new(script.name.clone(), GitArgs::empty().args(words))));
                         } else {
-                            let _ = std::process::Command::new(&script.command).args(args.split_whitespace()).current_dir(&work_dir).spawn();
+                            crate::util::spawn_detached(std::process::Command::new(&script.command).args(words).current_dir(&work_dir));
                         }
                     };
                     if let Some(text) = confirm_text {

@@ -192,10 +192,14 @@ impl GitExtApp {
         self.tool_runs.push((title, false, crate::tasks::Task::spawn(ctx, move || exe.run(&args))));
     }
 
-    /// Runs git without a process dialog (user scripts set to run in the background).
-    fn run_git_in_background(&mut self, ctx: &egui::Context, title: String, args: GitArgs) {
+    /// Runs git, or `program`, without a process dialog (user scripts set to run in the
+    /// background); the repository is refreshed when it succeeds.
+    fn run_in_background(&mut self, ctx: &egui::Context, title: String, program: Option<String>, args: GitArgs) {
         let Some(m) = self.module() else { return };
-        let exe = m.git();
+        let exe = match program {
+            Some(p) => gitext_core::exec::Executable::new(p, m.work_dir()),
+            None => m.git(),
+        };
         self.tool_runs.push((title, true, crate::tasks::Task::spawn(ctx, move || exe.run(&args))));
     }
 
@@ -315,7 +319,7 @@ impl GitExtApp {
                     Action::OpenDialog(d) => self.open_dialog(d),
                     Action::RunGit(run) => self.open_dialog(Box::new(dialogs::process::ProcessDialog::new(run))),
                     Action::RunTool { tool_type, args } => self.run_tool(ctx, tool_type, args),
-                    Action::RunGitInBackground { title, args } => self.run_git_in_background(ctx, title, args),
+                    Action::RunInBackground { title, program, args } => self.run_in_background(ctx, title, program, args),
                     Action::Message { title, text, error } => self.open_dialog(Box::new(dialogs::message::MessageDialog { title, text, error })),
                     Action::SelectRevision(id) => {
                         if let Some(b) = &mut self.browse {

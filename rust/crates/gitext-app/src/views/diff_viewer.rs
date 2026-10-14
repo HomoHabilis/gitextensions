@@ -201,7 +201,9 @@ impl DiffViewer {
         self.set_content(content);
         let before = settings.clone();
         let diff = self.is_diff;
-        ui.horizontal(|ui| {
+        // wraps in a narrow pane rather than widening it (commit details right of the graph)
+        ui.horizontal_wrapped(|ui| {
+            ui.set_max_width(ui.available_width());
             ui.spacing_mut().item_spacing.x = 4.0;
             if ui.add_enabled(diff, egui::Button::new("⏶").small()).on_hover_text("Previous change (Alt+Up)").clicked() {
                 self.select_change(true);
@@ -211,7 +213,17 @@ impl DiffViewer {
             }
             ui.separator();
             ui.add_enabled_ui(diff, |ui| {
-                ui.menu_button(RichText::new("␣ Whitespace").small(), |ui| {
+                // the label says which option is on, so an ignored change is never a surprise
+                let label = if settings.ignore_whitespace {
+                    "Whitespace: ignore all"
+                } else if settings.ignore_whitespace_changes {
+                    "Whitespace: ignore amount"
+                } else if settings.ignore_whitespace_at_eol {
+                    "Whitespace: ignore at EOL"
+                } else {
+                    "Whitespace"
+                };
+                ui.menu_button(RichText::new(label).small(), |ui| {
                     ui.checkbox(&mut settings.ignore_whitespace, "Ignore all whitespace changes (-w)");
                     ui.add_enabled(!settings.ignore_whitespace, egui::Checkbox::new(&mut settings.ignore_whitespace_changes, "Ignore changes in amount of whitespace (-b)"));
                     ui.add_enabled(
@@ -220,7 +232,7 @@ impl DiffViewer {
                     );
                 });
             });
-            if ui.selectable_label(settings.show_whitespace, RichText::new("·→").small()).on_hover_text("Show whitespace characters").clicked() {
+            if ui.selectable_label(settings.show_whitespace, RichText::new("Show whitespace").small()).on_hover_text("Show whitespace characters").clicked() {
                 settings.show_whitespace = !settings.show_whitespace;
             }
             ui.separator();
@@ -434,8 +446,8 @@ impl DiffViewer {
                 }
                 let text = self.line_text(i);
                 if self.show_whitespace {
-                    let visible = text.replace(' ', "·").replace('\t', "→   ");
-                    painter.text(Pos2::new(x + 4.0, rect.center().y), egui::Align2::LEFT_CENTER, visible, font.clone(), fg);
+                    let kind = self.is_diff.then(|| self.lines[i].kind);
+                    painter.text(Pos2::new(x + 4.0, rect.center().y), egui::Align2::LEFT_CENTER, visible_whitespace(text, kind), font.clone(), fg);
                 } else {
                     painter.text(Pos2::new(x + 4.0, rect.center().y), egui::Align2::LEFT_CENTER, text, font.clone(), fg);
                 }
@@ -587,9 +599,31 @@ pub fn content_from_bytes(bytes: &[u8]) -> ViewerContent {
     ViewerContent::Text(String::from_utf8_lossy(bytes).into_owned())
 }
 
+/// Shows spaces as `·` and tabs as `→` in file content. In a diff only the content of
+/// context, added and removed lines changes: not their `+`/`-`/space prefix, nor the headers.
+fn visible_whitespace(text: &str, kind: Option<DiffLineKind>) -> String {
+    let show = |t: &str| t.replace(' ', "·").replace('\t', "→   ");
+    match kind {
+        None => show(text),
+        Some(DiffLineKind::Context | DiffLineKind::Added | DiffLineKind::Removed) => {
+            let prefix = text.chars().next().map_or(0, char::len_utf8);
+            format!("{}{}", &text[..prefix], show(&text[prefix..]))
+        }
+        Some(_) => text.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn whitespace_is_shown_in_content_only() {
+        assert_eq!(visible_whitespace("a b\tc", None), "a·b→   c");
+        assert_eq!(visible_whitespace(" x y", Some(DiffLineKind::Context)), " x·y");
+        assert_eq!(visible_whitespace("+x ", Some(DiffLineKind::Added)), "+x·");
+        assert_eq!(visible_whitespace("@@ -1 +1 @@", Some(DiffLineKind::HunkHeader)), "@@ -1 +1 @@");
+    }
 
     fn run_frame(ctx: &egui::Context, viewer: &mut DiffViewer, content: &ViewerContent, menu: &[ViewerCommand], events: Vec<egui::Event>) -> Option<ViewerCommand> {
         let modifiers = events.iter().find_map(|e| if let egui::Event::Key { modifiers, .. } = e { Some(*modifiers) } else { None }).unwrap_or_default();
