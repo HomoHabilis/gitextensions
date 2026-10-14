@@ -56,13 +56,32 @@ pub fn copy_to_clipboard(ctx: &egui::Context, text: impl Into<String>) {
 
 /// Opens a path or URL with the system handler.
 pub fn open_with_system(path: &str) {
+    if crate::wsl::open_on_windows(path) {
+        return;
+    }
     #[cfg(target_os = "windows")]
-    let r = std::process::Command::new("cmd").args(["/C", "start", "", path]).spawn();
+    let mut cmd = {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "start", ""]);
+        c
+    };
     #[cfg(target_os = "macos")]
-    let r = std::process::Command::new("open").arg(path).spawn();
+    let mut cmd = std::process::Command::new("open");
     #[cfg(all(unix, not(target_os = "macos")))]
-    let r = std::process::Command::new("xdg-open").arg(path).spawn();
-    let _ = r;
+    let mut cmd = std::process::Command::new("xdg-open");
+    spawn_detached(cmd.arg(path));
+}
+
+/// Starts a short-lived launcher (`xdg-open`, `explorer.exe`…) without waiting for it, and
+/// reaps it when it exits so that it does not stay a zombie process for the life of the app.
+pub fn spawn_detached(cmd: &mut std::process::Command) -> bool {
+    match cmd.spawn() {
+        Ok(mut child) => {
+            std::thread::spawn(move || child.wait());
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 /// Opens a terminal in `dir` (port of "Git bash").

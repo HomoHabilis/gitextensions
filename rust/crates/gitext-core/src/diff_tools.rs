@@ -353,9 +353,15 @@ pub fn find_in_path(exe: &str) -> Option<PathBuf> {
     None
 }
 
-/// The installed tools of a type, in order of preference.
+/// The installed tools of a type, in order of preference. The tools are looked up in parallel:
+/// under WSL `PATH` also lists the Windows folders (`/mnt/c/…`), where each miss costs tens of
+/// milliseconds, and the settings dialog waits for this.
 pub fn detect(t: ToolType) -> Vec<(&'static DiffMergeTool, PathBuf)> {
-    tools_for(t).filter_map(|tool| tool.find().map(|p| (tool, p))).collect()
+    let tools: Vec<&'static DiffMergeTool> = tools_for(t).collect();
+    std::thread::scope(|s| {
+        let lookups: Vec<_> = tools.iter().map(|tool| s.spawn(move || tool.find())).collect();
+        tools.iter().zip(lookups).filter_map(|(tool, lookup)| lookup.join().ok().flatten().map(|p| (*tool, p))).collect()
+    })
 }
 
 /// Port of `DiffMergeToolConfiguration`: the tool with its executable and full commands.
@@ -707,6 +713,23 @@ mod tests {
         assert!(!executable_exists(""));
         assert!(!executable_exists("/no/such/tool"));
         assert!(executable_exists(if cfg!(windows) { "cmd" } else { "sh" }));
+    }
+
+    /// Parallel detection finds the same tools, in the same order, as looking them up one by one.
+    #[test]
+    fn detect_matches_lookups_one_by_one() {
+        for t in [ToolType::Diff, ToolType::Merge] {
+            let started = std::time::Instant::now();
+            let one_by_one: Vec<_> = tools_for(t).filter_map(|tool| tool.find().map(|p| (tool.name, p))).collect();
+            let sequential = started.elapsed();
+            let started = std::time::Instant::now();
+            let detected: Vec<_> = detect(t).into_iter().map(|(tool, p)| (tool.name, p)).collect();
+            let parallel = started.elapsed();
+            eprintln!("detect {}: {parallel:?} (one by one: {sequential:?}), {} PATH folders", t.label(), std::env::var_os("PATH").map(|p| std::env::split_paths(&p).count()).unwrap_or(0));
+            assert_eq!(detected, one_by_one);
+            // the settings dialog waits for it; under WSL looking the tools up one by one took 0.4 s
+            assert!(parallel < std::time::Duration::from_secs(2), "{parallel:?}");
+        }
     }
 
     #[test]
