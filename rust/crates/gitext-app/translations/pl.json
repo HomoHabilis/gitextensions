@@ -401,7 +401,7 @@
  "View patch file…": "Zobacz plik łatki…",
  "Worktrees": "Drzewa robocze",
  "You will still be able to find all the commit's changes in the staging area\n\nDo you want to continue?": "Zmiany zatwierdzeń będą nadal dostępne w strefie przygotowania.\n\nChcesz kontynuować?",
- "base": "bazowa",
+ "base": "bASE",
  "config": "konfiguracja",
  "default": "domyślny",
  "merge conflicts": "konflikty scalania",

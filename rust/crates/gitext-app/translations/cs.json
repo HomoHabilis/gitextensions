@@ -396,7 +396,7 @@
  "View patch file": "Zobrazit soubor záplaty",
  "View patch file…": "Zobrazit soubor záplaty…",
  "You will still be able to find all the commit's changes in the staging area\n\nDo you want to continue?": "Všechny změny z odevzdání budete stále moci najít v přípravné oblasti (staging area)\n\nChcete pokračovat?",
- "base": "základ",
+ "base": "bASE",
  "config": "konfigurace",
  "default": "výchozí",
  "merge conflicts": "konflikty sloučení",

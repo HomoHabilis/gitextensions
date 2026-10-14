@@ -378,6 +378,7 @@
  "View patch file…": "Ver archivo de parche…",
  "Worktrees": "Árboles de trabajo",
  "You will still be able to find all the commit's changes in the staging area\n\nDo you want to continue?": "Aún podrá encontrar todos los cambios a commits en el área de preparación\n\n¿Desea continuar?",
+ "base": "bASE",
  "config": "configuración",
  "default": "predeterminado",
  "merge conflicts": "conflictos de fusión",

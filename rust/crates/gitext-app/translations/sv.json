@@ -392,7 +392,7 @@
  "View patch file…": "Visa patchfil…",
  "Worktrees": "Arbetsträd",
  "You will still be able to find all the commit's changes in the staging area\n\nDo you want to continue?": "Du kommer fortfarande att kunna hitta incheckningens alla ändringar i kön\n\nVill du fortsätta?",
- "base": "bas",
+ "base": "bASE",
  "config": "konfiguration",
  "default": "standard",
  "merge conflicts": "sammanslagningskonflikter",

@@ -104,10 +104,11 @@ def read_xlf(name):
         source = unit.findtext("source") or ""
         target = unit.findtext("target") or ""
         source, target = strip_mnemonic(source), strip_mnemonic(target)
-        if not source or not target or source == target:
+        if not source or not target:
             continue
         votes.setdefault(source, Counter())[target] += 1
-    # the most common translation of each source text
+    # the most common translation of each source text ("Commit" is a noun more often than a
+    # verb); one kept in English stays in the table, so that no looser match replaces it
     return {s: c.most_common(1)[0][0] for s, c in votes.items()}
 
 
@@ -159,7 +160,7 @@ def main():
         catalog = {}
         for text in strings:
             target = translate(text, table, folded)
-            if target and sorted(set(PLACEHOLDER.findall(target))) == sorted(set(PLACEHOLDER.findall(text))):
+            if target and target != text and sorted(set(PLACEHOLDER.findall(target))) == sorted(set(PLACEHOLDER.findall(text))):
                 catalog[text] = target
         with open(os.path.join(HERE, f"{code}.json"), "w", encoding="utf-8", newline="\n") as fh:
             json.dump(catalog, fh, ensure_ascii=False, indent=1, sort_keys=True)

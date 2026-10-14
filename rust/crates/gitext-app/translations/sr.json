@@ -406,7 +406,7 @@
  "View patch file…": "Преглед датотеке закрпе…",
  "Worktrees": "Радна стабла",
  "You will still be able to find all the commit's changes in the staging area\n\nDo you want to continue?": "И даље ћете моћи да пронађете све измене комита у стејџ области.\n\nДа ли желите да наставите?",
- "base": "основа",
+ "base": "bASE",
  "config": "конфигурација",
  "default": "подразумевано",
  "merge conflicts": "сукоби при спајању",

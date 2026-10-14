@@ -393,7 +393,7 @@
  "View patch file…": "Pregledaj datoteku zakrpe…",
  "Worktrees": "Radna stabla",
  "You will still be able to find all the commit's changes in the staging area\n\nDo you want to continue?": "Sve promjene iz podneska i dalje ćete moći pronaći u području pripreme\n\nŽelite li nastaviti?",
- "base": "baza",
+ "base": "bASE",
  "config": "konfiguracija",
  "default": "zadano",
  "merge conflicts": "sukobi spajanja",

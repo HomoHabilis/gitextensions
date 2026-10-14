@@ -160,7 +160,9 @@ impl Dialog for SettingsDialog {
                         let reload = s.graph_config() != cx.settings.graph_config()
                             || s.show_git_notes != cx.settings.show_git_notes
                             || s.revision_sort_order != cx.settings.revision_sort_order
-                            || s.max_revision_graph_commits != cx.settings.max_revision_graph_commits;
+                            || s.max_revision_graph_commits != cx.settings.max_revision_graph_commits
+                            // the texts of the working directory and index rows are made when loading
+                            || s.translation != cx.settings.translation;
                         let refs_changed = (s.refs_sort_by, s.refs_sort_order) != (cx.settings.refs_sort_by, cx.settings.refs_sort_order);
                         *cx.settings = s.clone();
                         crate::i18n::set_language(&s.translation);

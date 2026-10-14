@@ -405,7 +405,7 @@
  "View patch file…": "檢視修補檔檔案…",
  "Worktrees": "工作樹",
  "You will still be able to find all the commit's changes in the staging area\n\nDo you want to continue?": "您仍然可以在暫存區找到此提交的所有變更。\n\n您要繼續嗎？",
- "base": "基底",
+ "base": "bASE",
  "config": "設定",
  "default": "預設",
  "merge conflicts": "合併衝突",

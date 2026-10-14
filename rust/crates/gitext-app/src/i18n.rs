@@ -25,7 +25,7 @@ pub struct Language {
     catalog: &'static str,
 }
 
-/// Scripts missing from egui's built-in fonts.
+/// Scripts (or letters) missing from egui's built-in fonts.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Script {
     Japanese,
@@ -33,6 +33,8 @@ pub enum Script {
     SimplifiedChinese,
     TraditionalChinese,
     Thai,
+    /// Latin with the stacked accents of Vietnamese (ế, ộ…).
+    Vietnamese,
 }
 
 macro_rules! language {
@@ -73,7 +75,7 @@ pub static LANGUAGES: &[Language] = &[
     language!("Traditional Chinese", "繁體中文", "zh-TW", Some(Script::TraditionalChinese)),
     language!("Turkish", "Türkçe", "tr", None),
     language!("Ukrainian", "Українська", "uk", None),
-    language!("Vietnamese", "Tiếng Việt", "vi", None),
+    language!("Vietnamese", "Tiếng Việt", "vi", Some(Script::Vietnamese)),
 ];
 
 impl Language {
@@ -83,6 +85,9 @@ impl Language {
     pub fn label(&self) -> String {
         if self.script.is_some() || self.native == self.name {
             self.name.to_string()
+        } else if self.name.contains('(') {
+            // "Português (Brasil)" rather than "Português (Brasil) (Portuguese (Brazil))"
+            self.native.to_string()
         } else {
             format!("{} ({})", self.native, self.name)
         }
@@ -163,7 +168,7 @@ fn format_args_into(template: &str, args: &[&dyn Display]) -> String {
 }
 
 /// Loads a system font for the script of `lang` as a fallback after egui's own fonts, so
-/// that Chinese, Japanese, Korean and Thai text is drawn. Does nothing for other languages,
+/// that Chinese, Japanese, Korean, Thai and Vietnamese text is drawn. Does nothing for other languages,
 /// or when no font is found (the text then shows as boxes).
 pub fn install_fonts(ctx: &egui::Context, lang: &Language) {
     static INSTALLED: Mutex<Option<Script>> = Mutex::new(None);
@@ -195,6 +200,7 @@ fn system_font(script: Script) -> Option<(Vec<u8>, u32)> {
             Script::SimplifiedChinese => &["msyh.ttc", "simsun.ttc"],
             Script::TraditionalChinese => &["msjh.ttc", "mingliu.ttc"],
             Script::Thai => &["LeelawUI.ttf", "tahoma.ttf"],
+            Script::Vietnamese => &["segoeui.ttf", "arial.ttf"],
         };
         names.iter().find_map(|n| std::fs::read(dir.join(n)).ok()).map(|d| (d, 0))
     }
@@ -205,6 +211,7 @@ fn system_font(script: Script) -> Option<(Vec<u8>, u32)> {
             Script::Korean => &["/System/Library/Fonts/AppleSDGothicNeo.ttc"],
             Script::SimplifiedChinese | Script::TraditionalChinese => &["/System/Library/Fonts/Hiragino Sans GB.ttc", "/System/Library/Fonts/STHeiti Light.ttc"],
             Script::Thai => &["/System/Library/Fonts/Supplemental/Thonburi.ttc", "/System/Library/Fonts/Thonburi.ttc"],
+            Script::Vietnamese => &["/System/Library/Fonts/Helvetica.ttc"],
         };
         paths
             .iter()
@@ -221,6 +228,7 @@ fn system_font(script: Script) -> Option<(Vec<u8>, u32)> {
             Script::SimplifiedChinese => "zh-cn",
             Script::TraditionalChinese => "zh-tw",
             Script::Thai => "th",
+            Script::Vietnamese => "vi",
         };
         let out = std::process::Command::new("fc-match").args(["-f", "%{file}\n%{index}", &format!(":lang={lang}")]).output().ok()?;
         let out = String::from_utf8_lossy(&out.stdout);

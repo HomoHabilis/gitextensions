@@ -399,7 +399,7 @@
  "View patch file…": "Перегляд файлу латки…",
  "Worktrees": "Робочі дерева",
  "You will still be able to find all the commit's changes in the staging area\n\nDo you want to continue?": "Усі зміни коміту, як і раніше, будуть доступні в індексі\n\nПродовжити?",
- "base": "базовий",
+ "base": "bASE",
  "config": "конфігурація",
  "default": "типово",
  "merge conflicts": "конфлікти злиття",

@@ -402,7 +402,7 @@
  "View patch file…": "Skatīt ielāpa failu…",
  "Worktrees": "Darbstacijas",
  "You will still be able to find all the commit's changes in the staging area\n\nDo you want to continue?": "Jūs joprojām varēsit atrast visas nodošanas izmaiņas izstādīšanas apgabalā Vai vēlaties turpināt?",
- "base": "bāze",
+ "base": "bASE",
  "config": "konfig",
  "default": "noklusējums",
  "merge conflicts": "sapludināt konfliktus",
