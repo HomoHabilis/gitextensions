@@ -277,7 +277,7 @@ impl Dialog for ConflictsDialog {
                             for c in &files {
                                 let is_sel = self.selected.as_deref() == Some(c.file_name.as_str());
                                 let text = format!("{}  ({})", c.file_name, Self::short_state(c));
-                                let r = ui.add(egui::SelectableLabel::new(is_sel, text).truncate());
+                                let r = ui.selectable_label(is_sel, text);
                                 if r.clicked() {
                                     self.selected = Some(c.file_name.clone());
                                 }
