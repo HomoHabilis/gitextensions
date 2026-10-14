@@ -3,7 +3,6 @@
 use egui::{Key, Modifiers, RichText, Ui, Vec2};
 use gitext_core::commands::{CommitOptions, UntrackedFilesMode};
 use gitext_core::commit_message::{format_commit_message, CommitMessageManager};
-use gitext_core::module::DiffOptions;
 use gitext_core::patch::create_partial_patch;
 use gitext_core::status::{GitItemStatus, StagedStatus};
 use gitext_core::{GitModule, ObjectId};
@@ -95,6 +94,8 @@ pub struct CommitDialog {
     /// The status of the browse window last seen, to reload when it changes (e.g. files were
     /// reset by another dialog or changed on disk).
     repo_status: Option<Vec<GitItemStatus>>,
+    /// Whether the application window had the focus last frame (refresh when it comes back).
+    window_focused: bool,
 }
 
 fn message_id() -> egui::Id {
@@ -104,6 +105,7 @@ fn message_id() -> egui::Id {
 impl CommitDialog {
     fn init(&mut self, cx: &mut Cx, m: &GitModule) {
         self.initialized = true;
+        self.window_focused = true;
         self.show_untracked = cx.settings.show_untracked_files;
         let mut mgr = CommitMessageManager::new(m.git_dir(), None);
         mgr.remember_amend_commit_state = cx.settings.remember_amend_commit_state;
@@ -192,6 +194,12 @@ impl Dialog for CommitDialog {
         if !self.initialized {
             self.init(cx, &m);
         }
+        // files edited in another application show up when coming back (`RefreshDialogOnFormFocus`)
+        let focused = cx.ctx.input(|i| i.focused);
+        if focused && !self.window_focused && cx.settings.refresh_commit_dialog_on_form_focus {
+            self.refresh();
+        }
+        self.window_focused = focused;
         let palette = Palette::for_ui(ui);
         let mut keep = true;
 
@@ -208,7 +216,12 @@ impl Dialog for CommitDialog {
                         cx.push(Action::Refresh);
                         if self.push_after || cx.settings.push_after_commit {
                             if let Some(d) = cx.data {
-                                cx.open(super::push::PushDialog::new(d, cx.settings, None));
+                                let mut push = super::push::PushDialog::new(d, cx.settings, None);
+                                // an amended commit that was already pushed needs a forced push
+                                if self.amend && cx.settings.force_push_with_lease {
+                                    push = push.with_force(gitext_core::commands::ForcePushOptions::ForceWithLease);
+                                }
+                                cx.open(push);
                             }
                         }
                         return false;
@@ -472,11 +485,7 @@ impl Dialog for CommitDialog {
             let content = match &file {
                 None => ViewerContent::Empty("Select a file to see the changes".into()),
                 Some(f) => {
-                    let opts = DiffOptions {
-                        ignore_whitespace: cx.settings.ignore_whitespace,
-                        context_lines: Some(cx.settings.context_lines),
-                        ..Default::default()
-                    };
+                    let opts = crate::views::revision_diff::diff_options(cx.settings);
                     let key = format!("{}|{}|{:?}|{}", staged_side, f.name, opts, self.generation);
                     let mm = m.clone();
                     let f2 = f.clone();
@@ -498,6 +507,9 @@ impl Dialog for CommitDialog {
             };
             if let Some(f) = &file {
                 ui.label(RichText::new(&f.name).strong());
+            }
+            if self.viewer.toolbar(ui, &content, cx.settings) {
+                cx.push(Action::SaveSettings);
             }
             let menu = if staged_side {
                 vec![ViewerCommand::UnstageSelectedLines, ViewerCommand::AddToCommitMessage, ViewerCommand::CopyPatch]
@@ -532,7 +544,7 @@ impl Dialog for CommitDialog {
                                 self.refresh();
                             }
                         }
-                        ViewerCommand::CopyPatch | ViewerCommand::AddToCommitMessage => {}
+                        ViewerCommand::CopyPatch | ViewerCommand::CopyOldVersion | ViewerCommand::CopyNewVersion | ViewerCommand::AddToCommitMessage => {}
                     }
                 }
             }

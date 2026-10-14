@@ -72,6 +72,18 @@ pub fn open_with_system(path: &str) {
     spawn_detached(cmd.arg(path));
 }
 
+/// Opens a folder in the configured file manager (`configured`: a command, arguments allowed),
+/// or with the system handler when none is configured.
+pub fn open_folder(path: &str, configured: &str) {
+    let mut parts = configured.split_whitespace();
+    match parts.next() {
+        Some(cmd) => {
+            spawn_detached(std::process::Command::new(cmd).args(parts).arg(path));
+        }
+        None => open_with_system(path),
+    }
+}
+
 /// Starts a short-lived launcher (`xdg-open`, `explorer.exe`…) without waiting for it, and
 /// reaps it when it exits so that it does not stay a zombie process for the life of the app.
 pub fn spawn_detached(cmd: &mut std::process::Command) -> bool {

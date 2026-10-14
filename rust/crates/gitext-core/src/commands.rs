@@ -519,6 +519,15 @@ impl GitRefsSortBy {
             GitRefsSortBy::VersionRefname => "version:refname",
         }
     }
+
+    /// The `for-each-ref --sort=` value, `None` for git's default order (by name).
+    pub fn sort_key(self, order: GitRefsSortOrder) -> Option<String> {
+        if self == GitRefsSortBy::Default {
+            return None;
+        }
+        let sign = if order == GitRefsSortOrder::Descending { "-" } else { "" };
+        Some(format!("{sign}{}", self.key()))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
@@ -790,6 +799,14 @@ mod tests {
 
     fn s(a: GitArgs) -> String {
         a.to_string()
+    }
+
+    #[test]
+    fn refs_sort_key() {
+        assert_eq!(GitRefsSortBy::Default.sort_key(GitRefsSortOrder::Descending), None);
+        assert_eq!(GitRefsSortBy::Refname.sort_key(GitRefsSortOrder::Ascending).as_deref(), Some("refname"));
+        assert_eq!(GitRefsSortBy::Committerdate.sort_key(GitRefsSortOrder::Descending).as_deref(), Some("-committerdate"));
+        assert_eq!(GitRefsSortBy::VersionRefname.sort_key(GitRefsSortOrder::Descending).as_deref(), Some("-version:refname"));
     }
 
     #[test]

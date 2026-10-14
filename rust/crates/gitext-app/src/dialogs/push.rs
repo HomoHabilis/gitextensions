@@ -33,6 +33,12 @@ pub struct PushDialog {
 }
 
 impl PushDialog {
+    /// Preselects the force option (commit & push after an amend).
+    pub fn with_force(mut self, force: ForcePushOptions) -> Self {
+        self.force = force;
+        self
+    }
+
     pub fn new(data: &RepoData, settings: &AppSettings, branch: Option<String>) -> Self {
         let local = branch.or_else(|| data.current_branch.clone()).unwrap_or_default();
         let r = data.local_branches().find(|r| r.name == local);

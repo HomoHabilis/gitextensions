@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::args::{to_posix_path, GitArgs};
 use crate::blame::{parse_git_blame, GitBlame};
-use crate::commands;
+use crate::commands::{self, GitRefsSortBy, GitRefsSortOrder};
 use crate::exec::{ExecResult, Executable, GitError, GitResult};
 use crate::git_ref::{ref_name, GitRef};
 use crate::object_id::ObjectId;
@@ -110,18 +110,23 @@ impl RepoState {
 pub struct DiffOptions {
     pub ignore_whitespace: bool,
     pub ignore_whitespace_changes: bool,
+    /// `--ignore-space-at-eol` (ignored when one of the above is set).
+    pub ignore_whitespace_at_eol: bool,
     pub context_lines: Option<u32>,
     pub histogram: bool,
     pub word_diff: bool,
 }
 
 impl DiffOptions {
-    fn extra_args(&self) -> Vec<String> {
+    /// The `git diff` / `git log -p` arguments of the options.
+    pub fn extra_args(&self) -> Vec<String> {
         let mut a = Vec::new();
         if self.ignore_whitespace {
             a.push("--ignore-all-space".to_string());
         } else if self.ignore_whitespace_changes {
             a.push("--ignore-space-change".to_string());
+        } else if self.ignore_whitespace_at_eol {
+            a.push("--ignore-space-at-eol".to_string());
         }
         if let Some(c) = self.context_lines {
             a.push(format!("--unified={c}"));
@@ -299,11 +304,18 @@ impl GitModule {
 
     // ---------------------------------------------------------------- refs
 
-    /// All refs with tracking information (port of `GetRefs`).
+    /// All refs with tracking information (port of `GetRefs`), in `for-each-ref` order.
     pub fn get_refs(&self) -> GitResult<Vec<GitRef>> {
-        let out = self.output(&GitArgs::new("for-each-ref").arg(
-            "--format=%(objectname)%00%(*objectname)%00%(refname)%00%(upstream:remotename)%00%(upstream:remoteref)",
-        ))?;
+        self.get_refs_sorted(GitRefsSortBy::Default, GitRefsSortOrder::Descending)
+    }
+
+    /// All refs, sorted as chosen in the settings (the left panel lists them in this order).
+    pub fn get_refs_sorted(&self, sort_by: GitRefsSortBy, sort_order: GitRefsSortOrder) -> GitResult<Vec<GitRef>> {
+        let mut args = GitArgs::new("for-each-ref");
+        if let Some(key) = sort_by.sort_key(sort_order) {
+            args.add(format!("--sort={key}"));
+        }
+        let out = self.output(&args.arg("--format=%(objectname)%00%(*objectname)%00%(refname)%00%(upstream:remotename)%00%(upstream:remoteref)"))?;
         let current = self.current_branch();
         let mut refs = parse_refs(&out);
         let upstream = refs.iter().find(|r| current.as_deref() == Some(r.name.as_str())).map(|r| (r.tracking_remote.clone(), r.merge_with.clone()));
@@ -1320,6 +1332,29 @@ mod tests {
     //! integration tests against real temporary repositories.
     use super::test_repo::TestRepo;
     use super::*;
+
+    #[test]
+    fn diff_options_whitespace_arguments() {
+        let eol = DiffOptions { ignore_whitespace_at_eol: true, ..Default::default() };
+        assert_eq!(eol.extra_args(), ["--ignore-space-at-eol"]);
+        // the broader options include the end of line case
+        let all = DiffOptions { ignore_whitespace: true, ignore_whitespace_at_eol: true, context_lines: Some(5), ..Default::default() };
+        assert_eq!(all.extra_args(), ["--ignore-all-space", "--unified=5"]);
+    }
+
+    #[test]
+    fn refs_are_sorted_as_asked() {
+        let repo = TestRepo::new();
+        repo.commit_file("f.txt", "a\n", "init");
+        repo.git(&["branch", "b-branch"]);
+        repo.git(&["branch", "a-branch"]);
+        let names = |by, order| -> Vec<String> {
+            repo.module.get_refs_sorted(by, order).unwrap().into_iter().filter(|r| r.name.ends_with("-branch")).map(|r| r.name).collect()
+        };
+        assert_eq!(names(GitRefsSortBy::Default, GitRefsSortOrder::Descending), ["a-branch", "b-branch"]);
+        assert_eq!(names(GitRefsSortBy::Refname, GitRefsSortOrder::Descending), ["b-branch", "a-branch"]);
+        assert_eq!(names(GitRefsSortBy::Refname, GitRefsSortOrder::Ascending), ["a-branch", "b-branch"]);
+    }
 
     #[test]
     fn get_remotes_should_parse_correctly_configured_remotes() {

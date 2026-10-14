@@ -4,7 +4,7 @@ use egui::{RichText, Ui, Vec2};
 use gitext_core::GitArgs;
 use gitext_core::ObjectId;
 
-use super::{Cx, Dialog, DialogKind};
+use super::{Action, Cx, Dialog, DialogKind};
 use crate::tasks::Loader;
 use crate::theme::Palette;
 use crate::views::diff_viewer::{content_from_bytes, DiffViewer, ViewerContent};
@@ -15,9 +15,11 @@ pub struct FileHistoryDialog {
     grid: RevisionGrid,
     started: bool,
     tab: usize,
-    diff: Loader<(ObjectId, usize), ViewerContent>,
+    diff: Loader<(ObjectId, usize, String), ViewerContent>,
     viewer: DiffViewer,
     follow: bool,
+    /// `follow` was set from the settings.
+    follow_initialized: bool,
 }
 
 impl FileHistoryDialog {
@@ -25,7 +27,7 @@ impl FileHistoryDialog {
         let mut grid = RevisionGrid::default();
         grid.filter.path = file.clone();
         grid.filter.follow = true;
-        FileHistoryDialog { file, grid, started: false, tab: 0, diff: Loader::default(), viewer: DiffViewer::default(), follow: true }
+        FileHistoryDialog { file, grid, started: false, tab: 0, diff: Loader::default(), viewer: DiffViewer::default(), follow: true, follow_initialized: false }
     }
 }
 
@@ -42,6 +44,10 @@ impl Dialog for FileHistoryDialog {
         let palette = Palette::for_ui(ui);
         let Some(m) = cx.module.cloned() else { return false };
         let data = cx.data.cloned().unwrap_or_default();
+        if !self.follow_initialized {
+            self.follow_initialized = true;
+            self.follow = cx.settings.follow_renames_in_file_history;
+        }
         if !self.started {
             self.started = true;
             let mut settings = cx.settings.clone();
@@ -84,9 +90,11 @@ impl Dialog for FileHistoryDialog {
             let follow = self.follow;
             let tab = self.tab;
             let mm = m.clone();
+            let opts = crate::views::revision_diff::diff_options(cx.settings);
+            let key = (id, tab, format!("{opts:?}"));
             let content = self
                 .diff
-                .request(cx.ctx, (id, tab), move || {
+                .request(cx.ctx, key, move || {
                     // name of the file in this commit (it may have been renamed)
                     let name = mm
                         .run(&GitArgs::new("log").arg("-1").arg_if(follow, "--follow").arg("--name-only").arg("--format=").arg(id.to_string()).arg("--").arg(&file))
@@ -95,7 +103,7 @@ impl Dialog for FileHistoryDialog {
                     let name = if name.is_empty() { file.clone() } else { name };
                     if tab == 0 {
                         let out = mm
-                            .run(&GitArgs::with_config(&gitext_core::commands::DIFF_CONFIGS, "log").args(["-1", "-p", "-M", "--format="]).arg_if(follow, "--follow").arg(id.to_string()).arg("--").arg(&file))
+                            .run(&GitArgs::with_config(&gitext_core::commands::DIFF_CONFIGS, "log").args(["-1", "-p", "-M", "--format="]).args(opts.extra_args()).arg_if(follow, "--follow").arg(id.to_string()).arg("--").arg(&file))
                             .map(|r| r.stdout_str())
                             .unwrap_or_default();
                         if out.trim().is_empty() { ViewerContent::Empty("No changes to this file".into()) } else { ViewerContent::Diff(out) }
@@ -108,6 +116,9 @@ impl Dialog for FileHistoryDialog {
                 })
                 .cloned()
                 .unwrap_or(ViewerContent::Empty("Loading…".into()));
+            if self.viewer.toolbar(ui, &content, cx.settings) {
+                cx.push(Action::SaveSettings);
+            }
             self.viewer.ui(ui, &content, cx.settings.show_line_numbers, &[]);
         });
         egui::CentralPanel::default().show_inside(ui, |ui| {

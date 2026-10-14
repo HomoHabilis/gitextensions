@@ -1,7 +1,7 @@
 //! Port of `FormSettings` (settings pages) and a git config editor.
 
 use egui::{RichText, Ui, Vec2};
-use gitext_core::commands::{GitRefsSortBy, LocalChangesAction};
+use gitext_core::commands::{GitRefsSortBy, GitRefsSortOrder, LocalChangesAction};
 use gitext_core::revision_reader::RevisionSortOrder;
 use gitext_core::settings::{AppSettings, CommitTemplate, PullAction, Theme, UserScript};
 use gitext_core::{Executable, GitArgs};
@@ -98,6 +98,7 @@ impl Dialog for SettingsDialog {
                             || s.show_git_notes != cx.settings.show_git_notes
                             || s.revision_sort_order != cx.settings.revision_sort_order
                             || s.max_revision_graph_commits != cx.settings.max_revision_graph_commits;
+                        let refs_changed = (s.refs_sort_by, s.refs_sort_order) != (cx.settings.refs_sort_by, cx.settings.refs_sort_order);
                         *cx.settings = s.clone();
                         gitext_core::exec::set_git_command(&s.git_command);
                         gitext_core::exec::set_wsl_git_enabled(s.wsl_git_enabled);
@@ -122,6 +123,9 @@ impl Dialog for SettingsDialog {
                         cx.push(Action::ApplyTheme);
                         if reload {
                             cx.push(Action::ReloadLog);
+                        }
+                        if refs_changed {
+                            cx.push(Action::RefreshStatus);
                         }
                     }
                 });
@@ -170,6 +174,7 @@ impl Dialog for SettingsDialog {
                             ui.label("Zoom");
                             ui.add(egui::Slider::new(&mut s.ui_scale, 0.5..=3.0).step_by(0.05));
                         });
+                        ui.checkbox(&mut s.commit_info_position_right, "Show the commit details to the right of the graph (else below)");
                         ui.horizontal(|ui| {
                             ui.label("Font size");
                             ui.add(egui::Slider::new(&mut s.font_size, 9.0..=24.0).step_by(0.5));
@@ -224,6 +229,10 @@ impl Dialog for SettingsDialog {
                                     ui.selectable_value(&mut s.refs_sort_by, k, format!("{k:?}"));
                                 }
                             });
+                            ui.add_enabled_ui(s.refs_sort_by != GitRefsSortBy::Default, |ui| {
+                                ui.radio_value(&mut s.refs_sort_order, GitRefsSortOrder::Ascending, "Ascending");
+                                ui.radio_value(&mut s.refs_sort_order, GitRefsSortOrder::Descending, "Descending");
+                            });
                         });
                     }
                     3 => {
@@ -231,6 +240,8 @@ impl Dialog for SettingsDialog {
                         ui.checkbox(&mut s.ensure_commit_message_second_line_empty, "Ensure the second line of the message is empty");
                         ui.checkbox(&mut s.sign_off_by_default, "Sign-off commits by default");
                         ui.checkbox(&mut s.push_after_commit, "Push after commit");
+                        ui.checkbox(&mut s.force_push_with_lease, "Push with --force-with-lease after amending a commit");
+                        ui.checkbox(&mut s.refresh_commit_dialog_on_form_focus, "Refresh the commit dialog when the window gets the focus");
                         ui.horizontal(|ui| {
                             ui.label("Max characters of the first line (0 = no limit)");
                             ui.add(egui::DragValue::new(&mut s.commit_validation_max_cnt_chars_first_line));
@@ -248,6 +259,8 @@ impl Dialog for SettingsDialog {
                     4 => {
                         ui.checkbox(&mut s.ignore_whitespace, "Ignore whitespace");
                         ui.checkbox(&mut s.ignore_whitespace_changes, "Ignore whitespace changes");
+                        ui.checkbox(&mut s.ignore_whitespace_at_eol, "Ignore whitespace changes at end of line");
+                        ui.checkbox(&mut s.show_whitespace, "Show whitespace characters (· for spaces, → for tabs)");
                         ui.checkbox(&mut s.show_entire_file, "Show entire file");
                         ui.checkbox(&mut s.use_histogram_diff, "Use the histogram diff algorithm");
                         ui.checkbox(&mut s.show_line_numbers, "Show line numbers");
@@ -315,6 +328,10 @@ impl Dialog for SettingsDialog {
                             ui.label("Terminal (empty = auto detect)");
                             ui.text_edit_singleline(&mut s.terminal);
                         });
+                        ui.horizontal(|ui| {
+                            ui.label("File manager (empty = system default)");
+                            ui.text_edit_singleline(&mut s.file_manager);
+                        });
                     }
                     6 => {
                         ui.label("Default pull action");
@@ -368,6 +385,8 @@ impl Dialog for SettingsDialog {
                                     ui.text_edit_singleline(&mut sc.arguments);
                                     ui.end_row();
                                 });
+                                ui.checkbox(&mut sc.ask_confirmation, "Ask for confirmation before running");
+                                ui.checkbox(&mut sc.run_in_background, "Run in the background (no process dialog)");
                                 if ui.button("Remove").clicked() {
                                     remove = Some(i);
                                 }
@@ -381,8 +400,6 @@ impl Dialog for SettingsDialog {
                         }
                     }
                     _ => {
-                        ui.checkbox(&mut s.show_git_command_line, "Show the git command line in process dialogs");
-                        ui.checkbox(&mut s.refresh_commit_dialog_on_form_focus, "Refresh the commit dialog on focus");
                         if ui.button("Reset all settings to defaults").clicked() {
                             *s = AppSettings::default();
                         }
