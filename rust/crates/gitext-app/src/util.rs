@@ -61,8 +61,11 @@ pub fn open_with_system(path: &str) {
     }
     #[cfg(target_os = "windows")]
     let mut cmd = {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let mut c = std::process::Command::new("cmd");
-        c.args(["/C", "start", ""]);
+        // `start` opens the target itself: no console window flashing up for `cmd`
+        c.args(["/C", "start", ""]).creation_flags(CREATE_NO_WINDOW);
         c
     };
     #[cfg(target_os = "macos")]
