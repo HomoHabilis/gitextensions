@@ -23,6 +23,17 @@ pub enum Theme {
     Dark,
 }
 
+/// How the diff tab shows a file's changes (`DiffDisplayAppearance`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum DiffAppearance {
+    #[default]
+    Patch,
+    /// `git diff --word-diff=color`
+    WordDiff,
+    /// `git difftool --tool=difftastic`
+    Difftastic,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum PullAction {
     #[default]
@@ -134,6 +145,13 @@ pub struct AppSettings {
     pub show_whitespace: bool,
     /// Colour the code in diffs and files by its language.
     pub syntax_highlighting: bool,
+    /// Not remembered: upstream goes back to the patch at start (`RememberDiffDisplayAppearance`
+    /// is off by default).
+    #[serde(skip)]
+    pub diff_appearance: DiffAppearance,
+    /// "Find in commit files using git grep" options.
+    pub grep_ignore_case: bool,
+    pub grep_match_whole_word: bool,
 
     // Blame
     pub detect_copy_in_file_on_blame: bool,
@@ -229,6 +247,9 @@ impl Default for AppSettings {
             show_line_numbers: true,
             show_whitespace: false,
             syntax_highlighting: true,
+            diff_appearance: DiffAppearance::Patch,
+            grep_ignore_case: false,
+            grep_match_whole_word: false,
             detect_copy_in_file_on_blame: true,
             detect_copy_in_all_on_blame: false,
             ignore_whitespace_on_blame: true,

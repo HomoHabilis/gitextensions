@@ -48,9 +48,9 @@ panel no longer grows on an error, the Git settings page reads git in the backgr
 a refresh keeps the selected commit's details and diff, no console flash when Windows
 opens a folder.
 
-### M3. Intra-line highlighting (M), PR A
+### M3. Intra-line highlighting (M), done in #17
 
-- [ ] Highlight the changed words inside modified lines (upstream `MarkInlineDifferences`)
+- [x] Highlight the changed words inside modified lines (upstream `MarkInlineDifferences`)
 
 ### M4. Commit-list actions (M), PR B
 
@@ -99,19 +99,20 @@ opens a folder.
 - [ ] Create / prune worktree from a node
 - [ ] Keyboard focus with Delete / F2
 
-### M9. Search tools (M), PR A
+### M9. Search tools (M), done in #17
 
-- [ ] Find in commit files (git grep)
-- [ ] Find file in a revision
-- [ ] Alternative diff views: git word diff, difftastic, range-diff
+- [x] Find in commit files (git grep), Ctrl+Shift+F in the diff tab
+- [x] Find file in a revision: Ctrl+Shift+F from the commit list opens the file tree's find box
+- [x] Alternative diff views: git word diff, difftastic, range-diff of two selected commits
+- [ ] Not ported: git grep option presets (basic / extended / perl regexp) and free-form options
 
 ### M10. Avatars (M), PR B
 
 - [ ] Author images in the grid and commit details (Gravatar or initials), with a disk cache
 
-### M11. Syntax highlighting (M), PR A
+### M11. Syntax highlighting (M), done in #17
 
-- [ ] Language-aware colouring of the diff and file view, with an on/off toggle
+- [x] Language-aware colouring of the diff and file view, with an on/off toggle
 
 ### Fixes requested with the must-haves
 
@@ -215,6 +216,8 @@ Kept here so the decision is not made again.
 - GitHub integration and all build-server integration are dropped.
 - Back / forward navigation (N1) goes on Alt+Left / Alt+Right as upstream; parent / child stay
   on Ctrl+P / Ctrl+N.
+- git grep is kept rather than ripgrep: it searches commits and the index, which ripgrep can't
+  read, and is always installed.
 - Search tools and avatars are must-have (M9, M10); syntax highlighting is must-have, last (M11).
 - M1 kept a setting when it needed no plugin or new dependency, and deleted the rest.
 - The remaining must-haves are split into three pull requests that touch separate files:

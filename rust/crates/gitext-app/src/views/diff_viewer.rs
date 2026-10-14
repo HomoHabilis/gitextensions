@@ -4,7 +4,7 @@
 use egui::{Color32, FontId, Pos2, RichText, Sense, Ui, Vec2};
 use gitext_core::inline_diff::{inline_differences, LineMarks};
 use gitext_core::patch::{parse_diff_lines, strip_ansi, DiffLine, DiffLineKind};
-use gitext_core::settings::AppSettings;
+use gitext_core::settings::{AppSettings, DiffAppearance};
 
 use super::highlight::{highlight_diff, highlight_text, parse_ansi, Span};
 use crate::tasks::Task;
@@ -39,6 +39,8 @@ pub struct DiffViewer {
     file_name: Option<String>,
     /// Don't colour the code (the `syntax_highlighting` setting, applied by the toolbar).
     no_syntax: bool,
+    /// The toolbar offers the word diff and difftastic views (the diff tab loads them).
+    pub appearance_menu: bool,
     text_lines: Vec<String>,
     is_diff: bool,
     /// The length in characters of the longest line.
@@ -289,6 +291,8 @@ impl DiffViewer {
         self.set_content(ui.ctx(), content);
         let before = settings.clone();
         let diff = self.is_diff;
+        // the options of the git command producing a coloured view (word diff, difftastic, grep)
+        let options = diff || matches!(content, ViewerContent::Colored(_));
         // wraps in a narrow pane rather than widening it (commit details right of the graph)
         ui.horizontal_wrapped(|ui| {
             ui.set_max_width(ui.available_width());
@@ -300,7 +304,7 @@ impl DiffViewer {
                 self.select_change(false);
             }
             ui.separator();
-            ui.add_enabled_ui(diff, |ui| {
+            ui.add_enabled_ui(options, |ui| {
                 // the label says which option is on, so an ignored change is never a surprise
                 let label = if settings.ignore_whitespace {
                     "Whitespace: ignore all"
@@ -324,7 +328,7 @@ impl DiffViewer {
                 settings.show_whitespace = !settings.show_whitespace;
             }
             ui.separator();
-            ui.add_enabled_ui(diff && !settings.show_entire_file, |ui| {
+            ui.add_enabled_ui(options && !settings.show_entire_file, |ui| {
                 if ui.add_enabled(settings.context_lines > 0, egui::Button::new("−").small()).on_hover_text("Fewer lines of context").clicked() {
                     settings.context_lines -= 1;
                 }
@@ -333,7 +337,7 @@ impl DiffViewer {
                     settings.context_lines += 1;
                 }
             });
-            if ui.add_enabled(diff, egui::Button::new(RichText::new("Entire file").small()).selected(settings.show_entire_file)).on_hover_text("Show the entire file with the changes").clicked() {
+            if ui.add_enabled(options, egui::Button::new(RichText::new("Entire file").small()).selected(settings.show_entire_file)).on_hover_text("Show the entire file with the changes").clicked() {
                 settings.show_entire_file = !settings.show_entire_file;
             }
             ui.separator();
@@ -342,6 +346,18 @@ impl DiffViewer {
             }
             if ui.selectable_label(settings.syntax_highlighting, RichText::new("Syntax colours").small()).on_hover_text("Colour the code by its language").clicked() {
                 settings.syntax_highlighting = !settings.syntax_highlighting;
+            }
+            if self.appearance_menu {
+                let label = match settings.diff_appearance {
+                    DiffAppearance::Patch => "View: patch",
+                    DiffAppearance::WordDiff => "View: word diff",
+                    DiffAppearance::Difftastic => "View: difftastic",
+                };
+                ui.menu_button(RichText::new(label).small(), |ui| {
+                    ui.radio_value(&mut settings.diff_appearance, DiffAppearance::Patch, "Patch");
+                    ui.radio_value(&mut settings.diff_appearance, DiffAppearance::WordDiff, "Git word diff");
+                    ui.radio_value(&mut settings.diff_appearance, DiffAppearance::Difftastic, "Difftastic").on_hover_text("Structural diff, needs difftastic set up as a git difftool (difftool.difftastic.cmd)");
+                });
             }
         });
         self.show_whitespace = settings.show_whitespace;
@@ -382,6 +398,12 @@ impl DiffViewer {
 
     pub(crate) fn line_count(&self) -> usize {
         if self.is_diff { self.lines.len() } else { self.text_lines.len() }
+    }
+
+    /// The content shown (tests).
+    #[cfg(test)]
+    pub(crate) fn content(&self) -> Option<&ViewerContent> {
+        self.content.as_ref()
     }
 
     fn line_text(&self, i: usize) -> &str {
@@ -436,7 +458,7 @@ impl DiffViewer {
         }
 
         if ui.ui_contains_pointer() || self.has_focus(ui.ctx()) {
-            if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
+            if ui.input(|i| i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::F)) {
                 self.find_open = true;
             }
         }
@@ -483,6 +505,8 @@ impl DiffViewer {
         let row_h = ui.fonts(|f| f.row_height(&font)) + 2.0;
         let char_w = ui.fonts(|f| f.glyph_width(&font, 'M'));
         let count = self.line_count();
+        // git's coloured views number their lines themselves (grep), or have none to number
+        let show_line_numbers = show_line_numbers && !matches!(content, ViewerContent::Colored(_));
         let gutter = if show_line_numbers {
             if self.is_diff { char_w * 11.0 } else { char_w * (count.max(1).ilog10() as f32 + 2.0) }
         } else {

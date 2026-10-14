@@ -141,6 +141,12 @@ impl BrowseView {
         if shortcut(ctx, M::COMMAND, Key::E) {
             self.focus_filter = true;
         }
+        // from the commit list: find a file of the selected commit in the file tree
+        // (`FindFileInSelectedCommit`); the diff tab uses the key for git grep
+        if self.grid.has_focus && shortcut(ctx, ctrl_shift, Key::F) {
+            self.focus(ctx, Some(2), settings);
+            self.file_tree.focus_find();
+        }
         for (key, part) in [(Key::Num1, None), (Key::Num2, Some(0)), (Key::Num3, Some(1)), (Key::Num4, Some(2))] {
             if shortcut(ctx, M::COMMAND, key) {
                 self.focus(ctx, part, settings);
