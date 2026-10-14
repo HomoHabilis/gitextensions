@@ -2,9 +2,11 @@
 //! supports selecting lines for staging, unstaging and resetting.
 
 use egui::{Color32, FontId, Pos2, RichText, Sense, Ui, Vec2};
+use gitext_core::inline_diff::{inline_differences, LineMarks};
 use gitext_core::patch::{parse_diff_lines, strip_ansi, DiffLine, DiffLineKind};
 use gitext_core::settings::AppSettings;
 
+use crate::tasks::Task;
 use crate::theme::Palette;
 
 /// What is displayed.
@@ -21,6 +23,10 @@ pub struct DiffViewer {
     /// The content shown, compared each frame to detect changes.
     content: Option<ViewerContent>,
     lines: Vec<DiffLine>,
+    /// The changed words of each modified line (`MarkInlineDifferences`).
+    marks: Vec<Option<LineMarks>>,
+    /// The marks of a large diff, found in the background.
+    marks_task: Option<Task<Vec<Option<LineMarks>>>>,
     text_lines: Vec<String>,
     is_diff: bool,
     /// The length in characters of the longest line.
@@ -47,6 +53,10 @@ pub struct DiffViewer {
 /// Content larger than this is shown only on request, like upstream's 5 MB preview guard:
 /// laying out millions of lines makes the viewer slow.
 const LARGE_CONTENT: usize = 5 * 1024 * 1024;
+
+/// Diffs with more lines get their changed words in the background (about 1 s for 80,000
+/// changed lines), smaller ones before they are first shown so the highlighting doesn't flicker.
+const BACKGROUND_MARKS_LINES: usize = 2000;
 
 /// Commands from the diff viewer context menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,7 +100,11 @@ impl ViewerCommand {
 }
 
 impl DiffViewer {
-    fn set_content(&mut self, c: &ViewerContent) {
+    fn set_content(&mut self, ctx: &egui::Context, c: &ViewerContent) {
+        if let Some(marks) = self.marks_task.as_mut().and_then(Task::try_take) {
+            self.marks = marks;
+            self.marks_task = None;
+        }
         if self.content.as_ref() == Some(c) {
             return;
         }
@@ -103,16 +117,28 @@ impl DiffViewer {
             ViewerContent::Diff(d) => {
                 self.is_diff = true;
                 self.lines = parse_diff_lines(&strip_ansi(d));
+                self.marks.clear();
+                self.marks_task = None;
+                if self.lines.len() <= BACKGROUND_MARKS_LINES {
+                    self.marks = inline_differences(&self.lines);
+                } else {
+                    let lines = self.lines.clone();
+                    self.marks_task = Some(Task::spawn(ctx, move || inline_differences(&lines)));
+                }
                 self.text_lines.clear();
             }
             ViewerContent::Text(t) => {
                 self.is_diff = false;
                 self.lines.clear();
+                self.marks.clear();
+                self.marks_task = None;
                 self.text_lines = t.lines().map(|l| l.replace('\t', "    ")).collect();
             }
             _ => {
                 self.is_diff = false;
                 self.lines.clear();
+                self.marks.clear();
+                self.marks_task = None;
                 self.text_lines.clear();
             }
         }
@@ -198,7 +224,7 @@ impl DiffViewer {
     /// in `settings`, like upstream remembers them; returns true when it changed them (the
     /// caller saves the settings, and the diffs reload as their options are part of their key).
     pub fn toolbar(&mut self, ui: &mut Ui, content: &ViewerContent, settings: &mut AppSettings) -> bool {
-        self.set_content(content);
+        self.set_content(ui.ctx(), content);
         let before = settings.clone();
         let diff = self.is_diff;
         // wraps in a narrow pane rather than widening it (commit details right of the graph)
@@ -320,7 +346,7 @@ impl DiffViewer {
 
     /// Shows `content`. `can_stage` etc. enable the context menu entries.
     pub fn ui(&mut self, ui: &mut Ui, content: &ViewerContent, show_line_numbers: bool, menu: &[ViewerCommand]) -> Option<ViewerCommand> {
-        self.set_content(content);
+        self.set_content(ui.ctx(), content);
         let palette = Palette::for_ui(ui);
         let mut command = None;
         match content {
@@ -419,13 +445,40 @@ impl DiffViewer {
                 if let Some(bg) = bg {
                     painter.rect_filled(rect, 0.0, bg);
                 }
+                let x = rect.left() + 4.0;
+                let text_x = x + if show_line_numbers { gutter } else { 0.0 } + 4.0;
+                let text = self.line_text(i);
+                let kind = self.is_diff.then(|| self.lines[i].kind);
+                let galley = if self.show_whitespace {
+                    painter.layout_no_wrap(visible_whitespace(text, kind), font.clone(), fg)
+                } else {
+                    painter.layout_no_wrap(text.to_string(), font.clone(), fg)
+                };
+                let text_pos = Pos2::new(text_x, rect.center().y - galley.size().y / 2.0);
+                if let Some(marks) = self.marks.get(i).and_then(Option::as_ref) {
+                    let added = kind == Some(DiffLineKind::Added);
+                    let col = |c: usize| {
+                        let c = if self.show_whitespace { whitespace_column(text, c) } else { c };
+                        text_pos.x + galley.pos_from_cursor(egui::text::CCursor::new(c)).min.x
+                    };
+                    let word_bg = if added { palette.diff_added_word_bg } else { palette.diff_removed_word_bg };
+                    for r in &marks.changed {
+                        let span = egui::Rect::from_x_y_ranges(col(r.start)..=col(r.end), rect.y_range());
+                        painter.rect_filled(span, 0.0, word_bg);
+                    }
+                    if let Some(a) = marks.anchor {
+                        // text was inserted in the paired line here
+                        let anchor = if added { palette.diff_removed_fg } else { palette.diff_added_fg };
+                        let ax = col(a);
+                        painter.line_segment([Pos2::new(ax, rect.top()), Pos2::new(ax, rect.bottom())], egui::Stroke::new(2.0_f32, anchor));
+                    }
+                }
                 if self.selected.contains(&i) {
                     painter.rect_filled(rect, 0.0, palette.diff_selected_bg);
                 }
                 if self.find_match == Some(i) {
                     painter.rect_stroke(rect.shrink(0.5), 0.0, egui::Stroke::new(1.0_f32, palette.warning), egui::StrokeKind::Middle);
                 }
-                let mut x = rect.left() + 4.0;
                 if show_line_numbers {
                     let nums = if self.is_diff {
                         let l = &self.lines[i];
@@ -438,19 +491,12 @@ impl DiffViewer {
                         format!("{:>w$}", i + 1, w = (count.max(1).ilog10() + 1) as usize)
                     };
                     painter.text(Pos2::new(x, rect.center().y), egui::Align2::LEFT_CENTER, nums, font.clone(), palette.line_number);
-                    x += gutter;
                     painter.line_segment(
-                        [Pos2::new(x - 4.0, rect.top()), Pos2::new(x - 4.0, rect.bottom())],
+                        [Pos2::new(x + gutter - 4.0, rect.top()), Pos2::new(x + gutter - 4.0, rect.bottom())],
                         egui::Stroke::new(1.0_f32, palette.line_number.gamma_multiply(0.3)),
                     );
                 }
-                let text = self.line_text(i);
-                if self.show_whitespace {
-                    let kind = self.is_diff.then(|| self.lines[i].kind);
-                    painter.text(Pos2::new(x + 4.0, rect.center().y), egui::Align2::LEFT_CENTER, visible_whitespace(text, kind), font.clone(), fg);
-                } else {
-                    painter.text(Pos2::new(x + 4.0, rect.center().y), egui::Align2::LEFT_CENTER, text, font.clone(), fg);
-                }
+                painter.galley(text_pos, galley, fg);
                 if resp.clicked() {
                     let m = ui.input(|inp| inp.modifiers);
                     clicked_line = Some((i, m.shift, m.command || m.ctrl));
@@ -611,6 +657,11 @@ fn visible_whitespace(text: &str, kind: Option<DiffLineKind>) -> String {
         }
         Some(_) => text.to_string(),
     }
+}
+
+/// The column of char `c` of a diff line once [`visible_whitespace`] made tabs 4 chars wide.
+fn whitespace_column(text: &str, c: usize) -> usize {
+    c + 3 * text.chars().take(c).skip(1).filter(|&ch| ch == '\t').count()
 }
 
 #[cfg(test)]

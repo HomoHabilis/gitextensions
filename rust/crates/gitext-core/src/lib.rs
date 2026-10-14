@@ -36,3 +36,4 @@ pub mod file_tree;
 pub mod url_util;
 pub mod wsl;
 pub mod diff_tools;
+pub mod inline_diff;
