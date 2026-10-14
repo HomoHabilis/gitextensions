@@ -76,7 +76,7 @@ impl BrowseView {
         let ctrl_shift = M::COMMAND | M::SHIFT;
         let ctrl_alt = M::COMMAND | M::ALT;
         let open = |actions: &mut Vec<Action>, d: Box<dyn dialogs::Dialog>| actions.push(Action::OpenDialog(d));
-        let at = self.grid.selected_revision().filter(|id| !id.is_artificial()).unwrap_or(self.data.head);
+        let at = self.selected_or_head();
 
         if shortcut(ctx, M::COMMAND, Key::B) {
             open(actions, Box::new(dialogs::branch::CreateBranchDialog::new(at)));
@@ -280,6 +280,12 @@ impl BrowseView {
             self.status_task = Some(Task::spawn(ctx, move || (m.head_id(), m.get_status(mode, true).unwrap_or_default())));
         }
         ctx.request_repaint_after(Duration::from_secs(5));
+    }
+
+    /// The latest selected revision, or HEAD when nothing (or only the worktree/index) is
+    /// selected: upstream's `LatestSelectedRevision` as `FormCreateBranch`/`FormCreateTag` resolve it.
+    pub fn selected_or_head(&self) -> ObjectId {
+        self.grid.selected_revision().filter(|id| !id.is_artificial()).unwrap_or(self.data.head)
     }
 
     fn selected_parents(&self) -> Vec<ObjectId> {

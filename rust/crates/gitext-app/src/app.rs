@@ -383,6 +383,8 @@ impl GitExtApp {
         let has_repo = self.browse.is_some();
         let data = self.browse.as_ref().map(|b| b.data.clone()).unwrap_or_default();
         let head = data.head;
+        // Create branch/tag start at the commit selected in the grid, as upstream does.
+        let at = self.browse.as_ref().map_or(head, |b| b.selected_or_head());
         let mut open: Vec<Box<dyn Dialog>> = Vec::new();
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("Start", |ui| {
@@ -527,13 +529,13 @@ impl GitExtApp {
                     item(ui, "Reset changes…", &mut || Box::new(reset::ResetChangesDialog::all()));
                     item(ui, "Clean working directory…", &mut || Box::new(cleanup::CleanupDialog::default()));
                     ui.separator();
-                    item(ui, "Create branch…  (Ctrl+B)", &mut || Box::new(branch::CreateBranchDialog::new(head)));
+                    item(ui, "Create branch…  (Ctrl+B)", &mut || Box::new(branch::CreateBranchDialog::new(at)));
                     item(ui, "Checkout branch…  (Ctrl+.)", &mut || Box::new(checkout::CheckoutBranchDialog::new(&data, None, false)));
                     item(ui, "Merge branches…  (Ctrl+M)", &mut || Box::new(merge::MergeDialog::new(&data, "")));
                     item(ui, "Rebase…  (Ctrl+Shift+E)", &mut || Box::new(rebase::RebaseDialog::new(&data, "")));
                     item(ui, "Delete branch…", &mut || Box::new(branch::DeleteBranchDialog::new(&data, None)));
                     ui.separator();
-                    item(ui, "Create tag…  (Ctrl+T)", &mut || Box::new(tag::CreateTagDialog::new(head)));
+                    item(ui, "Create tag…  (Ctrl+T)", &mut || Box::new(tag::CreateTagDialog::new(at)));
                     item(ui, "Delete tag…", &mut || Box::new(tag::DeleteTagDialog::new(&data, None)));
                     ui.separator();
                     item(ui, "Checkout revision…", &mut || Box::new(checkout::CheckoutRevisionDialog::new(head)));
