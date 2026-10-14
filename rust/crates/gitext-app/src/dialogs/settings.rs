@@ -34,6 +34,51 @@ pub struct SettingsDialog {
     git_version: Option<(String, String)>,
     /// Result of the last Explorer menu registration.
     shell_ext_result: Option<Result<String, String>>,
+    /// Reads what the Git page shows in the background as soon as the dialog opens: it takes
+    /// a few git calls, each slow on Windows.
+    git_page: Option<crate::tasks::Task<GitPageData>>,
+}
+
+/// What the Git page reads from git: the version and the global config.
+struct GitPageData {
+    git_command: String,
+    version: String,
+    name: String,
+    email: String,
+    editor: String,
+    tools: [super::tools::ToolEdit; 2],
+}
+
+impl GitPageData {
+    fn load(git_command: String) -> Self {
+        use gitext_core::diff_tools::{read_config_list, ToolConfigStore, ToolType};
+        let version = git_version(&git_command);
+        let git = Executable::git(std::env::temp_dir());
+        let global = read_config_list(&git, &GitArgs::new("config").arg("--global").arg("--list").arg("-z"));
+        let global_get = |k: &str| global.get(k).map(|v| v.trim().to_string()).unwrap_or_default();
+        let store = ToolConfigStore::snapshot(Executable::git(std::env::temp_dir()));
+        let mut tools = [super::tools::ToolEdit::load(&store, ToolType::Diff), super::tools::ToolEdit::load(&store, ToolType::Merge)];
+        // looking for the installed tools checks many paths: done here too, not on the page
+        for t in &mut tools {
+            t.detected();
+        }
+        GitPageData {
+            git_command,
+            version,
+            name: global_get("user.name"),
+            email: global_get("user.email"),
+            editor: global_get("core.editor"),
+            tools,
+        }
+    }
+}
+
+fn git_version(git_command: &str) -> String {
+    Executable::new(if git_command.is_empty() { "git" } else { git_command }, std::env::temp_dir())
+        .output(&GitArgs::new("version"))
+        .unwrap_or_else(|e| e.to_string())
+        .trim()
+        .to_string()
 }
 
 impl SettingsDialog {
@@ -70,6 +115,18 @@ impl Dialog for SettingsDialog {
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         let s = self.edit.get_or_insert_with(|| cx.settings.clone());
+        if self.tools.is_none() && self.git_page.is_none() {
+            let git_command = s.git_command.clone();
+            self.git_page = Some(crate::tasks::Task::spawn(cx.ctx, move || GitPageData::load(git_command)));
+        }
+        if let Some(d) = self.git_page.as_mut().and_then(|t| t.try_take()) {
+            self.git_page = None;
+            self.git_version.get_or_insert((d.git_command, d.version));
+            self.global_name.get_or_insert(d.name);
+            self.global_email.get_or_insert(d.email);
+            self.global_editor.get_or_insert(d.editor);
+            self.tools.get_or_insert(d.tools);
+        }
         let mut keep = true;
         egui::SidePanel::left("settings_pages").resizable(false).exact_width(170.0).show_inside(ui, |ui| {
             for (i, p) in PAGES.iter().enumerate() {
@@ -279,44 +336,48 @@ impl Dialog for SettingsDialog {
                             ui.label("Git command");
                             ui.text_edit_singleline(&mut s.git_command);
                         });
-                        if self.git_version.as_ref().is_none_or(|(cmd, _)| *cmd != s.git_command) {
-                            let version = Executable::new(if s.git_command.is_empty() { "git" } else { &s.git_command }, std::env::temp_dir())
-                                .output(&GitArgs::new("version"))
-                                .unwrap_or_else(|e| e.to_string());
-                            self.git_version = Some((s.git_command.clone(), version.trim().to_string()));
+                        if self.git_page.is_none() && self.git_version.as_ref().is_none_or(|(cmd, _)| *cmd != s.git_command) {
+                            self.git_version = Some((s.git_command.clone(), git_version(&s.git_command)));
                         }
                         ui.label(RichText::new(self.git_version.as_ref().map(|(_, v)| v.as_str()).unwrap_or_default()).small());
                         ui.checkbox(&mut s.wsl_git_enabled, "Use the git of the WSL distro for repositories in WSL (\\\\wsl$\\…, Windows only)")
                             .on_hover_text("Runs `wsl -d <distro> git` for these repositories: much faster than Windows git on WSL files, and no \"dubious ownership\" errors.");
                         ui.separator();
                         ui.label(RichText::new("Global git configuration").strong());
-                        let name = self.global_name.get_or_insert_with(|| global_get("user.name"));
-                        ui.horizontal(|ui| {
-                            ui.label("User name");
-                            ui.text_edit_singleline(name);
-                        });
-                        let email = self.global_email.get_or_insert_with(|| global_get("user.email"));
-                        ui.horizontal(|ui| {
-                            ui.label("User email");
-                            ui.text_edit_singleline(email);
-                        });
-                        let editor = self.global_editor.get_or_insert_with(|| global_get("core.editor"));
-                        ui.horizontal(|ui| {
-                            ui.label("Editor (core.editor)");
-                            ui.text_edit_singleline(editor);
-                        });
-                        ui.separator();
-                        ui.label(RichText::new("Diff and merge tools").strong());
-                        let tools = self.tools.get_or_insert_with(|| {
-                            let store = gitext_core::diff_tools::ToolConfigStore::default();
-                            [
-                                super::tools::ToolEdit::load(&store, gitext_core::diff_tools::ToolType::Diff),
-                                super::tools::ToolEdit::load(&store, gitext_core::diff_tools::ToolType::Merge),
-                            ]
-                        });
-                        for t in tools.iter_mut() {
-                            t.ui(ui);
-                            ui.add_space(6.0);
+                        if self.git_page.is_some() {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label("Reading the git configuration…");
+                            });
+                        } else {
+                            let name = self.global_name.get_or_insert_with(|| global_get("user.name"));
+                            ui.horizontal(|ui| {
+                                ui.label("User name");
+                                ui.text_edit_singleline(name);
+                            });
+                            let email = self.global_email.get_or_insert_with(|| global_get("user.email"));
+                            ui.horizontal(|ui| {
+                                ui.label("User email");
+                                ui.text_edit_singleline(email);
+                            });
+                            let editor = self.global_editor.get_or_insert_with(|| global_get("core.editor"));
+                            ui.horizontal(|ui| {
+                                ui.label("Editor (core.editor)");
+                                ui.text_edit_singleline(editor);
+                            });
+                            ui.separator();
+                            ui.label(RichText::new("Diff and merge tools").strong());
+                            let tools = self.tools.get_or_insert_with(|| {
+                                let store = gitext_core::diff_tools::ToolConfigStore::default();
+                                [
+                                    super::tools::ToolEdit::load(&store, gitext_core::diff_tools::ToolType::Diff),
+                                    super::tools::ToolEdit::load(&store, gitext_core::diff_tools::ToolType::Merge),
+                                ]
+                            });
+                            for t in tools.iter_mut() {
+                                t.ui(ui);
+                                ui.add_space(6.0);
+                            }
                         }
                         ui.separator();
                         ui.label(RichText::new("Applications").strong());
