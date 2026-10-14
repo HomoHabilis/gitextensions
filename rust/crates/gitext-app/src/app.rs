@@ -726,7 +726,7 @@ impl eframe::App for GitExtApp {
                 crate::prof::scope("toolbar", || browse.toolbar(ui, &mut self.settings, &mut self.actions));
                 ui.add_space(2.0);
             });
-            egui::TopBottomPanel::bottom("statusbar").show(ctx, |ui| crate::prof::scope("statusbar", || browse.status_bar(ui, &mut self.actions)));
+            egui::TopBottomPanel::bottom("statusbar").show(ctx, |ui| crate::prof::scope("statusbar", || browse.status_bar(ui)));
             egui::CentralPanel::default().show(ctx, |ui| {
                 browse.ui(ctx, ui, &mut self.settings, &mut self.actions);
             });

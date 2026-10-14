@@ -461,52 +461,107 @@ impl BrowseView {
         self.grid.filter.follow = true;
     }
 
+    /// Bar above the revision grid while a git operation is in progress or conflicts are left
+    /// (`InteractiveGitActionControl`): resolve, continue or abort it from there.
+    fn operation_bar(&self, ui: &mut Ui, actions: &mut Vec<Action>) {
+        let st = self.data.state;
+        let conflicts = self.data.has_conflicts();
+        let operation = if st.rebasing {
+            Some("Rebase")
+        } else if st.applying_patch {
+            Some("Patch")
+        } else if st.merging {
+            Some("Merge")
+        } else if st.cherry_picking {
+            Some("Cherry-pick")
+        } else if st.reverting {
+            Some("Revert")
+        } else if st.bisecting {
+            Some("Bisect")
+        } else {
+            None
+        };
+        if operation.is_none() && !conflicts {
+            return;
+        }
+        let text = match operation {
+            None => "There are unresolved merge conflicts.".to_string(),
+            Some(op) if conflicts => format!("{op} is currently in progress with merge conflicts."),
+            Some(op) => format!("{op} is currently in progress."),
+        };
+        let dark = ui.visuals().dark_mode;
+        let (fill, fg) = match (conflicts, dark) {
+            (true, false) => (egui::Color32::from_rgb(255, 165, 0), egui::Color32::BLACK),
+            (true, true) => (egui::Color32::from_rgb(130, 80, 0), egui::Color32::WHITE),
+            (false, false) => (egui::Color32::from_rgb(135, 206, 250), egui::Color32::BLACK),
+            (false, true) => (egui::Color32::from_rgb(25, 75, 115), egui::Color32::WHITE),
+        };
+        egui::Frame::new().fill(fill).inner_margin(egui::Margin::symmetric(8, 5)).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(if conflicts { "⚠" } else { "ℹ" }).color(fg).strong());
+                ui.label(RichText::new(text).color(fg));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // right to left: the last button added is the leftmost
+                    let abort: Option<GitArgs> = if st.rebasing {
+                        Some(commands::abort_rebase())
+                    } else if st.applying_patch {
+                        Some(commands::abort_mailbox())
+                    } else if st.merging {
+                        Some(commands::abort_merge())
+                    } else if st.cherry_picking {
+                        Some(GitArgs::new("cherry-pick").arg("--abort"))
+                    } else if st.reverting {
+                        Some(GitArgs::new("revert").arg("--abort"))
+                    } else {
+                        None
+                    };
+                    if let Some(args) = abort {
+                        if ui.button("Abort").clicked() {
+                            actions.push(Action::RunGit(GitRun::new(format!("Abort {}", operation.unwrap_or_default().to_lowercase()), args)));
+                        }
+                    }
+                    if (st.rebasing || st.applying_patch) && !conflicts && ui.button("Skip").clicked() {
+                        actions.push(Action::RunGit(GitRun::new("Skip", if st.applying_patch { commands::skip_mailbox() } else { commands::skip_rebase() }).conflicts()));
+                    }
+                    if st.bisecting && operation == Some("Bisect") && ui.button("Bisect…").clicked() {
+                        actions.push(Action::OpenDialog(Box::new(dialogs::bisect::BisectDialog)));
+                    }
+                    if conflicts {
+                        if ui.button("Resolve conflicts…").clicked() {
+                            actions.push(Action::OpenDialog(Box::new(dialogs::conflicts::ConflictsDialog::default())));
+                        }
+                    } else if st.merging && !st.rebasing && !st.applying_patch {
+                        // the commit dialog takes the merge message (git merge --continue)
+                        if ui.button("Continue").on_hover_text("Commit the merge").clicked() {
+                            actions.push(Action::OpenCommit);
+                        }
+                    } else if let Some(args) = if st.rebasing {
+                        Some(commands::continue_rebase())
+                    } else if st.applying_patch {
+                        Some(commands::resolved_mailbox())
+                    } else if st.cherry_picking {
+                        Some(GitArgs::new("cherry-pick").arg("--continue"))
+                    } else if st.reverting {
+                        Some(GitArgs::new("revert").arg("--continue"))
+                    } else {
+                        None
+                    } {
+                        if ui.button("Continue").clicked() {
+                            actions.push(Action::RunGit(GitRun::new("Continue", args).conflicts()));
+                        }
+                    }
+                });
+            });
+        });
+    }
+
     /// Status bar with the repository state (merge/rebase in progress etc.).
-    pub fn status_bar(&mut self, ui: &mut Ui, actions: &mut Vec<Action>) {
+    pub fn status_bar(&mut self, ui: &mut Ui) {
         let palette = Palette::for_ui(ui);
         ui.horizontal(|ui| {
             if let Some(desc) = self.data.state.description() {
                 ui.label(RichText::new(format!("⚠ {desc}")).color(palette.warning).strong());
-                if self.data.has_conflicts() {
-                    if ui.button("Solve conflicts…").clicked() {
-                        actions.push(Action::OpenDialog(Box::new(dialogs::conflicts::ConflictsDialog::default())));
-                    }
-                }
-                let st = self.data.state;
-                if st.rebasing || st.applying_patch {
-                    if ui.button("Continue").clicked() {
-                        actions.push(Action::RunGit(GitRun::new("Continue", if st.applying_patch { commands::resolved_mailbox() } else { commands::continue_rebase() }).conflicts()));
-                    }
-                    if ui.button("Skip").clicked() {
-                        actions.push(Action::RunGit(GitRun::new("Skip", if st.applying_patch { commands::skip_mailbox() } else { commands::skip_rebase() }).conflicts()));
-                    }
-                    if ui.button("Abort").clicked() {
-                        actions.push(Action::RunGit(GitRun::new("Abort", if st.applying_patch { commands::abort_mailbox() } else { commands::abort_rebase() })));
-                    }
-                } else if st.merging {
-                    if ui.button("Commit merge…").clicked() {
-                        actions.push(Action::OpenCommit);
-                    }
-                    if ui.button("Abort merge").clicked() {
-                        actions.push(Action::RunGit(GitRun::new("Abort merge", commands::abort_merge())));
-                    }
-                } else if st.cherry_picking {
-                    if ui.button("Continue").clicked() {
-                        actions.push(Action::RunGit(GitRun::new("Continue cherry-pick", GitArgs::new("cherry-pick").arg("--continue")).conflicts()));
-                    }
-                    if ui.button("Abort").clicked() {
-                        actions.push(Action::RunGit(GitRun::new("Abort cherry-pick", GitArgs::new("cherry-pick").arg("--abort"))));
-                    }
-                } else if st.reverting {
-                    if ui.button("Continue").clicked() {
-                        actions.push(Action::RunGit(GitRun::new("Continue revert", GitArgs::new("revert").arg("--continue")).conflicts()));
-                    }
-                    if ui.button("Abort").clicked() {
-                        actions.push(Action::RunGit(GitRun::new("Abort revert", GitArgs::new("revert").arg("--abort"))));
-                    }
-                } else if st.bisecting && ui.button("Bisect…").clicked() {
-                    actions.push(Action::OpenDialog(Box::new(dialogs::bisect::BisectDialog)));
-                }
                 ui.separator();
             }
             let branch = self.data.current_branch.clone().unwrap_or_else(|| "(no branch)".into());
@@ -591,6 +646,7 @@ impl BrowseView {
         });
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
+            self.operation_bar(ui, actions);
             let events = crate::prof::scope("grid", || self.grid.ui(ui, settings, &self.data));
             if events.selection_changed {
                 if let Some(id) = self.grid.selected_revision() {

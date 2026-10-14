@@ -612,6 +612,28 @@ impl GitModule {
         v
     }
 
+    /// The unmerged files with the stages present in the index (`ls-files --unmerged`), so that
+    /// files deleted on one side can be told apart (`GitModule.GetConflictsAsync`).
+    pub fn get_conflicts(&self) -> Vec<ConflictData> {
+        // a non-zero exit code is ignored, e.g. for a missing submodule
+        let out = self.run(&GitArgs::new("ls-files").arg("-z").arg("--unmerged")).map(|r| r.stdout_str()).unwrap_or_default();
+        parse_conflicts(&out)
+    }
+
+    /// Resolves a conflict by taking one stage of the file and staging it (`HandleConflictSelectSide`).
+    pub fn choose_conflict_side(&self, file: &str, side: ConflictSide) -> GitResult<()> {
+        let path = to_posix_path(file);
+        self.run_checked(&GitArgs::new("checkout-index").arg("-f").arg(format!("--stage={}", side.stage())).arg("--").arg(&path))?;
+        self.run_checked(&GitArgs::new("add").arg("--").arg(&path))?;
+        Ok(())
+    }
+
+    /// Resolves a conflict by deleting the file.
+    pub fn delete_conflicted_file(&self, file: &str) -> GitResult<()> {
+        self.run_checked(&GitArgs::new("rm").arg("--quiet").arg("--").arg(to_posix_path(file)))?;
+        Ok(())
+    }
+
     // ---------------------------------------------------------------- staging
 
     pub fn stage_files(&self, files: &[&str]) -> GitResult<ExecResult> {
@@ -1219,6 +1241,78 @@ pub(crate) mod test_repo {
     }
 }
 
+/// One side of a merge conflict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConflictSide {
+    Base,
+    Local,
+    Remote,
+}
+
+impl ConflictSide {
+    /// The index stage holding this side.
+    pub fn stage(self) -> u8 {
+        match self {
+            ConflictSide::Base => 1,
+            ConflictSide::Local => 2,
+            ConflictSide::Remote => 3,
+        }
+    }
+}
+
+/// A stage of a conflicted file in the index.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConflictStage {
+    pub mode: String,
+    pub id: String,
+}
+
+/// A conflicted file: which of base, local and remote exist (`ConflictData`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConflictData {
+    pub file_name: String,
+    pub base: Option<ConflictStage>,
+    pub local: Option<ConflictStage>,
+    pub remote: Option<ConflictStage>,
+}
+
+impl ConflictData {
+    pub fn side(&self, side: ConflictSide) -> Option<&ConflictStage> {
+        match side {
+            ConflictSide::Base => self.base.as_ref(),
+            ConflictSide::Local => self.local.as_ref(),
+            ConflictSide::Remote => self.remote.as_ref(),
+        }
+    }
+
+    /// A submodule or a symbolic link on either side: a merge tool cannot merge it.
+    pub fn is_special(&self) -> bool {
+        [&self.local, &self.remote].into_iter().flatten().any(|s| s.mode == "160000" || s.mode == "120000")
+    }
+}
+
+/// Parses `git ls-files -z --unmerged`: `<mode> <id> <stage>\t<path>` entries.
+pub fn parse_conflicts(out: &str) -> Vec<ConflictData> {
+    let mut list: Vec<ConflictData> = Vec::new();
+    for entry in out.split('\0').filter(|e| !e.is_empty()) {
+        let Some((info, path)) = entry.split_once('\t') else { continue };
+        let mut parts = info.split_whitespace();
+        let (Some(mode), Some(id), Some(stage)) = (parts.next(), parts.next(), parts.next()) else { continue };
+        if list.last().is_none_or(|c| c.file_name != path) {
+            list.push(ConflictData { file_name: path.to_string(), ..Default::default() });
+        }
+        let c = list.last_mut().unwrap();
+        let s = Some(ConflictStage { mode: mode.to_string(), id: id.to_string() });
+        match stage {
+            "1" => c.base = s,
+            "2" => c.local = s,
+            "3" => c.remote = s,
+            _ => {}
+        }
+    }
+    list
+}
+
 #[cfg(test)]
 mod tests {
     //! Ported from GitCommands.Tests/GitModuleTests.cs, GitModuleTests_Remotes.cs,
@@ -1552,6 +1646,47 @@ mod tests {
         let patch = crate::patch::create_partial_patch(&staged, &selected, true).unwrap();
         m.apply_patch_text(&patch, true, true).unwrap();
         assert!(m.get_file_diff(None, ObjectId::INDEX, "f.txt", None, &DiffOptions::default()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn parse_unmerged_entries() {
+        let out = "100644 aaa 1\ta.txt\x00100644 bbb 3\ta.txt\x00100644 ccc 1\tb c.txt\x00100644 ddd 2\tb c.txt\x00100644 eee 3\tb c.txt\x00";
+        let c = parse_conflicts(out);
+        assert_eq!(c.len(), 2);
+        assert_eq!(c[0].file_name, "a.txt");
+        assert!(c[0].base.is_some() && c[0].local.is_none() && c[0].remote.as_ref().unwrap().id == "bbb");
+        assert_eq!(c[1].file_name, "b c.txt");
+        assert!(c[1].base.is_some() && c[1].local.is_some() && c[1].remote.is_some());
+    }
+
+    #[test]
+    fn modify_delete_conflict() {
+        let repo = TestRepo::new();
+        let m = &repo.module;
+        repo.commit_file("f.txt", "base\n", "base");
+        let base = repo.commit_file("g.txt", "base\n", "base g");
+        m.run_checked(&commands::branch("other", base, true)).unwrap();
+        repo.commit_file("f.txt", "other\n", "other");
+        repo.commit_file("g.txt", "other\n", "other g");
+        m.run_checked(&commands::checkout("master", Default::default())).unwrap();
+        repo.git(&["rm", "-q", "f.txt", "g.txt"]);
+        repo.git(&["commit", "-q", "-m", "delete"]);
+        assert!(!m.run(&commands::merge_branch("other", &commands::MergeOptions::default())).unwrap().success());
+        let c = m.get_conflicts();
+        assert_eq!(c.iter().map(|c| c.file_name.as_str()).collect::<Vec<_>>(), ["f.txt", "g.txt"]);
+        assert!(c[0].base.is_some() && c[0].local.is_none() && c[0].remote.is_some());
+
+        // keep the modified version
+        m.choose_conflict_side("f.txt", ConflictSide::Remote).unwrap();
+        assert_eq!(std::fs::read_to_string(m.work_dir().join("f.txt")).unwrap(), "other\n");
+        // delete the other one
+        m.delete_conflicted_file("g.txt").unwrap();
+        assert!(!m.work_dir().join("g.txt").exists());
+        assert!(m.get_conflicts().is_empty());
+        // choosing the deleted side fails rather than resolving silently
+        m.run_checked(&commands::abort_merge()).unwrap();
+        assert!(!m.run(&commands::merge_branch("other", &commands::MergeOptions::default())).unwrap().success());
+        assert!(m.choose_conflict_side("f.txt", ConflictSide::Local).is_err());
     }
 
     #[test]
