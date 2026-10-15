@@ -3,6 +3,7 @@ name = "gitext-graph"
 description = "Revision graph layout engine of the Git Extensions Rust port (port of GitUI RevisionGrid.Graph)"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 
 [dependencies]

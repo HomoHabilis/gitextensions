@@ -3,6 +3,7 @@ name = "gitext-core"
 description = "Git command layer of the Git Extensions Rust port (port of GitCommands)"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
