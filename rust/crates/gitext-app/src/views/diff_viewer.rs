@@ -318,14 +318,21 @@ impl DiffViewer {
                 };
                 ui.menu_button(RichText::new(label).small(), |ui| {
                     ui.checkbox(&mut settings.ignore_whitespace, tr("Ignore all whitespace changes (-w)"));
-                    ui.add_enabled(!settings.ignore_whitespace, egui::Checkbox::new(&mut settings.ignore_whitespace_changes, tr("Ignore changes in amount of whitespace (-b)")));
+                    ui.add_enabled(
+                        !settings.ignore_whitespace,
+                        egui::Checkbox::new(&mut settings.ignore_whitespace_changes, tr("Ignore changes in amount of whitespace (-b)")),
+                    );
                     ui.add_enabled(
                         !settings.ignore_whitespace && !settings.ignore_whitespace_changes,
                         egui::Checkbox::new(&mut settings.ignore_whitespace_at_eol, tr("Ignore whitespace changes at end of line")),
                     );
                 });
             });
-            if ui.selectable_label(settings.show_whitespace, RichText::new(tr("Show whitespace")).small()).on_hover_text(tr("Show whitespace characters")).clicked() {
+            if ui
+                .selectable_label(settings.show_whitespace, RichText::new(tr("Show whitespace")).small())
+                .on_hover_text(tr("Show whitespace characters"))
+                .clicked()
+            {
                 settings.show_whitespace = !settings.show_whitespace;
             }
             ui.separator();
@@ -338,14 +345,22 @@ impl DiffViewer {
                     settings.context_lines += 1;
                 }
             });
-            if ui.add_enabled(options, egui::Button::new(RichText::new(tr("Entire file")).small()).selected(settings.show_entire_file)).on_hover_text(tr("Show the entire file with the changes")).clicked() {
+            if ui
+                .add_enabled(options, egui::Button::new(RichText::new(tr("Entire file")).small()).selected(settings.show_entire_file))
+                .on_hover_text(tr("Show the entire file with the changes"))
+                .clicked()
+            {
                 settings.show_entire_file = !settings.show_entire_file;
             }
             ui.separator();
             if ui.add(egui::Button::new(RichText::new(tr("Go to line…")).small()).selected(self.goto_open)).on_hover_text("Ctrl+G").clicked() {
                 self.open_go_to_line();
             }
-            if ui.selectable_label(settings.syntax_highlighting, RichText::new(tr("Syntax colours")).small()).on_hover_text(tr("Colour the code by its language")).clicked() {
+            if ui
+                .selectable_label(settings.syntax_highlighting, RichText::new(tr("Syntax colours")).small())
+                .on_hover_text(tr("Colour the code by its language"))
+                .clicked()
+            {
                 settings.syntax_highlighting = !settings.syntax_highlighting;
             }
             if self.appearance_menu {
@@ -357,7 +372,8 @@ impl DiffViewer {
                 ui.menu_button(RichText::new(label).small(), |ui| {
                     ui.radio_value(&mut settings.diff_appearance, DiffAppearance::Patch, tr("Patch"));
                     ui.radio_value(&mut settings.diff_appearance, DiffAppearance::WordDiff, tr("Git word diff"));
-                    ui.radio_value(&mut settings.diff_appearance, DiffAppearance::Difftastic, tr("Difftastic")).on_hover_text(tr("Structural diff, needs difftastic set up as a git difftool (difftool.difftastic.cmd)"));
+                    ui.radio_value(&mut settings.diff_appearance, DiffAppearance::Difftastic, tr("Difftastic"))
+                        .on_hover_text(tr("Structural diff, needs difftastic set up as a git difftool (difftool.difftastic.cmd)"));
                 });
             }
         });
@@ -398,7 +414,11 @@ impl DiffViewer {
     }
 
     pub(crate) fn line_count(&self) -> usize {
-        if self.is_diff { self.lines.len() } else { self.text_lines.len() }
+        if self.is_diff {
+            self.lines.len()
+        } else {
+            self.text_lines.len()
+        }
     }
 
     /// The content shown (tests).
@@ -408,7 +428,11 @@ impl DiffViewer {
     }
 
     fn line_text(&self, i: usize) -> &str {
-        if self.is_diff { &self.lines[i].text } else { &self.text_lines[i] }
+        if self.is_diff {
+            &self.lines[i].text
+        } else {
+            &self.text_lines[i]
+        }
     }
 
     fn find_next(&mut self, backwards: bool) {
@@ -509,7 +533,11 @@ impl DiffViewer {
         // git's coloured views number their lines themselves (grep), or have none to number
         let show_line_numbers = show_line_numbers && !matches!(content, ViewerContent::Colored(_));
         let gutter = if show_line_numbers {
-            if self.is_diff { char_w * 11.0 } else { char_w * (count.max(1).ilog10() as f32 + 2.0) }
+            if self.is_diff {
+                char_w * 11.0
+            } else {
+                char_w * (count.max(1).ilog10() as f32 + 2.0)
+            }
         } else {
             0.0
         };
@@ -527,105 +555,111 @@ impl DiffViewer {
         // show_rows also adds item_spacing.y to its row stride, so zero it before the call.
         let item_spacing = ui.spacing().item_spacing;
         ui.spacing_mut().item_spacing.y = 0.0;
-        let area_rect = area.show_rows(ui, row_h, count, |ui, range| {
-            let width = content_w.max(ui.available_width());
-            ui.set_min_width(width);
-            for i in range {
-                let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, row_h), Sense::click_and_drag());
-                let painter = ui.painter_at(rect);
-                let (bg, fg) = self.colors(i, &palette, ui.visuals().text_color());
-                if let Some(bg) = bg {
-                    painter.rect_filled(rect, 0.0, bg);
-                }
-                let x = rect.left() + 4.0;
-                let text_x = x + if show_line_numbers { gutter } else { 0.0 } + 4.0;
-                let text = self.line_text(i);
-                let kind = self.is_diff.then(|| self.lines[i].kind);
-                let galley = match self.styles.get(i).filter(|s| !s.is_empty()) {
-                    Some(spans) => painter.layout_job(styled_line(text, kind, spans, self.show_whitespace, &font, fg)),
-                    None if self.show_whitespace => painter.layout_no_wrap(visible_whitespace(text, kind), font.clone(), fg),
-                    None => painter.layout_no_wrap(text.to_string(), font.clone(), fg),
-                };
-                let text_pos = Pos2::new(text_x, rect.center().y - galley.size().y / 2.0);
-                if let Some(marks) = self.marks.get(i).and_then(Option::as_ref) {
-                    let added = kind == Some(DiffLineKind::Added);
-                    let col = |c: usize| {
-                        let c = if self.show_whitespace { whitespace_column(text, c) } else { c };
-                        text_pos.x + galley.pos_from_cursor(egui::text::CCursor::new(c)).min.x
-                    };
-                    let word_bg = if added { palette.diff_added_word_bg } else { palette.diff_removed_word_bg };
-                    for r in &marks.changed {
-                        let span = egui::Rect::from_x_y_ranges(col(r.start)..=col(r.end), rect.y_range());
-                        painter.rect_filled(span, 0.0, word_bg);
+        let area_rect = area
+            .show_rows(ui, row_h, count, |ui, range| {
+                let width = content_w.max(ui.available_width());
+                ui.set_min_width(width);
+                for i in range {
+                    let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, row_h), Sense::click_and_drag());
+                    let painter = ui.painter_at(rect);
+                    let (bg, fg) = self.colors(i, &palette, ui.visuals().text_color());
+                    if let Some(bg) = bg {
+                        painter.rect_filled(rect, 0.0, bg);
                     }
-                    if let Some(a) = marks.anchor {
-                        // text was inserted in the paired line here
-                        let anchor = if added { palette.diff_removed_fg } else { palette.diff_added_fg };
-                        let ax = col(a);
-                        painter.line_segment([Pos2::new(ax, rect.top()), Pos2::new(ax, rect.bottom())], egui::Stroke::new(2.0_f32, anchor));
-                    }
-                }
-                if self.selected.contains(&i) {
-                    painter.rect_filled(rect, 0.0, palette.diff_selected_bg);
-                }
-                if self.find_match == Some(i) {
-                    painter.rect_stroke(rect.shrink(0.5), 0.0, egui::Stroke::new(1.0_f32, palette.warning), egui::StrokeKind::Middle);
-                }
-                if show_line_numbers {
-                    let nums = if self.is_diff {
-                        let l = &self.lines[i];
-                        format!(
-                            "{:>4} {:>4}",
-                            l.old_line.map(|n| n.to_string()).unwrap_or_default(),
-                            l.new_line.map(|n| n.to_string()).unwrap_or_default()
-                        )
-                    } else {
-                        format!("{:>w$}", i + 1, w = (count.max(1).ilog10() + 1) as usize)
+                    let x = rect.left() + 4.0;
+                    let text_x = x + if show_line_numbers { gutter } else { 0.0 } + 4.0;
+                    let text = self.line_text(i);
+                    let kind = self.is_diff.then(|| self.lines[i].kind);
+                    let galley = match self.styles.get(i).filter(|s| !s.is_empty()) {
+                        Some(spans) => painter.layout_job(styled_line(text, kind, spans, self.show_whitespace, &font, fg)),
+                        None if self.show_whitespace => painter.layout_no_wrap(visible_whitespace(text, kind), font.clone(), fg),
+                        None => painter.layout_no_wrap(text.to_string(), font.clone(), fg),
                     };
-                    painter.text(Pos2::new(x, rect.center().y), egui::Align2::LEFT_CENTER, nums, font.clone(), palette.line_number);
-                    painter.line_segment(
-                        [Pos2::new(x + gutter - 4.0, rect.top()), Pos2::new(x + gutter - 4.0, rect.bottom())],
-                        egui::Stroke::new(1.0_f32, palette.line_number.gamma_multiply(0.3)),
-                    );
-                }
-                painter.galley(text_pos, galley, fg);
-                if resp.clicked() {
-                    let m = ui.input(|inp| inp.modifiers);
-                    clicked_line = Some((i, m.shift, m.command || m.ctrl));
-                }
-                if resp.drag_started() {
-                    self.drag_start = Some(i);
-                }
-                if resp.hovered() {
-                    hovered_line = Some(i);
-                }
-                if resp.secondary_clicked() {
-                    secondary = Some(i);
-                }
-                if ui.input(|inp| inp.pointer.primary_down()) && self.drag_start.is_some() && rect.contains(ui.input(|inp| inp.pointer.interact_pos().unwrap_or_default())) {
-                    drag_line = Some(i);
-                }
-                resp.context_menu(|ui| {
-                    let copy_versions = if self.is_diff { &[ViewerCommand::CopyOldVersion, ViewerCommand::CopyNewVersion][..] } else { &[] };
-                    for &c in menu.iter().chain(copy_versions) {
-                        let enabled = self.can_run(c);
-                        let mut button = egui::Button::new(c.label());
-                        if let Some((m, k)) = c.key() {
-                            button = button.shortcut_text(ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(m, k)));
+                    let text_pos = Pos2::new(text_x, rect.center().y - galley.size().y / 2.0);
+                    if let Some(marks) = self.marks.get(i).and_then(Option::as_ref) {
+                        let added = kind == Some(DiffLineKind::Added);
+                        let col = |c: usize| {
+                            let c = if self.show_whitespace { whitespace_column(text, c) } else { c };
+                            text_pos.x + galley.pos_from_cursor(egui::text::CCursor::new(c)).min.x
+                        };
+                        let word_bg = if added { palette.diff_added_word_bg } else { palette.diff_removed_word_bg };
+                        for r in &marks.changed {
+                            let span = egui::Rect::from_x_y_ranges(col(r.start)..=col(r.end), rect.y_range());
+                            painter.rect_filled(span, 0.0, word_bg);
                         }
-                        if ui.add_enabled(enabled, button).clicked() {
-                            command = Some(c);
+                        if let Some(a) = marks.anchor {
+                            // text was inserted in the paired line here
+                            let anchor = if added { palette.diff_removed_fg } else { palette.diff_added_fg };
+                            let ax = col(a);
+                            painter.line_segment([Pos2::new(ax, rect.top()), Pos2::new(ax, rect.bottom())], egui::Stroke::new(2.0_f32, anchor));
+                        }
+                    }
+                    if self.selected.contains(&i) {
+                        painter.rect_filled(rect, 0.0, palette.diff_selected_bg);
+                    }
+                    if self.find_match == Some(i) {
+                        painter.rect_stroke(rect.shrink(0.5), 0.0, egui::Stroke::new(1.0_f32, palette.warning), egui::StrokeKind::Middle);
+                    }
+                    if show_line_numbers {
+                        let nums = if self.is_diff {
+                            let l = &self.lines[i];
+                            format!("{:>4} {:>4}", l.old_line.map(|n| n.to_string()).unwrap_or_default(), l.new_line.map(|n| n.to_string()).unwrap_or_default())
+                        } else {
+                            format!("{:>w$}", i + 1, w = (count.max(1).ilog10() + 1) as usize)
+                        };
+                        painter.text(Pos2::new(x, rect.center().y), egui::Align2::LEFT_CENTER, nums, font.clone(), palette.line_number);
+                        painter.line_segment(
+                            [Pos2::new(x + gutter - 4.0, rect.top()), Pos2::new(x + gutter - 4.0, rect.bottom())],
+                            egui::Stroke::new(1.0_f32, palette.line_number.gamma_multiply(0.3)),
+                        );
+                    }
+                    painter.galley(text_pos, galley, fg);
+                    if resp.clicked() {
+                        let m = ui.input(|inp| inp.modifiers);
+                        clicked_line = Some((i, m.shift, m.command || m.ctrl));
+                    }
+                    if resp.drag_started() {
+                        self.drag_start = Some(i);
+                    }
+                    if resp.hovered() {
+                        hovered_line = Some(i);
+                    }
+                    if resp.secondary_clicked() {
+                        secondary = Some(i);
+                    }
+                    if ui.input(|inp| inp.pointer.primary_down())
+                        && self.drag_start.is_some()
+                        && rect.contains(ui.input(|inp| inp.pointer.interact_pos().unwrap_or_default()))
+                    {
+                        drag_line = Some(i);
+                    }
+                    resp.context_menu(|ui| {
+                        let copy_versions = if self.is_diff { &[ViewerCommand::CopyOldVersion, ViewerCommand::CopyNewVersion][..] } else { &[] };
+                        for &c in menu.iter().chain(copy_versions) {
+                            let enabled = self.can_run(c);
+                            let mut button = egui::Button::new(c.label());
+                            if let Some((m, k)) = c.key() {
+                                button = button.shortcut_text(ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(m, k)));
+                            }
+                            if ui.add_enabled(enabled, button).clicked() {
+                                command = Some(c);
+                                ui.close_kind(egui::UiKind::Menu);
+                            }
+                        }
+                        if ui
+                            .add(
+                                egui::Button::new(tr("Find…"))
+                                    .shortcut_text(ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::F))),
+                            )
+                            .clicked()
+                        {
+                            self.find_open = true;
                             ui.close_kind(egui::UiKind::Menu);
                         }
-                    }
-                    if ui.add(egui::Button::new(tr("Find…")).shortcut_text(ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::F)))).clicked() {
-                        self.find_open = true;
-                        ui.close_kind(egui::UiKind::Menu);
-                    }
-                });
-            }
-        })
-        .inner_rect;
+                    });
+                }
+            })
+            .inner_rect;
         ui.spacing_mut().item_spacing = item_spacing;
         let _ = hovered_line;
         crate::views::track_focus(ui, area_rect, &mut self.has_focus);
@@ -708,7 +742,9 @@ impl DiffViewer {
 
     fn can_run(&self, c: ViewerCommand) -> bool {
         match c {
-            ViewerCommand::CopyPatch | ViewerCommand::AddToCommitMessage | ViewerCommand::CopyOldVersion | ViewerCommand::CopyNewVersion => !self.selected.is_empty(),
+            ViewerCommand::CopyPatch | ViewerCommand::AddToCommitMessage | ViewerCommand::CopyOldVersion | ViewerCommand::CopyNewVersion => {
+                !self.selected.is_empty()
+            }
             _ => self.has_change_selection(),
         }
     }
@@ -764,7 +800,13 @@ fn whitespace_from(text: &str, kind: Option<DiffLineKind>) -> Option<usize> {
 /// A line with its colours (`spans`, in bytes; the rest has colour `fg`).
 fn styled_line(text: &str, kind: Option<DiffLineKind>, spans: &[Span], show_whitespace: bool, font: &FontId, fg: Color32) -> egui::text::LayoutJob {
     let ws_from = whitespace_from(text, kind).filter(|_| show_whitespace);
-    let mut cuts: Vec<usize> = spans.iter().flat_map(|s| [s.range.start, s.range.end]).chain([0, text.len()]).chain(ws_from).filter(|&c| c <= text.len() && text.is_char_boundary(c)).collect();
+    let mut cuts: Vec<usize> = spans
+        .iter()
+        .flat_map(|s| [s.range.start, s.range.end])
+        .chain([0, text.len()])
+        .chain(ws_from)
+        .filter(|&c| c <= text.len() && text.is_char_boundary(c))
+        .collect();
     cuts.sort_unstable();
     cuts.dedup();
     let mut job = egui::text::LayoutJob::default();
@@ -820,9 +862,20 @@ mod tests {
         assert_eq!(visible_whitespace("@@ -1 +1 @@", Some(DiffLineKind::HunkHeader)), "@@ -1 +1 @@");
     }
 
-    fn run_frame(ctx: &egui::Context, viewer: &mut DiffViewer, content: &ViewerContent, menu: &[ViewerCommand], events: Vec<egui::Event>) -> Option<ViewerCommand> {
+    fn run_frame(
+        ctx: &egui::Context,
+        viewer: &mut DiffViewer,
+        content: &ViewerContent,
+        menu: &[ViewerCommand],
+        events: Vec<egui::Event>,
+    ) -> Option<ViewerCommand> {
         let modifiers = events.iter().find_map(|e| if let egui::Event::Key { modifiers, .. } = e { Some(*modifiers) } else { None }).unwrap_or_default();
-        let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600.0, 400.0))), events, modifiers, ..Default::default() };
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600.0, 400.0))),
+            events,
+            modifiers,
+            ..Default::default()
+        };
         let mut out = None;
         let _ = ctx.run(input, |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {

@@ -28,8 +28,5 @@ pub fn verify(relative: &str, actual: &str) {
     }
     let expected = read_test_data(relative);
     let actual = normalize(actual);
-    assert!(
-        expected.trim_end() == actual.trim_end(),
-        "snapshot mismatch for {relative}\n--- expected ---\n{expected}\n--- actual ---\n{actual}\n"
-    );
+    assert!(expected.trim_end() == actual.trim_end(), "snapshot mismatch for {relative}\n--- expected ---\n{expected}\n--- actual ---\n{actual}\n");
 }

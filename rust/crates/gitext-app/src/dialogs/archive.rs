@@ -15,7 +15,12 @@ pub struct ArchiveDialog {
 
 impl ArchiveDialog {
     pub fn new(id: ObjectId) -> Self {
-        ArchiveDialog { revision: if id.is_zero() { "HEAD".into() } else { id.to_string() }, format: "zip".into(), path_filter: String::new(), output: String::new() }
+        ArchiveDialog {
+            revision: if id.is_zero() { "HEAD".into() } else { id.to_string() },
+            format: "zip".into(),
+            path_filter: String::new(),
+            output: String::new(),
+        }
     }
 }
 

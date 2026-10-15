@@ -191,7 +191,8 @@ impl GitExtApp {
         let Some(m) = self.module() else { return };
         let exe = m.git();
         // the git of a WSL distro uses the tools configured in the distro
-        let launch = if exe.wsl_distro.is_empty() { diff_tools::resolve_launch(&ToolConfigStore::new(exe.clone()), tool_type) } else { Some(ToolLaunch::Configured) };
+        let launch =
+            if exe.wsl_distro.is_empty() { diff_tools::resolve_launch(&ToolConfigStore::new(exe.clone()), tool_type) } else { Some(ToolLaunch::Configured) };
         let Some(launch) = launch else {
             self.open_dialog(Box::new(dialogs::tools::NoToolDialog { tool_type }));
             return;
@@ -216,7 +217,11 @@ impl GitExtApp {
             self.open_dialog(Box::new(dialogs::tools::NoToolDialog { tool_type: ToolType::Diff }));
             return;
         };
-        self.tool_runs.push((tr("Diff tool").into(), false, crate::tasks::Task::spawn(ctx, move || diff_tools::difftool_commit_with_work_tree(&exe, &launch, id))));
+        self.tool_runs.push((
+            tr("Diff tool").into(),
+            false,
+            crate::tasks::Task::spawn(ctx, move || diff_tools::difftool_commit_with_work_tree(&exe, &launch, id)),
+        ));
     }
 
     /// Runs git, or `program`, without a process dialog (user scripts set to run in the
@@ -644,7 +649,8 @@ impl GitExtApp {
                 ui.menu_button(tr("Graph"), |ui| {
                     let mut reload = false;
                     reload |= ui.radio_value(&mut self.settings.graph_draw_style, GraphDrawStyle::Normal, tr("Color all branches")).changed();
-                    reload |= ui.radio_value(&mut self.settings.graph_draw_style, GraphDrawStyle::DrawNonRelativesGray, tr("Draw non relatives gray")).changed();
+                    reload |=
+                        ui.radio_value(&mut self.settings.graph_draw_style, GraphDrawStyle::DrawNonRelativesGray, tr("Draw non relatives gray")).changed();
                     reload |= ui.radio_value(&mut self.settings.graph_draw_style, GraphDrawStyle::HighlightSelected, tr("Highlight selected branch")).changed();
                     ui.separator();
                     reload |= ui.checkbox(&mut self.settings.merge_graph_lanes_having_common_parent, tr("Merge lanes having a common parent")).changed();
@@ -854,7 +860,6 @@ impl eframe::App for GitExtApp {
         self.save_history();
     }
 }
-
 
 /// The `safe.directory` value git suggests in a "detected dubious ownership" error, if any
 /// (`BugReportInvoker.DubiousOwnershipSecurityConfigString`).

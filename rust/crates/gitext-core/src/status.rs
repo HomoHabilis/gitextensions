@@ -390,7 +390,10 @@ mod tests {
     #[test]
     fn test_get_status_changed_files_from_string() {
         for (name, input) in STATUS_CASES {
-            verify_json(&format!("GetAllChangedFilesOutputParserTest.TestGetStatusChangedFilesFromString_testName={name}.verified.json"), &parse_status_v2(input));
+            verify_json(
+                &format!("GetAllChangedFilesOutputParserTest.TestGetStatusChangedFilesFromString_testName={name}.verified.json"),
+                &parse_status_v2(input),
+            );
         }
     }
 
@@ -419,7 +422,10 @@ mod tests {
             ),
         ];
         for (name, staged, input) in cases {
-            verify_json(&format!("GetAllChangedFilesOutputParserTest.GetDiffChangedFilesFromString_testName={name}.verified.json"), &parse_diff_raw(&input, staged));
+            verify_json(
+                &format!("GetAllChangedFilesOutputParserTest.GetDiffChangedFilesFromString_testName={name}.verified.json"),
+                &parse_diff_raw(&input, staged),
+            );
         }
     }
 
@@ -448,5 +454,4 @@ mod tests {
         assert_eq!(names(true, true).len(), 3);
         assert!(parse_ls_files_flags(out, true, true).iter().all(|i| i.staged == StagedStatus::WorkTree && i.is_tracked));
     }
-
 }

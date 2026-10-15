@@ -10,10 +10,10 @@
 
 mod app;
 mod avatars;
-mod i18n;
 mod browse;
 mod cli;
 mod dialogs;
+mod i18n;
 mod prof;
 mod repo;
 mod shell_ext;
@@ -102,7 +102,12 @@ fn report_error(message: &str) {
     eprintln!("{message}");
     #[cfg(windows)]
     {
-        rfd::MessageDialog::new().set_level(rfd::MessageLevel::Error).set_title("Git Extensions").set_description(message).set_buttons(rfd::MessageButtons::Ok).show();
+        rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Error)
+            .set_title("Git Extensions")
+            .set_description(message)
+            .set_buttons(rfd::MessageButtons::Ok)
+            .show();
     }
 }
 
@@ -140,7 +145,8 @@ fn run_difftool(repo: &Path, file: &str) -> Result<(), String> {
         return Err(i18n::trf("'{0}' has no changes.", &[&file]));
     }
     // the git of a WSL distro uses the tools configured in the distro
-    let launch = if exe.wsl_distro.is_empty() { diff_tools::resolve_launch(&ToolConfigStore::new(exe.clone()), ToolType::Diff) } else { Some(ToolLaunch::Configured) };
+    let launch =
+        if exe.wsl_distro.is_empty() { diff_tools::resolve_launch(&ToolConfigStore::new(exe.clone()), ToolType::Diff) } else { Some(ToolLaunch::Configured) };
     let launch = launch.ok_or_else(|| format!("{}\n\n{}", i18n::tr("No diff tool is installed."), diff_tools::install_hint()))?;
     let args = diff_tools::launch_args(&launch, ToolType::Diff, &GitArgs::new("difftool").arg("--").arg(file));
     let result = exe.run(&args).map_err(|e| e.to_string())?;

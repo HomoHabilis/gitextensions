@@ -106,7 +106,10 @@ impl Dialog for RevisionFilterDialog {
             ui.end_row();
             text_row(ui, &mut self.by_path, tr("Path filter"), &mut self.filter.path, tr("path or pathspec"));
             ui.checkbox(&mut self.branches, tr("Branches"));
-            ui.add_enabled(self.branches, egui::TextEdit::singleline(&mut self.branch_filter).hint_text(tr("branch names or patterns (feature/*)")).desired_width(360.0));
+            ui.add_enabled(
+                self.branches,
+                egui::TextEdit::singleline(&mut self.branch_filter).hint_text(tr("branch names or patterns (feature/*)")).desired_width(360.0),
+            );
             ui.end_row();
         });
         ui.add_space(6.0);

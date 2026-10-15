@@ -177,8 +177,11 @@ impl ResetAnotherBranchDialog {
         let current = data.current_branch.as_deref();
         // local branches tracking a remote branch at the commit first, as upstream
         let remotes: Vec<&gitext_core::GitRef> = rev.refs.iter().filter(|r| r.is_remote()).collect();
-        let tracks = |b: &gitext_core::GitRef| remotes.iter().any(|r| r.name == format!("{}/{}", b.tracking_remote, b.merge_with) || r.name.split_once('/').is_some_and(|(_, n)| n == b.name));
-        let mut locals: Vec<&gitext_core::GitRef> = data.local_branches().filter(|b| Some(b.name.as_str()) != current && b.object_id != rev.object_id).collect();
+        let tracks = |b: &gitext_core::GitRef| {
+            remotes.iter().any(|r| r.name == format!("{}/{}", b.tracking_remote, b.merge_with) || r.name.split_once('/').is_some_and(|(_, n)| n == b.name))
+        };
+        let mut locals: Vec<&gitext_core::GitRef> =
+            data.local_branches().filter(|b| Some(b.name.as_str()) != current && b.object_id != rev.object_id).collect();
         locals.sort_by_key(|b| !tracks(b));
         let candidates: Vec<&&gitext_core::GitRef> = locals.iter().filter(|b| tracks(b)).collect();
         let branch = if remotes.len() == 1 && candidates.len() == 1 { candidates[0].name.clone() } else { String::new() };

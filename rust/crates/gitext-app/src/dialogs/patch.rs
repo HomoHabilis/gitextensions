@@ -50,7 +50,8 @@ impl Dialog for FormatPatchDialog {
         });
         let (ok, cancel) = ok_cancel(ui, tr("Create patches"), !self.output_dir.trim().is_empty());
         if ok {
-            let args = GitArgs::new("format-patch").arg("-M").arg("-C").arg("-o").arg(self.output_dir.trim()).arg(format!("{}..{}", self.from.trim(), self.to.trim()));
+            let args =
+                GitArgs::new("format-patch").arg("-M").arg("-C").arg("-o").arg(self.output_dir.trim()).arg(format!("{}..{}", self.from.trim(), self.to.trim()));
             cx.run(GitRun::new(tr("Format patch"), args).no_refresh().keep_open());
             return false;
         }
@@ -173,7 +174,8 @@ impl Dialog for ViewPatchDialog {
                 }
             }
         });
-        let content = self.patches.get(self.selected).map(|p| ViewerContent::Diff(p.text.clone())).unwrap_or(ViewerContent::Empty(tr("Load a patch file").into()));
+        let content =
+            self.patches.get(self.selected).map(|p| ViewerContent::Diff(p.text.clone())).unwrap_or(ViewerContent::Empty(tr("Load a patch file").into()));
         self.viewer.ui(ui, &content, true, &[]);
         !ui.input(|i| i.key_pressed(egui::Key::Escape))
     }

@@ -7,8 +7,8 @@ use std::sync::Mutex;
 
 use egui::{Key, Modifiers, Ui};
 use gitext_core::args::{to_mount_path, to_native_path, to_posix_path};
-use gitext_core::status::{GitItemStatus, StagedStatus};
 use gitext_core::diff_tools::FileDiffKind;
+use gitext_core::status::{GitItemStatus, StagedStatus};
 use gitext_core::{GitArgs, GitModule, ObjectId};
 
 use crate::dialogs::{ok_cancel, Action, Confirm, Cx, Dialog};
@@ -27,23 +27,43 @@ pub enum PathKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FileAction {
-    CopyPaths { files: Vec<String>, kind: PathKind },
+    CopyPaths {
+        files: Vec<String>,
+        kind: PathKind,
+    },
     /// Opens the work tree file with the application chosen by the user (Windows "Open with"
     /// dialog; the default application elsewhere).
     OpenWith(String),
     RenameMove(String),
     Delete(Vec<String>),
     StopTracking(Vec<String>),
-    CherryPick { first: Option<ObjectId>, second: ObjectId, files: Vec<String> },
+    CherryPick {
+        first: Option<ObjectId>,
+        second: ObjectId,
+        files: Vec<String>,
+    },
     /// Remembers a file version (label, git commitish) to diff another one with.
-    Remember { label: String, commitish: String },
+    Remember {
+        label: String,
+        commitish: String,
+    },
     /// Opens the difftool between the remembered file and this commitish.
     DiffWithRemembered(String),
     /// Opens the difftool for each file (`OpenFilesWithDiffTool`), with the configured tool or
     /// the one picked in the dropdown.
-    Difftool { kind: FileDiffKind, first: Option<ObjectId>, second: ObjectId, files: Vec<DiffFile>, tool: Option<String> },
+    Difftool {
+        kind: FileDiffKind,
+        first: Option<ObjectId>,
+        second: ObjectId,
+        files: Vec<DiffFile>,
+        tool: Option<String>,
+    },
     /// Opens the difftool between two file versions given as git commitishes.
-    DiffCommitishes { first: String, second: String, tool: Option<String> },
+    DiffCommitishes {
+        first: String,
+        second: String,
+        tool: Option<String>,
+    },
     /// "Disable this dropdown": the difftools are no longer listed (the host saves the setting).
     HideToolList,
 }
@@ -191,7 +211,8 @@ fn menu_impl(ui: &mut Ui, sel: &Selection, remember: bool) -> Option<FileAction>
         ui.menu_button(tr("Remember file for diff"), |ui| {
             let remembered = remembered();
             if let Some(c) = &commitish {
-                let label = format!("{} @ {}", sel.items[0].name, if sel.second == ObjectId::INDEX { tr("index").to_string() } else { sel.second.to_short_string() });
+                let label =
+                    format!("{} @ {}", sel.items[0].name, if sel.second == ObjectId::INDEX { tr("index").to_string() } else { sel.second.to_short_string() });
                 if item(ui, tr("Remember this file"), "") {
                     action = Some(FileAction::Remember { label, commitish: c.clone() });
                 }
@@ -285,14 +306,17 @@ pub fn run(action: FileAction, m: &GitModule, actions: &mut Vec<Action>) {
         FileAction::Delete(files) => {
             let list = files.clone();
             let text = trf("Are you sure you want to delete the {0} selected file(s) from disk?", &[&files.len()]);
-            actions.push(Action::OpenDialog(Box::new(Confirm::new(tr("Delete"), text, tr("Delete"), move |cx| {
-                if let Some(m) = cx.module {
-                    if let Err(e) = delete_files(m, cx, &files) {
-                        cx.error(tr("Delete file failed"), e);
+            actions.push(Action::OpenDialog(Box::new(
+                Confirm::new(tr("Delete"), text, tr("Delete"), move |cx| {
+                    if let Some(m) = cx.module {
+                        if let Err(e) = delete_files(m, cx, &files) {
+                            cx.error(tr("Delete file failed"), e);
+                        }
                     }
-                }
-                cx.push(Action::RefreshStatus);
-            }).with_list(list))));
+                    cx.push(Action::RefreshStatus);
+                })
+                .with_list(list),
+            )));
         }
         FileAction::StopTracking(files) => {
             let refs: Vec<&str> = files.iter().map(String::as_str).collect();
@@ -484,13 +508,21 @@ pub fn difftool_menu(ui: &mut Ui, sel: &Selection, parents: &[ObjectId], tools: 
         if let [a, b] = sel.items.as_slice() {
             let enabled = !combined && !a.is_submodule && !b.is_submodule && !a.is_deleted && !b.is_deleted && sel.second != ObjectId::WORK_TREE;
             let (fa, fb) = (version_commitish(Some(sel.second), sel.second, &a.name), version_commitish(Some(sel.second), sel.second, &b.name));
-            tool_item(ui, enabled, tr("Diff the selected files"), "", tools, &mut action, move |tool| FileAction::DiffCommitishes { first: fa.clone(), second: fb.clone(), tool });
+            tool_item(ui, enabled, tr("Diff the selected files"), "", tools, &mut action, move |tool| FileAction::DiffCommitishes {
+                first: fa.clone(),
+                second: fb.clone(),
+                tool,
+            });
         }
         if let Some(item) = single {
             if let Some((label, remembered)) = remembered() {
                 let enabled = !item.is_deleted;
                 let second = version_commitish(Some(sel.second), sel.second, &item.name);
-                tool_item(ui, enabled, &trf("Diff with remembered {0}", &[&label]), "", tools, &mut action, move |tool| FileAction::DiffCommitishes { first: remembered.clone(), second: second.clone(), tool });
+                tool_item(ui, enabled, &trf("Diff with remembered {0}", &[&label]), "", tools, &mut action, move |tool| FileAction::DiffCommitishes {
+                    first: remembered.clone(),
+                    second: second.clone(),
+                    tool,
+                });
             }
             // the remembered file is the first side of a diff: never the work tree
             let second_ok = !item.is_deleted && sel.second != ObjectId::WORK_TREE;
@@ -608,7 +640,10 @@ mod tests {
     fn keys_only_in_the_work_tree() {
         let f = status("a.txt", 'M');
         let ctx = egui::Context::default();
-        let press = |k: Key| egui::RawInput { events: vec![egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE }], ..Default::default() };
+        let press = |k: Key| egui::RawInput {
+            events: vec![egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE }],
+            ..Default::default()
+        };
         let run = |second, k| {
             let mut out = None;
             let _ = ctx.run(press(k), |ctx| out = keys(ctx, &Selection { items: vec![&f], first: None, second }));
@@ -643,7 +678,11 @@ mod tests {
     fn open_with_from_any_revision() {
         let f = status("a.txt", 'M');
         let ctx = egui::Context::default();
-        let shift_f4 = egui::RawInput { events: vec![egui::Event::Key { key: Key::F4, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::SHIFT }], modifiers: Modifiers::SHIFT, ..Default::default() };
+        let shift_f4 = egui::RawInput {
+            events: vec![egui::Event::Key { key: Key::F4, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::SHIFT }],
+            modifiers: Modifiers::SHIFT,
+            ..Default::default()
+        };
         let commit = ObjectId::parse("0123456789012345678901234567890123456789").unwrap();
         for second in [ObjectId::WORK_TREE, ObjectId::INDEX, commit] {
             let mut out = None;

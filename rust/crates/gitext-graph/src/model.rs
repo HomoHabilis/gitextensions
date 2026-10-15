@@ -371,8 +371,7 @@ impl Row {
         if l.revision_lane >= from_lane && l.revision_lane < next_gap {
             l.revision_lane += 1;
         }
-        let to_move: Vec<usize> =
-            (0..l.lanes.len()).filter(|&i| l.lanes[i].index >= from_lane && l.lanes[i].index < next_gap).collect();
+        let to_move: Vec<usize> = (0..l.lanes.len()).filter(|&i| l.lanes[i].index >= from_lane && l.lanes[i].index < next_gap).collect();
         if to_move.is_empty() {
             return;
         }
@@ -392,9 +391,7 @@ impl Row {
     /// The segment leading to this row's first parent if this row is the parent row of
     /// `segment`; otherwise `segment`.
     pub fn first_parent_or_self(&self, store: &Store, segment: SegIdx) -> SegIdx {
-        if store.segments[segment].parent != self.revision
-            || self.get_lane_for_segment(store, segment).sharing != LaneSharing::ExclusiveOrPrimary
-        {
+        if store.segments[segment].parent != self.revision || self.get_lane_for_segment(store, segment).sharing != LaneSharing::ExclusiveOrPrimary {
             return segment;
         }
         self.segments.iter().copied().find(|&s| store.segments[s].child == self.revision).unwrap_or(segment)

@@ -44,10 +44,26 @@ impl Point {
 /// A drawing operation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Primitive {
-    Line { from: Point, to: Point, brush: Brush, width: f32, anti_alias: bool },
-    Bezier { points: [Point; 4], brush: Brush, width: f32 },
+    Line {
+        from: Point,
+        to: Point,
+        brush: Brush,
+        width: f32,
+        anti_alias: bool,
+    },
+    Bezier {
+        points: [Point; 4],
+        brush: Brush,
+        width: f32,
+    },
     /// Revision node: filled square (when the revision has refs) or circle.
-    Node { center: Point, size: f32, square: bool, outline: bool, brush: Brush },
+    Node {
+        center: Point,
+        size: f32,
+        square: bool,
+        outline: bool,
+        brush: Brush,
+    },
 }
 
 /// Pixel metrics (`GraphRenderer.LaneWidth` etc. before DPI scaling).
@@ -119,10 +135,7 @@ pub fn draw_row(
         let seg = &store.segments[s];
         let child = &store.nodes[seg.child];
         let parent = &store.nodes[seg.parent];
-        (
-            child.is_relative,
-            is_hovered(&child.object_id) == Some(true) || is_hovered(&parent.object_id) == Some(true),
-        )
+        (child.is_relative, is_hovered(&child.object_id) == Some(true) || is_hovered(&parent.object_id) == Some(true))
     });
 
     let skip_secondary = !matches!(draw_style, RevisionGraphDrawStyle::DrawNonRelativesGray | RevisionGraphDrawStyle::HighlightSelected);
@@ -154,11 +167,29 @@ pub fn draw_row(
 
         if config.render_graph_with_diagonals {
             let previous_info = || {
-                let lanes = get_lanes_info(store, segment, graph.row(index - 2), previous_row.unwrap(), Some(current_row), skip_secondary, config.merge_graph_lanes_having_common_parent, None);
+                let lanes = get_lanes_info(
+                    store,
+                    segment,
+                    graph.row(index - 2),
+                    previous_row.unwrap(),
+                    Some(current_row),
+                    skip_secondary,
+                    config.merge_graph_lanes_having_common_parent,
+                    None,
+                );
                 get_diagonal_segment_info(&lanes, config.merge_graph_lanes_having_common_parent, metrics)
             };
             let next_info = || {
-                let lanes = get_lanes_info(store, segment, Some(current_row), next_row.unwrap(), graph.row(index + 2), skip_secondary, config.merge_graph_lanes_having_common_parent, None);
+                let lanes = get_lanes_info(
+                    store,
+                    segment,
+                    Some(current_row),
+                    next_row.unwrap(),
+                    graph.row(index + 2),
+                    skip_secondary,
+                    config.merge_graph_lanes_having_common_parent,
+                    None,
+                );
                 get_diagonal_segment_info(&lanes, config.merge_graph_lanes_having_common_parent, metrics)
             };
             let current = get_diagonal_segment_info(&lanes, config.merge_graph_lanes_having_common_parent, metrics);
@@ -180,13 +211,7 @@ pub fn draw_row(
         let square = node.revision.as_ref().is_some_and(|r| !r.refs.is_empty());
         let outline = node.object_id == head_id;
         let brush = brush_for_lane_info(current_row_revision_lane_info, node.is_relative, draw_style, is_hovered(&node.object_id));
-        out.push(Primitive::Node {
-            center: Point::new(lane_x(revision_lane), center_y),
-            size: metrics.node_dimension,
-            square,
-            outline,
-            brush,
-        });
+        out.push(Primitive::Node { center: Point::new(lane_x(revision_lane), center_y), size: metrics.node_dimension, square, outline, brush });
     }
     out
 }
@@ -221,9 +246,7 @@ fn get_lanes_info(
     let center_lane = current_lane.index;
     let mut is_the_revision_lane = true;
     let seg = &store.segments[segment];
-    let lane_for_row = |row: Option<&Row>| -> i32 {
-        row.map(|r| r.get_lane_for_segment(store, segment).index).filter(|&l| l >= 0).unwrap_or(NO_LANE)
-    };
+    let lane_for_row = |row: Option<&Row>| -> i32 { row.map(|r| r.get_lane_for_segment(store, segment).index).filter(|&l| l >= 0).unwrap_or(NO_LANE) };
     if seg.parent == current_row.revision {
         start_lane = lane_for_row(previous_row);
         if let Some(set) = set_lane_info {
@@ -273,10 +296,8 @@ fn get_diagonal_segment_info(lanes: &SegmentLanesInfo, merge_common_parent: bool
     let mut draw_center_to_start_perpendicularly = draw_from_start && (start_shift == 0 || (!start_is_diagonal && !is_the_revision_lane));
     let mut draw_center_to_end_perpendicularly = draw_to_end && (end_shift == 0 || (!end_is_diagonal && !is_the_revision_lane));
     let draw_center_perpendicularly = is_bow_of_diagonals;
-    let mut draw_center = draw_center_perpendicularly
-        || !draw_from_start
-        || !draw_to_end
-        || (!draw_center_to_start_perpendicularly && !draw_center_to_end_perpendicularly);
+    let mut draw_center =
+        draw_center_perpendicularly || !draw_from_start || !draw_to_end || (!draw_center_to_start_perpendicularly && !draw_center_to_end_perpendicularly);
 
     if lanes.end_lane < 0 && lanes.primary_end_lane >= 0 && start_shift != 0 {
         end_shift = lanes.primary_end_lane - lanes.center_lane;

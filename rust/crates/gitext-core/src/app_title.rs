@@ -47,7 +47,11 @@ pub fn generate_title(description: Option<&str>, branch_name: Option<&str>, defa
         let file = trimmed.rsplit('/').next().unwrap_or_default();
         let invalid = file.is_empty();
         if invalid {
-            if p.starts_with('"') && p.ends_with('"') { format!("{p} ") } else { format!("\"{p}\" ") }
+            if p.starts_with('"') && p.ends_with('"') {
+                format!("{p} ")
+            } else {
+                format!("\"{p}\" ")
+            }
         } else {
             format!("\"{file}\" ")
         }

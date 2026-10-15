@@ -86,7 +86,9 @@ impl CommitInfo {
             let m = module.clone();
             let rev = rev.clone();
             // the grid loads notes when they are shown
-            cached(&mut self.revision, &mut self.revision_cache, ctx, id, move || m.get_revision(&id.to_string(), rev.notes.is_some()).ok().flatten().unwrap_or(rev))
+            cached(&mut self.revision, &mut self.revision_cache, ctx, id, move || {
+                m.get_revision(&id.to_string(), rev.notes.is_some()).ok().flatten().unwrap_or(rev)
+            })
         };
         let m = module.clone();
         let describe = cached(&mut self.describe, &mut self.describe_cache, ctx, id, move || m.describe(id));
@@ -97,7 +99,14 @@ impl CommitInfo {
         Loaded { revision, describe: describe.flatten(), branches, tags }
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, module: &GitModule, rev: Option<&GitRevision>, children: Vec<ObjectId>, avatars: Option<(&mut crate::avatars::Avatars, u32)>) -> Option<CommitInfoLink> {
+    pub fn ui(
+        &mut self,
+        ui: &mut Ui,
+        module: &GitModule,
+        rev: Option<&GitRevision>,
+        children: Vec<ObjectId>,
+        avatars: Option<(&mut crate::avatars::Avatars, u32)>,
+    ) -> Option<CommitInfoLink> {
         let palette = Palette::for_ui(ui);
         let Some(rev) = rev else {
             ui.label(RichText::new(tr("No commit selected")).italics().color(palette.muted));
@@ -107,7 +116,14 @@ impl CommitInfo {
         let id = rev.object_id;
         if rev.is_artificial() {
             ui.heading(&rev.subject);
-            ui.label(RichText::new(if id == ObjectId::WORK_TREE { tr("Changes in the working directory that are not staged.") } else { tr("Changes staged in the index, to be committed.") }).color(palette.muted));
+            ui.label(
+                RichText::new(if id == ObjectId::WORK_TREE {
+                    tr("Changes in the working directory that are not staged.")
+                } else {
+                    tr("Changes staged in the index, to be committed.")
+                })
+                .color(palette.muted),
+            );
             return None;
         }
         let Loaded { revision: full, describe, branches, tags } = self.load(ui.ctx(), module, rev);
@@ -252,7 +268,13 @@ impl CommitInfo {
 }
 
 /// The value for `id` from `cache`, or loads it in the background with `loader` and caches it.
-fn cached<T: Clone + Send + 'static>(loader: &mut Loader<ObjectId, T>, cache: &mut HashMap<ObjectId, T>, ctx: &egui::Context, id: ObjectId, f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+fn cached<T: Clone + Send + 'static>(
+    loader: &mut Loader<ObjectId, T>,
+    cache: &mut HashMap<ObjectId, T>,
+    ctx: &egui::Context,
+    id: ObjectId,
+    f: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
     if let Some(v) = cache.get(&id) {
         return Some(v.clone());
     }

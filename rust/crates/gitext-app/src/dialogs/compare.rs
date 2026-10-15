@@ -24,18 +24,42 @@ impl CompareDialog {
     pub fn new(data: &RepoData) -> Self {
         let current = data.current_branch.clone().unwrap_or_else(|| "HEAD".into());
         let base = data.current_ref().filter(|r| !r.merge_with.is_empty()).map(|r| format!("{}/{}", r.tracking_remote, r.merge_with)).unwrap_or_default();
-        CompareDialog { base, head: current, items: data.branch_names(true), merge_base: true, resolved: None, diff: RevisionDiffView::default(), count: Loader::default() }
+        CompareDialog {
+            base,
+            head: current,
+            items: data.branch_names(true),
+            merge_base: true,
+            resolved: None,
+            diff: RevisionDiffView::default(),
+            count: Loader::default(),
+        }
     }
 
     /// The diff of `head` to `base`, shown at once (`RevisionGridControl.ShowFormDiff`).
     pub fn revisions(data: &RepoData, base: (String, ObjectId), head: (String, ObjectId)) -> Self {
         let resolved = Some((base.1, head.1));
-        CompareDialog { base: base.0, head: head.0, items: data.branch_names(true), merge_base: false, resolved, diff: RevisionDiffView::default(), count: Loader::default() }
+        CompareDialog {
+            base: base.0,
+            head: head.0,
+            items: data.branch_names(true),
+            merge_base: false,
+            resolved,
+            diff: RevisionDiffView::default(),
+            count: Loader::default(),
+        }
     }
 
     /// "Compare to branch" (`FormCompareToBranch`): the branch is chosen as the base of `head`.
     pub fn to_branch(data: &RepoData, head: ObjectId) -> Self {
-        CompareDialog { base: String::new(), head: head.to_string(), items: data.branch_names(true), merge_base: false, resolved: None, diff: RevisionDiffView::default(), count: Loader::default() }
+        CompareDialog {
+            base: String::new(),
+            head: head.to_string(),
+            items: data.branch_names(true),
+            merge_base: false,
+            resolved: None,
+            diff: RevisionDiffView::default(),
+            count: Loader::default(),
+        }
     }
 }
 
@@ -75,7 +99,10 @@ impl Dialog for CompareDialog {
         if let Some((a, b)) = self.resolved {
             let m2 = m.clone();
             let count = self.count.request(ui.ctx(), (a, b), move || m2.commit_count(&format!("{a}..{b}"))).map_or("…".to_string(), |c| c.to_string());
-            ui.label(trf("{0} commit(s) in {1} not in {2}", &[&count, &self.head.trim(), &if self.base.trim().is_empty() { tr("base") } else { self.base.trim() }]));
+            ui.label(trf(
+                "{0} commit(s) in {1} not in {2}",
+                &[&count, &self.head.trim(), &if self.base.trim().is_empty() { tr("base") } else { self.base.trim() }],
+            ));
             let _ = self.diff.ui(ui, &m, Some(a), Some(b), &[], cx.settings, "compare_diff");
         } else {
             ui.label(tr("Choose two branches or revisions and press Compare."));

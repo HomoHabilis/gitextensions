@@ -280,10 +280,8 @@ impl Dialog for CommitDialog {
         let untracked = if self.show_untracked { UntrackedFilesMode::All } else { UntrackedFilesMode::No };
         let mm = m.clone();
         let (ignored, assumed, skipped) = (self.show_ignored, self.show_assumed, self.show_skipped);
-        let items = self
-            .status
-            .request(cx.ctx, self.generation, move || mm.get_status_with(untracked, ignored, assumed, skipped).map_err(|e| e.to_string()))
-            .cloned();
+        let items =
+            self.status.request(cx.ctx, self.generation, move || mm.get_status_with(untracked, ignored, assumed, skipped).map_err(|e| e.to_string())).cloned();
         let items = match items {
             Some(Ok(i)) => i,
             Some(Err(e)) => {
@@ -374,7 +372,10 @@ impl Dialog for CommitDialog {
                 if r.has_focus && !self.unstaged.selected.is_empty() {
                     if let Some(key) = file_key(ui, UNSTAGED_MENU) {
                         menu_cmd = Some((key, self.unstaged.selected_items(&unstaged).iter().map(|f| f.name.clone()).collect()));
-                    } else if let Some(a) = file_actions::keys(ui.ctx(), &Selection { items: self.unstaged.selected_items(&unstaged), first: Some(ObjectId::INDEX), second: ObjectId::WORK_TREE }) {
+                    } else if let Some(a) = file_actions::keys(
+                        ui.ctx(),
+                        &Selection { items: self.unstaged.selected_items(&unstaged), first: Some(ObjectId::INDEX), second: ObjectId::WORK_TREE },
+                    ) {
                         action = Some(a);
                     }
                 }
@@ -450,154 +451,161 @@ impl Dialog for CommitDialog {
         // Commit message area
         // the diff above keeps at least a third of the dialog
         let max_message_h = (ui.available_height() * 2.0 / 3.0).max(160.0);
-        egui::TopBottomPanel::bottom("commit_message").resizable(true).default_height(250.0).min_height(160.0).max_height(max_message_h).show_inside(ui, |ui| {
-            ui.set_min_height(ui.available_height());
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(tr("Commit message")).strong());
-                ui.menu_button(tr("Templates…"), |ui| {
-                    if cx.settings.commit_templates.is_empty() {
-                        ui.label(RichText::new(tr("No templates (add them in Settings)")).italics());
-                    }
-                    for t in cx.settings.commit_templates.clone() {
-                        if ui.button(&t.name).clicked() {
-                            self.message = t.text.clone();
-                            ui.close_kind(egui::UiKind::Menu);
+        egui::TopBottomPanel::bottom("commit_message").resizable(true).default_height(250.0).min_height(160.0).max_height(max_message_h).show_inside(
+            ui,
+            |ui| {
+                ui.set_min_height(ui.available_height());
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(tr("Commit message")).strong());
+                    ui.menu_button(tr("Templates…"), |ui| {
+                        if cx.settings.commit_templates.is_empty() {
+                            ui.label(RichText::new(tr("No templates (add them in Settings)")).italics());
                         }
-                    }
-                });
-                ui.menu_button(tr("History…"), |ui| {
-                    egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
-                        for msg in self.recent_messages.clone() {
-                            let first = msg.lines().next().unwrap_or_default().to_string();
-                            if ui.button(first).clicked() {
-                                self.message = msg.clone();
+                        for t in cx.settings.commit_templates.clone() {
+                            if ui.button(&t.name).clicked() {
+                                self.message = t.text.clone();
                                 ui.close_kind(egui::UiKind::Menu);
                             }
                         }
                     });
-                });
-                ui.menu_button(tr("Options…"), |ui| {
-                    ui.checkbox(&mut self.sign_off, tr("Sign-off commit"));
-                    ui.checkbox(&mut self.no_verify, tr("No verify (skip hooks)"));
-                    ui.checkbox(&mut self.reset_author, tr("Reset author (with amend)"));
-                    ui.horizontal(|ui| {
-                        ui.label(tr("GPG sign:"));
-                        ui.radio_value(&mut self.gpg_sign, None, tr("config"));
-                        ui.radio_value(&mut self.gpg_sign, Some(true), tr("yes"));
-                        ui.radio_value(&mut self.gpg_sign, Some(false), tr("no"));
+                    ui.menu_button(tr("History…"), |ui| {
+                        egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
+                            for msg in self.recent_messages.clone() {
+                                let first = msg.lines().next().unwrap_or_default().to_string();
+                                if ui.button(first).clicked() {
+                                    self.message = msg.clone();
+                                    ui.close_kind(egui::UiKind::Menu);
+                                }
+                            }
+                        });
                     });
-                    ui.horizontal(|ui| {
-                        ui.label(tr("Author:"));
-                        ui.add(egui::TextEdit::singleline(&mut self.author).hint_text(tr("Name <email>")).desired_width(220.0));
+                    ui.menu_button(tr("Options…"), |ui| {
+                        ui.checkbox(&mut self.sign_off, tr("Sign-off commit"));
+                        ui.checkbox(&mut self.no_verify, tr("No verify (skip hooks)"));
+                        ui.checkbox(&mut self.reset_author, tr("Reset author (with amend)"));
+                        ui.horizontal(|ui| {
+                            ui.label(tr("GPG sign:"));
+                            ui.radio_value(&mut self.gpg_sign, None, tr("config"));
+                            ui.radio_value(&mut self.gpg_sign, Some(true), tr("yes"));
+                            ui.radio_value(&mut self.gpg_sign, Some(false), tr("no"));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label(tr("Author:"));
+                            ui.add(egui::TextEdit::singleline(&mut self.author).hint_text(tr("Name <email>")).desired_width(220.0));
+                        });
                     });
+                    let amend_before = self.amend;
+                    ui.checkbox(&mut self.amend, tr("Amend commit"));
+                    if self.amend && !amend_before {
+                        if self.message.trim().is_empty() {
+                            self.message = m.get_commit_message("HEAD");
+                        }
+                        if let Some(mgr) = &self.manager {
+                            mgr.set_amend_state(true);
+                        }
+                    } else if !self.amend && amend_before {
+                        if let Some(mgr) = &self.manager {
+                            mgr.set_amend_state(false);
+                        }
+                    }
                 });
-                let amend_before = self.amend;
-                ui.checkbox(&mut self.amend, tr("Amend commit"));
-                if self.amend && !amend_before {
-                    if self.message.trim().is_empty() {
-                        self.message = m.get_commit_message("HEAD");
-                    }
-                    if let Some(mgr) = &self.manager {
-                        mgr.set_amend_state(true);
-                    }
-                } else if !self.amend && amend_before {
-                    if let Some(mgr) = &self.manager {
-                        mgr.set_amend_state(false);
-                    }
+                // validation (port of commit message validation settings)
+                let first_len = self.message.lines().next().map(|l| l.chars().count()).unwrap_or(0);
+                let mut warnings = Vec::new();
+                let max_first = cx.settings.commit_validation_max_cnt_chars_first_line;
+                if max_first > 0 && first_len > max_first {
+                    warnings.push(trf("First line has {0} characters (max {1})", &[&first_len, &max_first]));
                 }
-            });
-            // validation (port of commit message validation settings)
-            let first_len = self.message.lines().next().map(|l| l.chars().count()).unwrap_or(0);
-            let mut warnings = Vec::new();
-            let max_first = cx.settings.commit_validation_max_cnt_chars_first_line;
-            if max_first > 0 && first_len > max_first {
-                warnings.push(trf("First line has {0} characters (max {1})", &[&first_len, &max_first]));
-            }
-            let max_line = cx.settings.commit_validation_max_cnt_chars_per_line;
-            if max_line > 0 && self.message.lines().any(|l| l.chars().count() > max_line) {
-                warnings.push(trf("Lines longer than {0} characters", &[&max_line]));
-            }
-            if cx.settings.commit_validation_second_line_must_be_empty && self.message.lines().nth(1).is_some_and(|l| !l.trim().is_empty()) {
-                warnings.push(tr("Second line should be empty").into());
-            }
-            let buttons_h = 34.0;
-            // room for the error below the buttons, else the panel grows by it every frame
-            let error_h = if self.error.is_some() { ERROR_H + ui.spacing().item_spacing.y } else { 0.0 };
-            let text_h = (ui.available_height() - buttons_h - error_h - 10.0).max(60.0);
-            egui::ScrollArea::vertical().max_height(text_h).id_salt("commit_msg_scroll").show(ui, |ui| {
-                ui.add_sized(
-                    Vec2::new(ui.available_width(), text_h),
-                    egui::TextEdit::multiline(&mut self.message)
-                        .id(message_id())
-                        .font(egui::TextStyle::Monospace)
-                        .hint_text(tr("Commit message (first line: summary)"))
-                        .desired_rows(8),
-                );
-            });
-            ui.horizontal(|ui| {
-                let branch = cx.current_branch().unwrap_or_else(|| tr("(no branch)").into());
-                let committable = !staged.is_empty() || self.amend || cx.data.is_some_and(|d| d.state.merging);
-                if self.busy.is_some() {
-                    ui.spinner();
-                    ui.label(tr("Committing…"));
-                } else {
-                    let label = if self.amend { tr("Amend commit") } else { tr("Commit") };
-                    if ui.add_enabled(committable, egui::Button::new(RichText::new(format!("✔ {label}")).strong())).on_hover_text(tr("Ctrl+Enter in the message")).clicked() {
-                        self.start_commit(cx, &m, false);
-                    }
-                    if ui.add_enabled(committable, egui::Button::new(trf("{0} & push", &[&label]))).clicked() {
-                        self.start_commit(cx, &m, true);
-                    }
-                    if !committable && !unstaged.is_empty() && ui.button(tr("Stage all and commit")).clicked() {
-                        if m.stage_all().is_ok() {
+                let max_line = cx.settings.commit_validation_max_cnt_chars_per_line;
+                if max_line > 0 && self.message.lines().any(|l| l.chars().count() > max_line) {
+                    warnings.push(trf("Lines longer than {0} characters", &[&max_line]));
+                }
+                if cx.settings.commit_validation_second_line_must_be_empty && self.message.lines().nth(1).is_some_and(|l| !l.trim().is_empty()) {
+                    warnings.push(tr("Second line should be empty").into());
+                }
+                let buttons_h = 34.0;
+                // room for the error below the buttons, else the panel grows by it every frame
+                let error_h = if self.error.is_some() { ERROR_H + ui.spacing().item_spacing.y } else { 0.0 };
+                let text_h = (ui.available_height() - buttons_h - error_h - 10.0).max(60.0);
+                egui::ScrollArea::vertical().max_height(text_h).id_salt("commit_msg_scroll").show(ui, |ui| {
+                    ui.add_sized(
+                        Vec2::new(ui.available_width(), text_h),
+                        egui::TextEdit::multiline(&mut self.message)
+                            .id(message_id())
+                            .font(egui::TextStyle::Monospace)
+                            .hint_text(tr("Commit message (first line: summary)"))
+                            .desired_rows(8),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    let branch = cx.current_branch().unwrap_or_else(|| tr("(no branch)").into());
+                    let committable = !staged.is_empty() || self.amend || cx.data.is_some_and(|d| d.state.merging);
+                    if self.busy.is_some() {
+                        ui.spinner();
+                        ui.label(tr("Committing…"));
+                    } else {
+                        let label = if self.amend { tr("Amend commit") } else { tr("Commit") };
+                        if ui
+                            .add_enabled(committable, egui::Button::new(RichText::new(format!("✔ {label}")).strong()))
+                            .on_hover_text(tr("Ctrl+Enter in the message"))
+                            .clicked()
+                        {
                             self.start_commit(cx, &m, false);
                         }
-                        self.refresh();
-                    }
-                }
-                ui.label(RichText::new(trf("on {0}", &[&branch])).color(palette.muted));
-                if ui.small_button(tr("Create branch…")).on_hover_text("Ctrl+B").clicked() {
-                    if let Some(d) = cx.data {
-                        cx.open(super::branch::CreateBranchDialog::new(d.head));
-                    }
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.menu_button(format!("{} ⏷", tr("Reset / stash")), |ui| {
-                        if ui.button(tr("Reset all changes…")).clicked() {
-                            cx.open(super::reset::ResetChangesDialog::all());
-                            ui.close_kind(egui::UiKind::Menu);
+                        if ui.add_enabled(committable, egui::Button::new(trf("{0} & push", &[&label]))).clicked() {
+                            self.start_commit(cx, &m, true);
                         }
-                        if ui.add_enabled(!unstaged.is_empty(), egui::Button::new(tr("Reset unstaged changes…"))).clicked() {
-                            let tracked = unstaged.iter().any(|f| f.is_tracked && !f.is_new);
-                            cx.open(super::reset::ResetChangesDialog::unstaged(tracked));
-                            ui.close_kind(egui::UiKind::Menu);
-                        }
-                        ui.separator();
-                        if ui.button(tr("Stash all changes")).clicked() {
-                            cx.run(super::GitRun::new(tr("Stash"), gitext_core::commands::stash_save(self.show_untracked, false, None, &[])));
+                        if !committable && !unstaged.is_empty() && ui.button(tr("Stage all and commit")).clicked() {
+                            if m.stage_all().is_ok() {
+                                self.start_commit(cx, &m, false);
+                            }
                             self.refresh();
-                            ui.close_kind(egui::UiKind::Menu);
                         }
-                        if ui.add_enabled(!staged.is_empty(), egui::Button::new(tr("Stash staged changes"))).clicked() {
-                            cx.run(super::GitRun::new(tr("Stash staged changes"), gitext_core::GitArgs::new("stash").arg("push").arg("--staged")));
-                            self.refresh();
-                            ui.close_kind(egui::UiKind::Menu);
+                    }
+                    ui.label(RichText::new(trf("on {0}", &[&branch])).color(palette.muted));
+                    if ui.small_button(tr("Create branch…")).on_hover_text("Ctrl+B").clicked() {
+                        if let Some(d) = cx.data {
+                            cx.open(super::branch::CreateBranchDialog::new(d.head));
                         }
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.menu_button(format!("{} ⏷", tr("Reset / stash")), |ui| {
+                            if ui.button(tr("Reset all changes…")).clicked() {
+                                cx.open(super::reset::ResetChangesDialog::all());
+                                ui.close_kind(egui::UiKind::Menu);
+                            }
+                            if ui.add_enabled(!unstaged.is_empty(), egui::Button::new(tr("Reset unstaged changes…"))).clicked() {
+                                let tracked = unstaged.iter().any(|f| f.is_tracked && !f.is_new);
+                                cx.open(super::reset::ResetChangesDialog::unstaged(tracked));
+                                ui.close_kind(egui::UiKind::Menu);
+                            }
+                            ui.separator();
+                            if ui.button(tr("Stash all changes")).clicked() {
+                                cx.run(super::GitRun::new(tr("Stash"), gitext_core::commands::stash_save(self.show_untracked, false, None, &[])));
+                                self.refresh();
+                                ui.close_kind(egui::UiKind::Menu);
+                            }
+                            if ui.add_enabled(!staged.is_empty(), egui::Button::new(tr("Stash staged changes"))).clicked() {
+                                cx.run(super::GitRun::new(tr("Stash staged changes"), gitext_core::GitArgs::new("stash").arg("push").arg("--staged")));
+                                self.refresh();
+                                ui.close_kind(egui::UiKind::Menu);
+                            }
+                        });
+                        for w in &warnings {
+                            ui.label(RichText::new(format!("⚠ {w}")).color(palette.warning));
+                        }
+                        ui.label(RichText::new(format!("{first_len}")).color(palette.muted)).on_hover_text(tr("Length of the first line"));
+                        let (line, column) = cursor_line_column(ui.ctx(), &self.message);
+                        ui.label(RichText::new(trf("Ln {0}, Col {1}", &[&line, &column])).color(palette.muted));
                     });
-                    for w in &warnings {
-                        ui.label(RichText::new(format!("⚠ {w}")).color(palette.warning));
-                    }
-                    ui.label(RichText::new(format!("{first_len}")).color(palette.muted)).on_hover_text(tr("Length of the first line"));
-                    let (line, column) = cursor_line_column(ui.ctx(), &self.message);
-                    ui.label(RichText::new(trf("Ln {0}, Col {1}", &[&line, &column])).color(palette.muted));
                 });
-            });
-            if let Some(e) = &self.error {
-                egui::ScrollArea::vertical().max_height(ERROR_H).id_salt("commit_error_scroll").show(ui, |ui| {
-                    ui.colored_label(palette.error, e);
-                });
-            }
-        });
+                if let Some(e) = &self.error {
+                    egui::ScrollArea::vertical().max_height(ERROR_H).id_salt("commit_error_scroll").show(ui, |ui| {
+                        ui.colored_label(palette.error, e);
+                    });
+                }
+            },
+        );
 
         // Diff of the selected file
         egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -617,7 +625,10 @@ impl Dialog for CommitDialog {
                         .request(cx.ctx, key, move || {
                             let (first, second) = if staged_side { (None, ObjectId::INDEX) } else { (Some(ObjectId::INDEX), ObjectId::WORK_TREE) };
                             if f2.is_new && !f2.is_tracked {
-                                return mm.get_file_bytes(ObjectId::WORK_TREE, &f2.name).map(|b| content_from_bytes(&b)).unwrap_or(ViewerContent::Empty(tr("Cannot read file").into()));
+                                return mm
+                                    .get_file_bytes(ObjectId::WORK_TREE, &f2.name)
+                                    .map(|b| content_from_bytes(&b))
+                                    .unwrap_or(ViewerContent::Empty(tr("Cannot read file").into()));
                             }
                             match mm.get_file_diff(first, second, &f2.name, f2.old_name.as_deref(), &opts) {
                                 Ok(d) if d.trim().is_empty() => ViewerContent::Empty(tr("No differences").into()),
@@ -843,12 +854,25 @@ mod tests {
     impl Harness {
         fn frame(&mut self, events: Vec<egui::Event>) {
             let modifiers = events.iter().find_map(|e| if let egui::Event::Key { modifiers, .. } = e { Some(*modifiers) } else { None }).unwrap_or_default();
-            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 800.0))), events, modifiers, ..Default::default() };
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 800.0))),
+                events,
+                modifiers,
+                ..Default::default()
+            };
             let mut actions = Vec::new();
             let ctx = self.ctx.clone();
             let _ = ctx.run(input, |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    let mut cx = Cx { ctx, module: Some(&self.module), data: None, settings: &mut self.settings, history: &mut self.history, actions: &mut actions, selected: &[] };
+                    let mut cx = Cx {
+                        ctx,
+                        module: Some(&self.module),
+                        data: None,
+                        settings: &mut self.settings,
+                        history: &mut self.history,
+                        actions: &mut actions,
+                        selected: &[],
+                    };
                     self.dialog.ui(ui, &mut cx);
                 });
             });
@@ -890,7 +914,13 @@ mod tests {
         for f in ["a.txt", "b.txt", "c.txt"] {
             std::fs::write(d.join(f), "2\n").unwrap();
         }
-        let mut h = Harness { ctx: egui::Context::default(), module: GitModule::open(d).unwrap(), settings: AppSettings::default(), history: Default::default(), dialog: CommitDialog::default() };
+        let mut h = Harness {
+            ctx: egui::Context::default(),
+            module: GitModule::open(d).unwrap(),
+            settings: AppSettings::default(),
+            history: Default::default(),
+            dialog: CommitDialog::default(),
+        };
         h.wait_for(3, 0);
 
         h.dialog.unstaged.selected = vec![0];

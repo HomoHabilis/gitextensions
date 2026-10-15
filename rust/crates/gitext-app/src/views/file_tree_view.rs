@@ -183,9 +183,8 @@ impl FileTreeView {
         if !self.has_focus || self.shown_files.is_empty() || ui.ctx().wants_keyboard_input() {
             return;
         }
-        let (up, down, home, end) = ui.input(|i| {
-            (i.key_pressed(egui::Key::ArrowUp), i.key_pressed(egui::Key::ArrowDown), i.key_pressed(egui::Key::Home), i.key_pressed(egui::Key::End))
-        });
+        let (up, down, home, end) = ui
+            .input(|i| (i.key_pressed(egui::Key::ArrowUp), i.key_pressed(egui::Key::ArrowDown), i.key_pressed(egui::Key::Home), i.key_pressed(egui::Key::End)));
         if !(up || down || home || end) {
             return;
         }
