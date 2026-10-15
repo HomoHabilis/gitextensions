@@ -29,9 +29,7 @@ impl GitBlameCommit {
     /// Tooltip text (port of `GitBlameCommit.ToString`).
     pub fn to_display_string(&self, summary_builder: impl Fn(&str) -> String) -> String {
         let fmt = |t: i64| {
-            chrono::DateTime::from_timestamp(t, 0)
-                .map(|d| d.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S").to_string())
-                .unwrap_or_default()
+            chrono::DateTime::from_timestamp(t, 0).map(|d| d.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S").to_string()).unwrap_or_default()
         };
         format!(
             "Author: {}\nAuthor date: {}\nCommitter: {}\nCommit date: {}\nCommit hash: {}\nSummary: {}\n\nFileName: {}",

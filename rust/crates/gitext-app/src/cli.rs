@@ -168,7 +168,8 @@ pub fn parse(args: &[String], cwd: &Path) -> Result<ParsedArgs, CliExit> {
             return Err(CliExit::Error(format!("Unknown command '{other}'.\n\n{HELP}")));
         }
     };
-    let needs_repo = !matches!(command, StartCommand::Clone(_) | StartCommand::Init(_) | StartCommand::Settings | StartCommand::About | StartCommand::ShellExt(_));
+    let needs_repo =
+        !matches!(command, StartCommand::Clone(_) | StartCommand::Init(_) | StartCommand::Settings | StartCommand::About | StartCommand::ShellExt(_));
     if needs_repo && cwd_repo.is_none() {
         return Err(CliExit::NotARepository(cwd.to_path_buf()));
     }

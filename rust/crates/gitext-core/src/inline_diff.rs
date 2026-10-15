@@ -30,8 +30,10 @@ const INSIGNIFICANT_WORD_MATCH_SCORE: f32 = 0.1;
 /// The marks of each line of `lines` (`None` for lines without a paired line).
 pub fn inline_differences(lines: &[DiffLine]) -> Vec<Option<LineMarks>> {
     let mut marks = vec![None; lines.len()];
-    let texts: Vec<Vec<char>> =
-        lines.iter().map(|l| if matches!(l.kind, DiffLineKind::Added | DiffLineKind::Removed) { l.text.chars().skip(1).take(MAX_LENGTH).collect() } else { Vec::new() }).collect();
+    let texts: Vec<Vec<char>> = lines
+        .iter()
+        .map(|l| if matches!(l.kind, DiffLineKind::Added | DiffLineKind::Removed) { l.text.chars().skip(1).take(MAX_LENGTH).collect() } else { Vec::new() })
+        .collect();
     let mut index = 0;
     while index < lines.len() {
         let removed = block_of_lines(lines, DiffLineKind::Removed, &mut index, false);
@@ -137,7 +139,8 @@ fn difference_markers(m: &mut Markers, removed: &[char], added: &[char], offset_
     if let Some((len, mut at_removed, mut at_added)) = find_best_match(removed, added) {
         let mut identical = len;
         // the right part: its identical start joins the common word, its identical end is ours
-        let (right_start, right_end) = difference_markers(m, &removed[at_removed + len..], &added[at_added + len..], offset_removed + at_removed + len, offset_added + at_added + len);
+        let (right_start, right_end) =
+            difference_markers(m, &removed[at_removed + len..], &added[at_added + len..], offset_removed + at_removed + len, offset_added + at_added + len);
         identical += right_start;
         end = right_end;
         // the left part: its identical start is ours, its identical end joins the common word
@@ -393,13 +396,18 @@ fn best_line_match(b: &Block, removed: Range<usize>, added: Range<usize>) -> (us
             }
         }
     }
-    if max_score <= INSIGNIFICANT_WORD_MATCH_SCORE { (removed.start, added.start) } else { best }
+    if max_score <= INSIGNIFICANT_WORD_MATCH_SCORE {
+        (removed.start, added.start)
+    } else {
+        best
+    }
 }
 
 /// All index pairs, diagonal by diagonal: (0,0), (1,0), (0,1), (2,0), (1,1), …
 fn all_combinations(first_end: usize, second_end: usize) -> impl Iterator<Item = (usize, usize)> {
     let upper = (0..first_end).flat_map(move |diagonal| (0..(diagonal + 1).min(second_end)).map(move |second| (diagonal - second, second)));
-    let lower = (1..second_end).flat_map(move |diagonal| (diagonal..(first_end + diagonal).min(second_end)).map(move |second| (first_end - 1 + diagonal - second, second)));
+    let lower = (1..second_end)
+        .flat_map(move |diagonal| (diagonal..(first_end + diagonal).min(second_end)).map(move |second| (first_end - 1 + diagonal - second, second)));
     upper.chain(lower)
 }
 
@@ -517,4 +525,3 @@ mod tests {
         assert_eq!(at(7), None);
     }
 }
-

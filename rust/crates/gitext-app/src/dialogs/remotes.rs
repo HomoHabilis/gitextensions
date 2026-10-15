@@ -143,9 +143,14 @@ impl Dialog for RemotesDialog {
                 if let Some(r) = self.selected.and_then(|i| remotes.get(i)) {
                     if ui.button(tr("Delete…")).clicked() {
                         let name = r.name.clone();
-                        cx.open(Confirm::new(tr("Delete remote"), trf("Delete remote '{0}' and its remote tracking branches?", &[&name]), tr("Delete"), move |cx| {
-                            cx.run(GitRun::new(tr("Delete remote"), GitArgs::new("remote").arg("rm").arg(name)));
-                        }));
+                        cx.open(Confirm::new(
+                            tr("Delete remote"),
+                            trf("Delete remote '{0}' and its remote tracking branches?", &[&name]),
+                            tr("Delete"),
+                            move |cx| {
+                                cx.run(GitRun::new(tr("Delete remote"), GitArgs::new("remote").arg("rm").arg(name)));
+                            },
+                        ));
                         self.remotes = None;
                         self.selected = None;
                     }
@@ -168,7 +173,10 @@ impl Dialog for RemotesDialog {
                     egui::Grid::new("default_pull").striped(true).show(ui, |ui| {
                         for b in d.local_branches() {
                             ui.label(&b.name);
-                            ui.label(RichText::new(if b.merge_with.is_empty() { "-".into() } else { format!("{}/{}", b.tracking_remote, b.merge_with) }).color(palette.muted));
+                            ui.label(
+                                RichText::new(if b.merge_with.is_empty() { "-".into() } else { format!("{}/{}", b.tracking_remote, b.merge_with) })
+                                    .color(palette.muted),
+                            );
                             ui.end_row();
                         }
                     });

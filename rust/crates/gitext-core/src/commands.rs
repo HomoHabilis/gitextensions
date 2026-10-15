@@ -724,11 +724,7 @@ pub fn rebase(o: &RebaseOptions) -> Result<GitArgs, String> {
 }
 
 pub fn remove(force: bool, is_recursive: bool, files: &[&str]) -> GitArgs {
-    GitArgs::new("rm")
-        .arg_if(force, "--force")
-        .arg_if(is_recursive, "-r")
-        .arg_if(files.is_empty(), ".")
-        .args(files.iter().copied())
+    GitArgs::new("rm").arg_if(force, "--force").arg_if(is_recursive, "-r").arg_if(files.is_empty(), ".").args(files.iter().copied())
 }
 
 pub fn rename_branch(name: &str, new_name: &str) -> GitArgs {
@@ -780,11 +776,7 @@ pub fn submodule_sync(name: Option<&str>) -> GitArgs {
 
 pub fn submodule_update(names: &[&str], allow_file: bool) -> GitArgs {
     let configs: &[(&str, &str)] = if allow_file { &[ALLOW_FILE_CONFIG] } else { &[] };
-    git_with_configs(configs, "submodule")
-        .arg("update")
-        .arg("--init")
-        .arg("--recursive")
-        .args(names.iter().map(|n| n.trim()))
+    git_with_configs(configs, "submodule").arg("update").arg("--init").arg("--recursive").args(names.iter().map(|n| n.trim()))
 }
 
 pub fn update_ref(git_ref: &str, target: ObjectId) -> GitArgs {
@@ -818,10 +810,19 @@ mod tests {
     #[test]
     fn add_submodule_cmd() {
         for (config, allow) in [("", false), ("-c protocol.file.allow=always ", true)] {
-            assert_eq!(s(add_submodule("remotepath", "localpath", Some("branch"), false, allow)), format!("{config}submodule add -b branch remotepath localpath"));
+            assert_eq!(
+                s(add_submodule("remotepath", "localpath", Some("branch"), false, allow)),
+                format!("{config}submodule add -b branch remotepath localpath")
+            );
             assert_eq!(s(add_submodule("remotepath", "localpath", None, false, allow)), format!("{config}submodule add remotepath localpath"));
-            assert_eq!(s(add_submodule("remotepath", "localpath", Some("branch"), true, allow)), format!("{config}submodule add -f -b branch remotepath localpath"));
-            assert_eq!(s(add_submodule("remote\\path", "local\\path", Some("branch"), true, allow)), format!("{config}submodule add -f -b branch remote/path local/path"));
+            assert_eq!(
+                s(add_submodule("remotepath", "localpath", Some("branch"), true, allow)),
+                format!("{config}submodule add -f -b branch remotepath localpath")
+            );
+            assert_eq!(
+                s(add_submodule("remote\\path", "local\\path", Some("branch"), true, allow)),
+                format!("{config}submodule add -f -b branch remote/path local/path")
+            );
         }
     }
 
@@ -973,10 +974,7 @@ mod tests {
         assert_eq!(s(get_all_changed_files(true, U::Default, I::Untracked, false)), format!("{p} --untracked-files --ignore-submodules=untracked"));
         assert_eq!(s(get_all_changed_files(true, U::Default, I::Dirty, false)), format!("{p} --untracked-files --ignore-submodules=dirty"));
         assert_eq!(s(get_all_changed_files(true, U::Default, I::All, false)), format!("{p} --untracked-files --ignore-submodules=all"));
-        assert_eq!(
-            s(get_all_changed_files(true, U::Default, I::Default, true)),
-            format!("--no-optional-locks {p} --untracked-files --ignore-submodules")
-        );
+        assert_eq!(s(get_all_changed_files(true, U::Default, I::Default, true)), format!("--no-optional-locks {p} --untracked-files --ignore-submodules"));
     }
 
     #[test]
@@ -1072,10 +1070,19 @@ mod tests {
         let to = Some("to-branch");
         assert_eq!(s(push("remote", "from-branch", to, DoNotForce, false, 0)), "push --progress remote from-branch:refs/heads/to-branch");
         assert_eq!(s(push("remote", "from-branch", to, Force, false, 0)), "push -f --progress remote from-branch:refs/heads/to-branch");
-        assert_eq!(s(push("remote", "from-branch", to, ForceWithLease, false, 0)), "push --force-with-lease --progress remote from-branch:refs/heads/to-branch");
+        assert_eq!(
+            s(push("remote", "from-branch", to, ForceWithLease, false, 0)),
+            "push --force-with-lease --progress remote from-branch:refs/heads/to-branch"
+        );
         assert_eq!(s(push("remote", "from-branch", to, DoNotForce, true, 0)), "push -u --progress remote from-branch:refs/heads/to-branch");
-        assert_eq!(s(push("remote", "from-branch", to, DoNotForce, false, 1)), "push --recurse-submodules=check --progress remote from-branch:refs/heads/to-branch");
-        assert_eq!(s(push("remote", "from-branch", to, DoNotForce, false, 2)), "push --recurse-submodules=on-demand --progress remote from-branch:refs/heads/to-branch");
+        assert_eq!(
+            s(push("remote", "from-branch", to, DoNotForce, false, 1)),
+            "push --recurse-submodules=check --progress remote from-branch:refs/heads/to-branch"
+        );
+        assert_eq!(
+            s(push("remote", "from-branch", to, DoNotForce, false, 2)),
+            "push --recurse-submodules=on-demand --progress remote from-branch:refs/heads/to-branch"
+        );
         assert_eq!(s(push("remote", "", to, DoNotForce, false, 0)), "push --progress remote HEAD:refs/heads/to-branch");
     }
 
@@ -1220,9 +1227,18 @@ mod tests {
         // Ported from CommandsTests.CreateTag.cs
         let id = ObjectId::random();
         assert_eq!(s(create_tag("tagname", id, TagOperation::Lightweight, "", None, false).unwrap()), format!("tag tagname -- {id}"));
-        assert_eq!(s(create_tag("tagname", id, TagOperation::Annotate, "", Some("c:/.git/TAGMESSAGE"), false).unwrap()), format!("tag -a -F c:/.git/TAGMESSAGE tagname -- {id}"));
-        assert_eq!(s(create_tag("tagname", id, TagOperation::SignWithDefaultKey, "", Some("c:/.git/TAGMESSAGE"), false).unwrap()), format!("tag -s -F c:/.git/TAGMESSAGE tagname -- {id}"));
-        assert_eq!(s(create_tag("tagname", id, TagOperation::SignWithSpecificKey, "abc123", Some("c:/.git/TAGMESSAGE"), false).unwrap()), format!("tag -u abc123 -F c:/.git/TAGMESSAGE tagname -- {id}"));
+        assert_eq!(
+            s(create_tag("tagname", id, TagOperation::Annotate, "", Some("c:/.git/TAGMESSAGE"), false).unwrap()),
+            format!("tag -a -F c:/.git/TAGMESSAGE tagname -- {id}")
+        );
+        assert_eq!(
+            s(create_tag("tagname", id, TagOperation::SignWithDefaultKey, "", Some("c:/.git/TAGMESSAGE"), false).unwrap()),
+            format!("tag -s -F c:/.git/TAGMESSAGE tagname -- {id}")
+        );
+        assert_eq!(
+            s(create_tag("tagname", id, TagOperation::SignWithSpecificKey, "abc123", Some("c:/.git/TAGMESSAGE"), false).unwrap()),
+            format!("tag -u abc123 -F c:/.git/TAGMESSAGE tagname -- {id}")
+        );
         assert_eq!(s(create_tag("tagname", id, TagOperation::Lightweight, "", None, true).unwrap()), format!("tag -f tagname -- {id}"));
         assert!(create_tag("tagname", ObjectId::WORK_TREE, TagOperation::Lightweight, "", None, false).is_err());
         assert!(create_tag(" ", id, TagOperation::Lightweight, "", None, false).is_err());

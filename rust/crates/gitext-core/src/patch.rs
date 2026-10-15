@@ -342,22 +342,17 @@ pub fn create_partial_patch(diff: &str, selected: &[usize], reverse: bool) -> Op
                         last_kept_was_dropped_add = true;
                     }
                 }
-                DiffLineKind::NoNewline
-                    if !last_kept_was_dropped_add => {
-                        hunk_text.push_str(&l.text);
-                        hunk_text.push('\n');
-                    }
+                DiffLineKind::NoNewline if !last_kept_was_dropped_add => {
+                    hunk_text.push_str(&l.text);
+                    hunk_text.push('\n');
+                }
                 _ => {}
             }
             i += 1;
         }
         if hunk_has_change {
             any = true;
-            let (os, ns) = if reverse {
-                (new_start as i64 - offset, new_start as i64)
-            } else {
-                (old_start as i64, old_start as i64 + offset)
-            };
+            let (os, ns) = if reverse { (new_start as i64 - offset, new_start as i64) } else { (old_start as i64, old_start as i64 + offset) };
             body.push_str(&format!("@@ -{},{} +{},{} @@\n", os.max(0), old_count, ns.max(0), new_count));
             body.push_str(&hunk_text);
             offset += new_count - old_count;
@@ -390,8 +385,7 @@ mod tests {
     }
 
     fn small_patch(reverse: bool) -> (String, Patch) {
-        let header =
-            if reverse { "diff --git a/thisisatestb.txt b/thisisatesta.txt" } else { "diff --git b/thisisatesta.txt a/thisisatestb.txt" };
+        let header = if reverse { "diff --git a/thisisatestb.txt b/thisisatesta.txt" } else { "diff --git b/thisisatesta.txt a/thisisatestb.txt" };
         let index = "index 5e4dce2..5eb1e6f 100644";
         let mut text = format!("{header}\n{index}\n");
         if reverse {

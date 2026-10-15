@@ -24,7 +24,11 @@ impl CherryPickDialog {
 
 impl Dialog for CherryPickDialog {
     fn title(&self) -> String {
-        if self.revert { tr("Revert commit").into() } else { tr("Cherry pick commit").into() }
+        if self.revert {
+            tr("Revert commit").into()
+        } else {
+            tr("Cherry pick commit").into()
+        }
     }
 
     fn kind(&self) -> super::DialogKind {
@@ -79,4 +83,3 @@ impl Dialog for CherryPickDialog {
         !cancel
     }
 }
-

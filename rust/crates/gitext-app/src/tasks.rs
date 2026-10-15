@@ -97,7 +97,12 @@ impl<K: PartialEq + Clone, T: Send + 'static> Loader<K, T> {
             if let Some(v) = t.try_take() {
                 if crate::prof::enabled() {
                     let worked = t.worked.lock().unwrap().unwrap_or_default();
-                    eprintln!("load {}: work {:.1} ms, shown after {:.1} ms", std::any::type_name::<T>(), worked.as_secs_f64() * 1000.0, t.started.elapsed().as_secs_f64() * 1000.0);
+                    eprintln!(
+                        "load {}: work {:.1} ms, shown after {:.1} ms",
+                        std::any::type_name::<T>(),
+                        worked.as_secs_f64() * 1000.0,
+                        t.started.elapsed().as_secs_f64() * 1000.0
+                    );
                 }
                 self.key = Some(k.clone());
                 self.value = Some(v);

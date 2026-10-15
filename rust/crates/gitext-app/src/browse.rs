@@ -445,7 +445,9 @@ impl BrowseView {
                     ui.selectable_value(&mut self.filter_kind, k, k.label());
                 }
             });
-            let r = ui.add(egui::TextEdit::singleline(&mut self.filter_input).hint_text(tr("Filter revisions (Enter)")).desired_width(220.0)).on_hover_text("Ctrl+E");
+            let r = ui
+                .add(egui::TextEdit::singleline(&mut self.filter_input).hint_text(tr("Filter revisions (Enter)")).desired_width(220.0))
+                .on_hover_text("Ctrl+E");
             if std::mem::take(&mut self.focus_filter) {
                 r.request_focus();
             }
@@ -504,7 +506,8 @@ impl BrowseView {
             let pin = if r.anchor == RepositoryAnchor::None { "" } else { "📌 " };
             let current = r.path.trim_end_matches(['/', '\\']) == work_dir.trim_end_matches(['/', '\\']);
             let text = RichText::new(format!("{pin}{n}: {}", r.name()));
-            let resp = ui.add(egui::Button::selectable(current, if current { text.strong() } else { text }).shortcut_text(r.parent_path())).on_hover_text(&r.path);
+            let resp =
+                ui.add(egui::Button::selectable(current, if current { text.strong() } else { text }).shortcut_text(r.parent_path())).on_hover_text(&r.path);
             if resp.clicked() {
                 if !current {
                     actions.push(Action::OpenRepo(r.path.clone().into()));
@@ -628,7 +631,9 @@ impl BrowseView {
                         }
                     }
                     if (st.rebasing || st.applying_patch) && !conflicts && ui.button(tr("Skip")).clicked() {
-                        actions.push(Action::RunGit(GitRun::new(tr("Skip"), if st.applying_patch { commands::skip_mailbox() } else { commands::skip_rebase() }).conflicts()));
+                        actions.push(Action::RunGit(
+                            GitRun::new(tr("Skip"), if st.applying_patch { commands::skip_mailbox() } else { commands::skip_rebase() }).conflicts(),
+                        ));
                     }
                     if st.bisecting && operation == Some("Bisect") && ui.button(tr("Bisect…")).clicked() {
                         actions.push(Action::OpenDialog(Box::new(dialogs::bisect::BisectDialog)));
@@ -729,7 +734,15 @@ impl BrowseView {
                         .and_then(|id| self.grid.graph.try_get_node(&id))
                         .map(|n| self.grid.graph.store.nodes[n].children.iter().map(|&c| self.grid.graph.store.nodes[c].object_id).collect())
                         .unwrap_or_default();
-                    if let Some(CommitInfoLink::Select(id)) = crate::prof::scope("commit_info", || self.commit_info.ui(ui, &self.module, rev.as_ref(), children, settings.show_author_avatar_in_commit_info.then_some((&mut self.avatars, settings.avatar_cache_days)))) {
+                    if let Some(CommitInfoLink::Select(id)) = crate::prof::scope("commit_info", || {
+                        self.commit_info.ui(
+                            ui,
+                            &self.module,
+                            rev.as_ref(),
+                            children,
+                            settings.show_author_avatar_in_commit_info.then_some((&mut self.avatars, settings.avatar_cache_days)),
+                        )
+                    }) {
                         self.grid.select(id);
                     }
                 }
@@ -817,7 +830,13 @@ impl BrowseView {
                     // without the dialog the default action for local changes applies
                     let action = settings.default_local_changes_action;
                     let has_changes = self.data.status.iter().any(|s| s.is_tracked);
-                    actions.push(Action::RunGit(checkout::checkout_run(&name, commands::checkout(&name, action), action, has_changes, settings.update_submodules_on_checkout)));
+                    actions.push(Action::RunGit(checkout::checkout_run(
+                        &name,
+                        commands::checkout(&name, action),
+                        action,
+                        has_changes,
+                        settings.update_submodules_on_checkout,
+                    )));
                 }
             }
             LeftCommand::CheckoutRemote(name) => open(actions, Box::new(checkout::CheckoutBranchDialog::new(&self.data, Some(name), true))),
@@ -835,26 +854,45 @@ impl BrowseView {
             LeftCommand::Push(name) => open(actions, Box::new(push::PushDialog::new(&self.data, settings, Some(name)))),
             LeftCommand::Pull => open(actions, Box::new(pull::PullDialog::new(&self.data, None))),
             LeftCommand::FetchRemote(remote) => {
-                actions.push(Action::RunGit(GitRun::new(trf("Fetch {0}", &[&remote]), self.module.fetch_args(&remote, "", "", None, settings.prune_on_fetch, false))));
+                actions.push(Action::RunGit(GitRun::new(
+                    trf("Fetch {0}", &[&remote]),
+                    self.module.fetch_args(&remote, "", "", None, settings.prune_on_fetch, false),
+                )));
             }
-            LeftCommand::PruneRemote(remote) => actions.push(Action::RunGit(GitRun::new(trf("Prune {0}", &[&remote]), GitArgs::new("remote").arg("prune").arg(remote)))),
+            LeftCommand::PruneRemote(remote) => {
+                actions.push(Action::RunGit(GitRun::new(trf("Prune {0}", &[&remote]), GitArgs::new("remote").arg("prune").arg(remote))))
+            }
             LeftCommand::ManageRemotes => open(actions, Box::new(remotes::RemotesDialog::default())),
             LeftCommand::DeleteTag(name) => open(actions, Box::new(tag::DeleteTagDialog::new(&self.data, Some(name)))),
             LeftCommand::PushTag(name) => open(actions, Box::new(push::PushDialog::tag(&self.data, settings, &name))),
-            LeftCommand::ApplyStash(s) => actions.push(Action::RunGit(GitRun::new(trf("Apply {0}", &[&s]), GitArgs::new("stash").arg("apply").arg(s)).conflicts())),
+            LeftCommand::ApplyStash(s) => {
+                actions.push(Action::RunGit(GitRun::new(trf("Apply {0}", &[&s]), GitArgs::new("stash").arg("apply").arg(s)).conflicts()))
+            }
             LeftCommand::PopStash(s) => actions.push(Action::RunGit(GitRun::new(trf("Pop {0}", &[&s]), GitArgs::new("stash").arg("pop").arg(s)).conflicts())),
             LeftCommand::DropStash(s) => {
                 let s2 = s.clone();
-                open(actions, Box::new(Confirm::new(tr("Drop stash"), trf("Drop {0}? This cannot be undone.", &[&s]), tr("Drop"), move |cx| cx.run(GitRun::new(tr("Drop stash"), GitArgs::new("stash").arg("drop").arg(s2))))));
+                open(
+                    actions,
+                    Box::new(Confirm::new(tr("Drop stash"), trf("Drop {0}? This cannot be undone.", &[&s]), tr("Drop"), move |cx| {
+                        cx.run(GitRun::new(tr("Drop stash"), GitArgs::new("stash").arg("drop").arg(s2)))
+                    })),
+                );
             }
             LeftCommand::OpenSubmodule(path) => actions.push(Action::OpenRepo(self.module.work_dir().join(path))),
-            LeftCommand::UpdateSubmodule(path) => actions.push(Action::RunGit(GitRun::new(trf("Update {0}", &[&path]), commands::submodule_update(&[&path], false)))),
+            LeftCommand::UpdateSubmodule(path) => {
+                actions.push(Action::RunGit(GitRun::new(trf("Update {0}", &[&path]), commands::submodule_update(&[&path], false))))
+            }
             LeftCommand::SyncSubmodule(path) => actions.push(Action::RunGit(GitRun::new(trf("Sync {0}", &[&path]), commands::submodule_sync(Some(&path))))),
             LeftCommand::ManageSubmodules => open(actions, Box::new(submodules::SubmodulesDialog::default())),
             LeftCommand::OpenWorktree(path) => actions.push(Action::OpenRepo(path.into())),
             LeftCommand::RemoveWorktree(path) => {
                 let p = path.clone();
-                open(actions, Box::new(Confirm::new(tr("Remove worktree"), trf("Remove worktree '{0}'?", &[&path]), tr("Remove"), move |cx| cx.run(GitRun::new(tr("Remove worktree"), GitArgs::new("worktree").arg("remove").arg(p))))));
+                open(
+                    actions,
+                    Box::new(Confirm::new(tr("Remove worktree"), trf("Remove worktree '{0}'?", &[&path]), tr("Remove"), move |cx| {
+                        cx.run(GitRun::new(tr("Remove worktree"), GitArgs::new("worktree").arg("remove").arg(p)))
+                    })),
+                );
             }
             LeftCommand::ManageWorktrees => open(actions, Box::new(worktrees::WorktreesDialog::default())),
             LeftCommand::SetUpstream(name) => open(actions, Box::new(branch::SetUpstreamDialog::new(&self.data, &name))),
@@ -864,7 +902,10 @@ impl BrowseView {
             LeftCommand::FetchRemoteBranch(full, then) => {
                 // `RemoteBranchNode.Fetch`: `git fetch <remote> +<branch>` updates the remote
                 // branch, then the next step opens on success
-                let Some(remote) = self.data.remotes.iter().map(|r| r.name.as_str()).filter(|r| full.starts_with(&format!("{r}/"))).max_by_key(|r| r.len()) else { return };
+                let Some(remote) = self.data.remotes.iter().map(|r| r.name.as_str()).filter(|r| full.starts_with(&format!("{r}/"))).max_by_key(|r| r.len())
+                else {
+                    return;
+                };
                 let branch = &full[remote.len() + 1..];
                 let mut run = GitRun::new(trf("Fetch {0}", &[&full]), self.module.fetch_args(remote, branch, "", None, false, false));
                 let next: Option<Box<dyn Dialog>> = match then {
@@ -885,8 +926,12 @@ impl BrowseView {
             LeftCommand::FetchPruneRemote(remote) => {
                 actions.push(Action::RunGit(GitRun::new(trf("Fetch and prune {0}", &[&remote]), self.module.fetch_args(&remote, "", "", None, true, false))));
             }
-            LeftCommand::FetchAllRemotes => actions.push(Action::RunGit(GitRun::new(tr("Fetch all remotes"), self.module.fetch_args("", "", "", None, settings.prune_on_fetch, false)))),
-            LeftCommand::FetchPruneAllRemotes => actions.push(Action::RunGit(GitRun::new(tr("Fetch and prune all remotes"), self.module.fetch_args("", "", "", None, true, false)))),
+            LeftCommand::FetchAllRemotes => {
+                actions.push(Action::RunGit(GitRun::new(tr("Fetch all remotes"), self.module.fetch_args("", "", "", None, settings.prune_on_fetch, false))))
+            }
+            LeftCommand::FetchPruneAllRemotes => {
+                actions.push(Action::RunGit(GitRun::new(tr("Fetch and prune all remotes"), self.module.fetch_args("", "", "", None, true, false))))
+            }
             LeftCommand::OpenUrl(url) => crate::util::open_with_system(&url),
             LeftCommand::Copy(s) => actions.push(Action::Copy(s)),
             LeftCommand::ShowInFolder(path) => crate::util::open_folder(&path, &settings.file_manager),
@@ -914,7 +959,11 @@ impl BrowseView {
                 open(actions, Box::new(d));
             }
             GridCommand::MergeInto(id) => {
-                let name = self.grid.revision(&id).and_then(|r| r.refs.iter().find(|r| r.is_head() || r.is_remote()).map(|r| r.name.clone())).unwrap_or_else(|| id.to_string());
+                let name = self
+                    .grid
+                    .revision(&id)
+                    .and_then(|r| r.refs.iter().find(|r| r.is_head() || r.is_remote()).map(|r| r.name.clone()))
+                    .unwrap_or_else(|| id.to_string());
                 open(actions, Box::new(merge::MergeDialog::new(&self.data, &name)));
             }
             GridCommand::CherryPick(id) => {
@@ -946,9 +995,15 @@ impl BrowseView {
             GridCommand::NavigateToParent => self.grid.navigate_parent(),
             GridCommand::NavigateToChild => self.grid.navigate_child(),
             GridCommand::GoToCommit => open(actions, Box::new(goto_commit::GoToCommitDialog::default())),
-            GridCommand::BisectGood => actions.push(Action::RunGit(GitRun::new(tr("Bisect good"), commands::continue_bisect(commands::GitBisectOption::Good, &self.grid.selected)).keep_open())),
-            GridCommand::BisectBad => actions.push(Action::RunGit(GitRun::new(tr("Bisect bad"), commands::continue_bisect(commands::GitBisectOption::Bad, &self.grid.selected)).keep_open())),
-            GridCommand::BisectSkip => actions.push(Action::RunGit(GitRun::new(tr("Bisect skip"), commands::continue_bisect(commands::GitBisectOption::Skip, &self.grid.selected)).keep_open())),
+            GridCommand::BisectGood => actions.push(Action::RunGit(
+                GitRun::new(tr("Bisect good"), commands::continue_bisect(commands::GitBisectOption::Good, &self.grid.selected)).keep_open(),
+            )),
+            GridCommand::BisectBad => actions.push(Action::RunGit(
+                GitRun::new(tr("Bisect bad"), commands::continue_bisect(commands::GitBisectOption::Bad, &self.grid.selected)).keep_open(),
+            )),
+            GridCommand::BisectSkip => actions.push(Action::RunGit(
+                GitRun::new(tr("Bisect skip"), commands::continue_bisect(commands::GitBisectOption::Skip, &self.grid.selected)).keep_open(),
+            )),
             GridCommand::OpenCommitDialog => actions.push(Action::OpenCommit),
             GridCommand::ApplyStash(s) => self.handle_left(LeftCommand::ApplyStash(s), settings, actions),
             GridCommand::PopStash(s) => self.handle_left(LeftCommand::PopStash(s), settings, actions),
@@ -980,7 +1035,11 @@ impl BrowseView {
             GridCommand::RewordCommit(id) | GridCommand::EditCommit(id) => {
                 let Some(rev) = self.grid.revision(&id).cloned() else { return };
                 if !self.grid.is_ancestor_of(id, self.data.head) && !self.module.is_ancestor(id, self.data.head) {
-                    actions.push(Action::Message { title: tr("Rebase").into(), text: tr("The commit is not in the history of the current branch.").into(), error: true });
+                    actions.push(Action::Message {
+                        title: tr("Rebase").into(),
+                        text: tr("The commit is not in the history of the current branch.").into(),
+                        error: true,
+                    });
                     return;
                 }
                 if matches!(c, GridCommand::RewordCommit(_)) {
@@ -996,7 +1055,9 @@ impl BrowseView {
             }
             GridCommand::SelectAsBase(id) => self.grid.base_to_compare = Some(id),
             GridCommand::CompareToBase(id) => match self.grid.base_to_compare {
-                Some(base) => open(actions, Box::new(compare::CompareDialog::revisions(&self.data, (self.revision_label(base), base), (self.revision_label(id), id)))),
+                Some(base) => {
+                    open(actions, Box::new(compare::CompareDialog::revisions(&self.data, (self.revision_label(base), base), (self.revision_label(id), id))))
+                }
                 None => actions.push(Action::Message { title: tr("Compare").into(), text: tr("Base commit for compare is not selected.").into(), error: true }),
             },
             GridCommand::CompareWithCurrentBranch(id) => match self.data.current_branch.clone() {
@@ -1020,14 +1081,22 @@ impl BrowseView {
             }
             GridCommand::EditGitIgnore => open(actions, Box::new(gitignore::GitIgnoreDialog::new(false))),
             GridCommand::FixupCommit(id, kind) => {
-                actions.push(Action::RunGit(GitRun::new(trf("Create {0} commit", &[&kind]), GitArgs::new("commit").arg(format!("--fixup={}{id}", if kind == "fixup" { String::new() } else { format!("{kind}:") })).arg("--no-edit"))));
+                actions.push(Action::RunGit(GitRun::new(
+                    trf("Create {0} commit", &[&kind]),
+                    GitArgs::new("commit").arg(format!("--fixup={}{id}", if kind == "fixup" { String::new() } else { format!("{kind}:") })).arg("--no-edit"),
+                )));
             }
         }
     }
 
     /// A short name of a commit for titles: its first branch or tag, else its hash.
     fn revision_label(&self, id: ObjectId) -> String {
-        self.data.refs_by_commit.get(&id).and_then(|refs| refs.iter().find(|r| r.is_head()).or(refs.first())).map(|r| r.name.clone()).unwrap_or_else(|| id.to_short_string())
+        self.data
+            .refs_by_commit
+            .get(&id)
+            .and_then(|refs| refs.iter().find(|r| r.is_head()).or(refs.first()))
+            .map(|r| r.name.clone())
+            .unwrap_or_else(|| id.to_short_string())
     }
 
     pub fn handle_diff(&mut self, c: DiffCommand, settings: &mut AppSettings, actions: &mut Vec<Action>) {
@@ -1065,10 +1134,13 @@ impl BrowseView {
             DiffCommand::ResetFileTo { rev, files } => {
                 let list = files.clone();
                 let text = trf("Reset {0} file(s) to {1}?", &[&files.len(), &rev.to_short_string()]);
-                actions.push(Action::OpenDialog(Box::new(Confirm::new(tr("Reset files"), text, tr("Reset"), move |cx| {
-                    let refs: Vec<&str> = files.iter().map(String::as_str).collect();
-                    cx.run(GitRun::new(tr("Reset files"), GitArgs::new("checkout").arg(rev.to_string()).arg("--").args(refs)));
-                }).with_list(list))));
+                actions.push(Action::OpenDialog(Box::new(
+                    Confirm::new(tr("Reset files"), text, tr("Reset"), move |cx| {
+                        let refs: Vec<&str> = files.iter().map(String::as_str).collect();
+                        cx.run(GitRun::new(tr("Reset files"), GitArgs::new("checkout").arg(rev.to_string()).arg("--").args(refs)));
+                    })
+                    .with_list(list),
+                )));
             }
             DiffCommand::Stage(files) => {
                 let refs: Vec<&str> = files.iter().map(String::as_str).collect();
@@ -1099,14 +1171,19 @@ impl BrowseView {
                 actions.push(Action::RefreshStatus);
             }
             DiffCommand::ResetPatch(patch) => {
-                actions.push(Action::OpenDialog(Box::new(Confirm::new(tr("Reset lines"), tr("Reset the selected lines in the working directory? This cannot be undone."), tr("Reset"), move |cx| {
-                    if let Some(m) = cx.module {
-                        if let Err(e) = m.apply_patch_text(&patch, false, true) {
-                            cx.error(tr("Reset lines"), e.to_string());
+                actions.push(Action::OpenDialog(Box::new(Confirm::new(
+                    tr("Reset lines"),
+                    tr("Reset the selected lines in the working directory? This cannot be undone."),
+                    tr("Reset"),
+                    move |cx| {
+                        if let Some(m) = cx.module {
+                            if let Err(e) = m.apply_patch_text(&patch, false, true) {
+                                cx.error(tr("Reset lines"), e.to_string());
+                            }
                         }
-                    }
-                    cx.push(Action::RefreshStatus);
-                }))));
+                        cx.push(Action::RefreshStatus);
+                    },
+                ))));
             }
         }
     }

@@ -65,11 +65,14 @@ impl Dialog for MergeDialog {
         });
         ui.horizontal(|ui| {
             ui.label(tr("Strategy"));
-            egui::ComboBox::from_id_salt("merge_strategy").selected_text(if self.strategy.is_empty() { tr("default") } else { &self.strategy }).show_ui(ui, |ui| {
-                for s in ["", "ort", "recursive", "resolve", "octopus", "ours", "subtree"] {
-                    ui.selectable_value(&mut self.strategy, s.to_string(), if s.is_empty() { tr("default") } else { s });
-                }
-            });
+            egui::ComboBox::from_id_salt("merge_strategy").selected_text(if self.strategy.is_empty() { tr("default") } else { &self.strategy }).show_ui(
+                ui,
+                |ui| {
+                    for s in ["", "ort", "recursive", "resolve", "octopus", "ours", "subtree"] {
+                        ui.selectable_value(&mut self.strategy, s.to_string(), if s.is_empty() { tr("default") } else { s });
+                    }
+                },
+            );
         });
         ui.checkbox(&mut self.custom_message, tr("Specify merge commit message"));
         if self.custom_message {

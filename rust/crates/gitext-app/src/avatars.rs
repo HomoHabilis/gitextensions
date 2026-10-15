@@ -150,7 +150,11 @@ pub fn paint_initials(ui: &Ui, rect: Rect, email: &str, name: &str, rounding: f3
 /// Black or white, whichever reads on `bg` (`GetContrastColor` with the 0.5 threshold).
 fn contrast_color(bg: Color32) -> Color32 {
     let luminance = (0.299 * bg.r() as f32 + 0.587 * bg.g() as f32 + 0.114 * bg.b() as f32) / 255.0;
-    if luminance > 0.5 { Color32::BLACK } else { Color32::WHITE }
+    if luminance > 0.5 {
+        Color32::BLACK
+    } else {
+        Color32::WHITE
+    }
 }
 
 /// `GetDeterministicHashCode`: the same hash as upstream (over UTF-16 code units), so authors
@@ -294,8 +298,8 @@ fn md5_hex(email: &str) -> String {
 /// MD5 (RFC 1321): only used to name Gravatar images.
 fn md5(input: &[u8]) -> [u8; 16] {
     const S: [u32; 64] = [
-        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16,
-        23, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4,
+        11, 16, 23, 4, 11, 16, 23, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
     ];
     let k: Vec<u32> = (0..64).map(|i| ((i as f64 + 1.0).sin().abs() * 4_294_967_296.0) as u32).collect();
     let (mut a0, mut b0, mut c0, mut d0) = (0x67452301u32, 0xefcdab89u32, 0x98badcfeu32, 0x10325476u32);

@@ -48,12 +48,7 @@ pub fn parse_single(raw: &str) -> Option<GitItem> {
         "commit" => GitObjectType::Commit,
         _ => GitObjectType::None,
     };
-    Some(GitItem {
-        mode: m["mode"].parse().ok()?,
-        object_type,
-        object_id: ObjectId::parse(&m["objectid"]).ok()?,
-        name: m["name"].to_string(),
-    })
+    Some(GitItem { mode: m["mode"].parse().ok()?, object_type, object_id: ObjectId::parse(&m["objectid"]).ok()?, name: m["name"].to_string() })
 }
 
 /// Parses `git ls-tree -z` output.

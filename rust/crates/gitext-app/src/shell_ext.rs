@@ -250,10 +250,7 @@ mod tests {
         let keys = registry_keys(exe, &[]);
         assert_eq!(value(&keys, r"*\shell\GitExtensions", "SubCommands"), Some(&RegValue::Str(String::new())));
         assert_eq!(value(&keys, r"*\shell\GitExtensions", "Icon"), Some(&RegValue::Str(format!("{exe},-1"))));
-        assert_eq!(
-            value(&keys, r"*\shell\GitExtensions\shell\01browse\command", ""),
-            Some(&RegValue::Str(format!("\"{exe}\" -C \"%1\" browse")))
-        );
+        assert_eq!(value(&keys, r"*\shell\GitExtensions\shell\01browse\command", ""), Some(&RegValue::Str(format!("\"{exe}\" -C \"%1\" browse"))));
         assert_eq!(
             value(&keys, r"Directory\Background\shell\GitExtensions\shell\01browse\command", ""),
             Some(&RegValue::Str(format!("\"{exe}\" -C \"%V\" browse")))

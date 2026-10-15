@@ -27,7 +27,14 @@ impl BlameDialog {
     }
 
     pub fn with_line(file: String, rev: ObjectId, line: Option<usize>) -> Self {
-        BlameDialog { file, rev, blame: Loader::default(), selected_line: line.map(|l| l.saturating_sub(1)), scroll_to: line.map(|l| l.saturating_sub(1)), history: Vec::new() }
+        BlameDialog {
+            file,
+            rev,
+            blame: Loader::default(),
+            selected_line: line.map(|l| l.saturating_sub(1)),
+            scroll_to: line.map(|l| l.saturating_sub(1)),
+            history: Vec::new(),
+        }
     }
 }
 
@@ -47,7 +54,8 @@ impl Dialog for BlameDialog {
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         let palette = Palette::for_ui(ui);
         let Some(m) = cx.module.cloned() else { return false };
-        let (detect_moves, detect_copies, ignore_ws) = (cx.settings.detect_copy_in_file_on_blame, cx.settings.detect_copy_in_all_on_blame, cx.settings.ignore_whitespace_on_blame);
+        let (detect_moves, detect_copies, ignore_ws) =
+            (cx.settings.detect_copy_in_file_on_blame, cx.settings.detect_copy_in_all_on_blame, cx.settings.ignore_whitespace_on_blame);
         let rev = self.rev;
         let file = self.file.clone();
         let mm = m.clone();
@@ -64,7 +72,10 @@ impl Dialog for BlameDialog {
                 }
             }
             ui.label(RichText::new(&self.file).strong());
-            ui.label(RichText::new(if self.rev.is_zero() { tr("working directory").to_string() } else { trf("at {0}", &[&self.rev.to_short_string()]) }).color(palette.muted));
+            ui.label(
+                RichText::new(if self.rev.is_zero() { tr("working directory").to_string() } else { trf("at {0}", &[&self.rev.to_short_string()]) })
+                    .color(palette.muted),
+            );
             if ui.button(tr("File history")).clicked() {
                 cx.open(super::file_history::FileHistoryDialog::new(self.file.clone()));
             }
@@ -164,7 +175,13 @@ impl Dialog for BlameDialog {
                         font.clone(),
                         palette.line_number,
                     );
-                    painter.text(Pos2::new(rect.left() + gutter + char_w * 7.0, rect.center().y), egui::Align2::LEFT_CENTER, line.text.replace('\t', "    "), font.clone(), ui.visuals().text_color());
+                    painter.text(
+                        Pos2::new(rect.left() + gutter + char_w * 7.0, rect.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        line.text.replace('\t', "    "),
+                        font.clone(),
+                        ui.visuals().text_color(),
+                    );
                     if resp.clicked() {
                         self.selected_line = Some(i);
                     }

@@ -209,7 +209,9 @@ fn system_font(script: Script) -> Option<(Vec<u8>, u32)> {
         let paths: &[&str] = match script {
             Script::Japanese => &["/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc", "/System/Library/Fonts/Hiragino Sans GB.ttc"],
             Script::Korean => &["/System/Library/Fonts/AppleSDGothicNeo.ttc"],
-            Script::SimplifiedChinese | Script::TraditionalChinese => &["/System/Library/Fonts/Hiragino Sans GB.ttc", "/System/Library/Fonts/STHeiti Light.ttc"],
+            Script::SimplifiedChinese | Script::TraditionalChinese => {
+                &["/System/Library/Fonts/Hiragino Sans GB.ttc", "/System/Library/Fonts/STHeiti Light.ttc"]
+            }
             Script::Thai => &["/System/Library/Fonts/Supplemental/Thonburi.ttc", "/System/Library/Fonts/Thonburi.ttc"],
             Script::Vietnamese => &["/System/Library/Fonts/Helvetica.ttc"],
         };

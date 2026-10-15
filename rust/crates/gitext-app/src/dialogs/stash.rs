@@ -98,7 +98,9 @@ impl Dialog for StashDialog {
                     }
                     if ui.button(tr("Drop selected stash…")).clicked() {
                         let n = name.clone().unwrap();
-                        cx.open(Confirm::new(tr("Drop stash"), trf("Drop {0}? This cannot be undone.", &[&n]), tr("Drop"), move |cx| cx.run(GitRun::new(tr("Drop stash"), GitArgs::new("stash").arg("drop").arg(n)))));
+                        cx.open(Confirm::new(tr("Drop stash"), trf("Drop {0}? This cannot be undone.", &[&n]), tr("Drop"), move |cx| {
+                            cx.run(GitRun::new(tr("Drop stash"), GitArgs::new("stash").arg("drop").arg(n)))
+                        }));
                         self.select(None);
                     }
                     if ui.button(tr("Create branch…")).clicked() {
@@ -106,7 +108,9 @@ impl Dialog for StashDialog {
                     }
                 });
                 if ui.add_enabled(!stashes.is_empty(), egui::Button::new(tr("Clear all…"))).clicked() {
-                    cx.open(Confirm::new(tr("Clear stashes"), tr("Drop ALL stashes? This cannot be undone."), tr("Clear"), |cx| cx.run(GitRun::new(tr("Clear stashes"), GitArgs::new("stash").arg("clear")))));
+                    cx.open(Confirm::new(tr("Clear stashes"), tr("Drop ALL stashes? This cannot be undone."), tr("Clear"), |cx| {
+                        cx.run(GitRun::new(tr("Clear stashes"), GitArgs::new("stash").arg("clear")))
+                    }));
                 }
             });
         });
@@ -229,7 +233,10 @@ impl StashDialog {
                     self.file_diff
                         .request(cx.ctx, key, move || {
                             if f.is_new && !f.is_tracked {
-                                return mm.get_file_bytes(ObjectId::WORK_TREE, &f.name).map(|b| content_from_bytes(&b)).unwrap_or(ViewerContent::Empty(tr("Cannot read file").into()));
+                                return mm
+                                    .get_file_bytes(ObjectId::WORK_TREE, &f.name)
+                                    .map(|b| content_from_bytes(&b))
+                                    .unwrap_or(ViewerContent::Empty(tr("Cannot read file").into()));
                             }
                             let (first, second) = if staged { (None, ObjectId::INDEX) } else { (Some(ObjectId::INDEX), ObjectId::WORK_TREE) };
                             match mm.get_file_diff(first, second, &f.name, f.old_name.as_deref(), &opts) {

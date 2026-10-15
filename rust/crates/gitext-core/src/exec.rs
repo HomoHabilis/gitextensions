@@ -246,11 +246,8 @@ impl Executable {
     /// Windows (port of `GitExecutor`).
     pub fn git(working_dir: impl Into<PathBuf>) -> Self {
         let working_dir = working_dir.into();
-        let wsl_distro = if cfg!(windows) && WSL_GIT_ENABLED.load(Ordering::Relaxed) {
-            crate::wsl::distro(&working_dir.to_string_lossy())
-        } else {
-            String::new()
-        };
+        let wsl_distro =
+            if cfg!(windows) && WSL_GIT_ENABLED.load(Ordering::Relaxed) { crate::wsl::distro(&working_dir.to_string_lossy()) } else { String::new() };
         Executable { file_name: git_command(), working_dir, env: Vec::new(), wsl_distro }
     }
 
@@ -439,13 +436,17 @@ impl Executable {
         let cancelled = Arc::new(AtomicBool::new(false));
 
         let tx_out = tx.clone();
-        let out_thread = std::thread::spawn(move || stream_lines(stdout, |line, progress| {
-            let _ = tx_out.send(if progress { OutputEvent::Progress(line) } else { OutputEvent::Stdout(line) });
-        }));
+        let out_thread = std::thread::spawn(move || {
+            stream_lines(stdout, |line, progress| {
+                let _ = tx_out.send(if progress { OutputEvent::Progress(line) } else { OutputEvent::Stdout(line) });
+            })
+        });
         let tx_err = tx.clone();
-        let err_thread = std::thread::spawn(move || stream_lines(stderr, |line, progress| {
-            let _ = tx_err.send(if progress { OutputEvent::Progress(line) } else { OutputEvent::Stderr(line) });
-        }));
+        let err_thread = std::thread::spawn(move || {
+            stream_lines(stderr, |line, progress| {
+                let _ = tx_err.send(if progress { OutputEvent::Progress(line) } else { OutputEvent::Stderr(line) });
+            })
+        });
         let child_wait = Arc::clone(&child);
         std::thread::spawn(move || {
             let _ = out_thread.join();
@@ -505,10 +506,7 @@ mod tests {
         let args: Vec<String> = ["apply", "--cached", "C:/Users/jack/AppData/Local/Temp/p.patch"].iter().map(|s| s.to_string()).collect();
         let (program, v) = exe.command_line(&args);
         assert_eq!(program, "wsl.exe");
-        assert_eq!(
-            v,
-            ["-d", "Ubuntu-22.04", "--cd", "/home/jack/repo", "--exec", "git", "apply", "--cached", "/mnt/c/Users/jack/AppData/Local/Temp/p.patch"]
-        );
+        assert_eq!(v, ["-d", "Ubuntu-22.04", "--cd", "/home/jack/repo", "--exec", "git", "apply", "--cached", "/mnt/c/Users/jack/AppData/Local/Temp/p.patch"]);
         assert_eq!(exe.app_path("/home/jack/repo/.git"), PathBuf::from(r"\\wsl$\Ubuntu-22.04\home\jack\repo\.git"));
         assert_eq!(exe.display_name(), "wsl -d Ubuntu-22.04 git");
         // a message is not a path
@@ -574,10 +572,7 @@ mod tests {
     fn stream_lines_splits_progress() {
         let mut events = Vec::new();
         stream_lines(&b"a\nprog 1%\rprog 2%\rdone\n"[..], |l, p| events.push((l, p)));
-        assert_eq!(
-            events,
-            vec![("a".into(), false), ("prog 1%".into(), true), ("prog 2%".into(), true), ("done".into(), false)]
-        );
+        assert_eq!(events, vec![("a".into(), false), ("prog 1%".into(), true), ("prog 2%".into(), true), ("done".into(), false)]);
     }
 
     #[test]

@@ -122,7 +122,10 @@ impl Dialog for AddSubmoduleDialog {
         if ok {
             let local_file = std::path::Path::new(self.url.trim()).exists();
             let b = self.branch.trim();
-            cx.run(GitRun::new(tr("Add submodule"), commands::add_submodule(self.url.trim(), self.path.trim(), (!b.is_empty()).then_some(b), self.force, local_file)));
+            cx.run(GitRun::new(
+                tr("Add submodule"),
+                commands::add_submodule(self.url.trim(), self.path.trim(), (!b.is_empty()).then_some(b), self.force, local_file),
+            ));
             return false;
         }
         !cancel
