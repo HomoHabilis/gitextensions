@@ -171,7 +171,7 @@ pub fn draw_row(
                     store,
                     segment,
                     graph.row(index - 2),
-                    previous_row.unwrap(),
+                    previous_row.expect("a segment drawn from the start has a previous row"),
                     Some(current_row),
                     skip_secondary,
                     config.merge_graph_lanes_having_common_parent,
@@ -184,7 +184,7 @@ pub fn draw_row(
                     store,
                     segment,
                     Some(current_row),
-                    next_row.unwrap(),
+                    next_row.expect("a segment drawn to the end has a next row"),
                     graph.row(index + 2),
                     skip_secondary,
                     config.merge_graph_lanes_having_common_parent,
@@ -216,7 +216,7 @@ pub fn draw_row(
     out
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "port of the original method")]
 fn get_lanes_info(
     store: &Store,
     segment: SegIdx,

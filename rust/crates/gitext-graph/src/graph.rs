@@ -484,14 +484,8 @@ impl RevisionGraph {
 /// Port of the local `Order` function: orders the start segments of a revision to reduce crossings.
 fn order(store: &Store, segments: &[SegIdx], ordered_nodes: &[NodeIdx], next_index: usize) -> Vec<SegIdx> {
     let end_index = (next_index + ORDER_SEGMENTS_LOOK_AHEAD).min(ordered_nodes.len());
-    let get_row_index = |revision: NodeIdx| -> i32 {
-        for index in next_index + 1..end_index {
-            if ordered_nodes[index] == revision {
-                return (index - next_index) as i32;
-            }
-        }
-        i32::MAX
-    };
+    let look_ahead = ordered_nodes.get(next_index + 1..end_index).unwrap_or_default();
+    let get_row_index = |revision: NodeIdx| -> i32 { look_ahead.iter().position(|&n| n == revision).map_or(i32::MAX, |i| (i + 1) as i32) };
 
     fn is_ancestor_of(store: &Store, ancestor: NodeIdx, child: NodeIdx, stop_row: i32, get_row_index: &dyn Fn(NodeIdx) -> i32) -> bool {
         if store.parents(child).any(|p| p == ancestor) {

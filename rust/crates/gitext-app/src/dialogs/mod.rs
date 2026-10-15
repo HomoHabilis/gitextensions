@@ -169,13 +169,16 @@ impl GitRun {
     }
 }
 
+/// What a confirmation does when accepted.
+pub type OnYes = Box<dyn FnOnce(&mut Cx)>;
+
 /// Context passed to dialogs.
 pub struct Cx<'a> {
     pub ctx: &'a egui::Context,
     pub module: Option<&'a GitModule>,
     pub data: Option<&'a RepoData>,
     pub settings: &'a mut AppSettings,
-    #[allow(dead_code)] // kept for dialogs that manage the recent repository list
+    #[allow(dead_code, reason = "kept for dialogs that manage the recent repository list")]
     pub history: &'a mut RepositoryHistory,
     pub actions: &'a mut Vec<Action>,
     /// Selected revisions of the browse window.
@@ -296,7 +299,7 @@ pub struct Confirm {
     /// Names listed under the text (e.g. the files the action changes), in a scrolling box.
     pub list: Vec<String>,
     pub yes: String,
-    pub on_yes: Option<Box<dyn FnOnce(&mut Cx)>>,
+    pub on_yes: Option<OnYes>,
 }
 
 impl Confirm {

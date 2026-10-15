@@ -1,7 +1,7 @@
 //! Port of `RevisionDiffControl`: changed files between revisions and their diff.
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use egui::{RichText, Ui};
 use gitext_core::module::DiffOptions;
@@ -141,9 +141,8 @@ fn load_files(m: &GitModule, first: Option<ObjectId>, second: ObjectId, combined
         let parts: Vec<&str> = out.split('\0').filter(|s| !s.is_empty()).collect();
         Ok(parts
             .chunks(2)
-            .filter_map(|c| {
-                (c.len() == 2).then(|| GitItemStatus::from_status_character(gitext_core::status::StagedStatus::None, c[1], c[0].chars().next().unwrap_or('M')))
-            })
+            .filter(|c| c.len() == 2)
+            .map(|c| GitItemStatus::from_status_character(gitext_core::status::StagedStatus::None, c[1], c[0].chars().next().unwrap_or('M')))
             .collect())
     } else {
         m.get_diff_files(first, second).map_err(|e| e.to_string())
@@ -352,7 +351,7 @@ fn load_into_cache(cache: &SharedCache, m: &GitModule, first: Option<ObjectId>, 
             let contents: Vec<(String, Content)> =
                 files.iter().zip(patches).map(|(f, p)| (diff_key(first, second, f, opts, combined), Arc::new(diff_content(m, second, f, Ok(p))))).collect();
             let files = Arc::new(files);
-            let mut c = cache.lock().unwrap();
+            let mut c = cache.lock().unwrap_or_else(PoisonError::into_inner);
             for (key, content) in contents {
                 c.diffs.insert(key, content);
             }
@@ -363,12 +362,12 @@ fn load_into_cache(cache: &SharedCache, m: &GitModule, first: Option<ObjectId>, 
     let files = Arc::new(load_files(m, first, second, combined)?);
     if let Some(f) = files.first() {
         let key = diff_key(first, second, f, opts, combined);
-        if !cache.lock().unwrap().diffs.contains(&key) {
+        if !cache.lock().unwrap_or_else(PoisonError::into_inner).diffs.contains(&key) {
             let content = Arc::new(load_diff(m, first, second, combined, f, opts));
-            cache.lock().unwrap().diffs.insert(key, content);
+            cache.lock().unwrap_or_else(PoisonError::into_inner).diffs.insert(key, content);
         }
     }
-    cache.lock().unwrap().files.insert((first, second, combined), Arc::clone(&files));
+    cache.lock().unwrap_or_else(PoisonError::into_inner).files.insert((first, second, combined), Arc::clone(&files));
     Ok(files)
 }
 
@@ -526,11 +525,13 @@ impl RevisionDiffView {
             self.prefetch = None;
         }
         // the selected commit first
-        if self.last_key.is_some_and(|(first, second)| cacheable(first, second) && !self.cache.lock().unwrap().files.contains(&(first, second, false))) {
+        if self.last_key.is_some_and(|(first, second)| {
+            cacheable(first, second) && !self.cache.lock().unwrap_or_else(PoisonError::into_inner).files.contains(&(first, second, false))
+        }) {
             return;
         }
         let missing: Vec<(Option<ObjectId>, ObjectId)> = {
-            let cache = self.cache.lock().unwrap();
+            let cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
             commits
                 .iter()
                 .filter(|(id, parents)| parents.len() == 1 && cacheable(Some(parents[0]), *id))
@@ -555,7 +556,7 @@ impl RevisionDiffView {
 
     /// What replaces the patch of the selected file: the range-diff of two commits, the matches
     /// of a git grep, or a word diff / difftastic view. Loaded like the diffs, by key.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the state the view reads and updates")]
     fn special_content(
         &mut self,
         ui: &Ui,
@@ -607,6 +608,7 @@ impl RevisionDiffView {
     }
 
     /// Shows the diff between `first` (older, `None` = parent) and `second`.
+    #[allow(clippy::too_many_arguments, reason = "the state the view reads and updates")]
     pub fn ui(
         &mut self,
         ui: &mut Ui,
@@ -669,7 +671,7 @@ impl RevisionDiffView {
         let files_key = (first, second, combined);
         let use_cache = cacheable(first, second);
         let opts = diff_options(settings);
-        let cached = if use_cache { self.cache.lock().unwrap().files.get(&files_key) } else { None };
+        let cached = if use_cache { self.cache.lock().unwrap_or_else(PoisonError::into_inner).files.get(&files_key) } else { None };
         let files = match cached {
             Some(files) => Some(Ok(files)),
             None => {
@@ -889,8 +891,8 @@ impl RevisionDiffView {
                 self.range_diff = false;
             }
             list_focus = resp.has_focus;
-            if resp.double_clicked.is_some() {
-                if let Some(f) = files.get(resp.double_clicked.unwrap()) {
+            if let Some(index) = resp.double_clicked {
+                if let Some(f) = files.get(index) {
                     cmd = Some(if is_work_tree { DiffCommand::OpenWorkFile(f.name.clone()) } else { DiffCommand::Blame { file: f.name.clone(), rev: second } });
                 }
             }
@@ -910,7 +912,7 @@ impl RevisionDiffView {
                     _ => {
                         let f = &files[index];
                         let dk = diff_key(first, second, f, &opts, combined);
-                        let cached = if use_cache { self.cache.lock().unwrap().diffs.get(&dk) } else { None };
+                        let cached = if use_cache { self.cache.lock().unwrap_or_else(PoisonError::into_inner).diffs.get(&dk) } else { None };
                         let content = match cached {
                             Some(content) => Some(content),
                             None => {
@@ -923,7 +925,7 @@ impl RevisionDiffView {
                                     .request(ui.ctx(), dk, move || {
                                         let content = Arc::new(load_diff(&m, first, second, combined, &f2, &opts));
                                         if use_cache {
-                                            cache.lock().unwrap().diffs.insert(key, Arc::clone(&content));
+                                            cache.lock().unwrap_or_else(PoisonError::into_inner).diffs.insert(key, Arc::clone(&content));
                                         }
                                         content
                                     })
@@ -1036,7 +1038,7 @@ mod tests {
             let (n, t) = (count(), Instant::now());
             let files = load_into_cache(&cache, &module, first, second, false, &opts).unwrap();
             let (after, after_n) = (t.elapsed(), count() - n);
-            let cached = cache.lock().unwrap().diffs.entries.len();
+            let cached = cache.lock().unwrap_or_else(PoisonError::into_inner).diffs.entries.len();
             eprintln!(
                 "{}: {} files | before {:.1} ms, {} git | after {:.1} ms, {} git, {} diffs cached",
                 second.to_short_string(),

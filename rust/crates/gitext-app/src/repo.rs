@@ -49,7 +49,7 @@ impl RepoData {
                 module.get_status(mode, true).unwrap_or_default()
             });
             let user_email = s.spawn(|| module.user_email());
-            let (refs, error) = match refs.join().unwrap() {
+            let (refs, error) = match refs.join().expect("the git reader threads do not panic") {
                 Ok(r) => (r, None),
                 Err(e) => (Vec::new(), Some(e.to_string())),
             };
@@ -57,16 +57,16 @@ impl RepoData {
                 refs,
                 error,
                 is_bare,
-                head: head.join().unwrap(),
-                current_branch: current_branch.join().unwrap(),
-                state: state.join().unwrap(),
-                remotes: remotes.join().unwrap(),
-                stashes: stashes.join().unwrap(),
-                submodules: submodules.join().unwrap(),
-                worktrees: worktrees.join().unwrap(),
-                ahead_behind: ahead_behind.join().unwrap(),
-                status: status.join().unwrap(),
-                user_email: user_email.join().unwrap(),
+                head: head.join().expect("the git reader threads do not panic"),
+                current_branch: current_branch.join().expect("the git reader threads do not panic"),
+                state: state.join().expect("the git reader threads do not panic"),
+                remotes: remotes.join().expect("the git reader threads do not panic"),
+                stashes: stashes.join().expect("the git reader threads do not panic"),
+                submodules: submodules.join().expect("the git reader threads do not panic"),
+                worktrees: worktrees.join().expect("the git reader threads do not panic"),
+                ahead_behind: ahead_behind.join().expect("the git reader threads do not panic"),
+                status: status.join().expect("the git reader threads do not panic"),
+                user_email: user_email.join().expect("the git reader threads do not panic"),
                 ..Default::default()
             }
         });

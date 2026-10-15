@@ -301,7 +301,7 @@ pub fn parse_diff_raw(output: &str, staged: StagedStatus) -> Vec<GitItemStatus> 
         let Some(status_index) = status.rfind(|c: char| !c.is_ascii_digit()) else {
             continue;
         };
-        let x = status[status_index..].chars().next().unwrap();
+        let Some(x) = status[status_index..].chars().next() else { continue };
         if staged == StagedStatus::WorkTree && x == UNMERGED_STATUS {
             continue;
         }

@@ -26,8 +26,8 @@ pub fn repository_description(working_dir: &Path, is_valid_working_dir: impl Fn(
         }
         let Some(super_dir) = found else { break };
         let is_uninformative = matches!(description.to_lowercase().as_str(), "app" | "repo" | "repository");
-        if first && is_uninformative && working_dir.parent() != Some(super_dir.as_path()) {
-            description = name(working_dir.parent().unwrap());
+        if let Some(parent) = working_dir.parent().filter(|p| first && is_uninformative && *p != super_dir.as_path()) {
+            description = name(parent);
         }
         description = format!("{description} < {}", name(&super_dir));
         current = super_dir;

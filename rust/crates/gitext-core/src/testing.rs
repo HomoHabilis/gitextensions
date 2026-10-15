@@ -1,6 +1,8 @@
 //! Test helpers shared by the crates of the workspace (snapshot verification
 //! compatible with the `*.verified.txt` files of the original C# test-suite).
 
+#![allow(clippy::unwrap_used, clippy::panic, reason = "only used by tests")]
+
 use std::path::PathBuf;
 
 /// Directory `rust/testdata`.

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::args::GitArgs;
@@ -117,17 +117,17 @@ fn command_log() -> &'static Mutex<Vec<CommandLogEntry>> {
 
 /// A snapshot of the command log.
 pub fn command_log_entries() -> Vec<CommandLogEntry> {
-    command_log().lock().unwrap().clone()
+    command_log().lock().unwrap_or_else(PoisonError::into_inner).clone()
 }
 
 pub fn clear_command_log() {
-    command_log().lock().unwrap().clear();
+    command_log().lock().unwrap_or_else(PoisonError::into_inner).clear();
 }
 
 /// Adds a mark to the command log, such as when a commit is selected or its diff shown, so that
 /// the log tells where the time goes between the git commands.
 pub fn log_event(text: impl Into<String>) {
-    let mut log = command_log().lock().unwrap();
+    let mut log = command_log().lock().unwrap_or_else(PoisonError::into_inner);
     if log.len() >= MAX_LOG_ENTRIES {
         log.remove(0);
     }
@@ -143,7 +143,7 @@ pub fn log_event(text: impl Into<String>) {
 }
 
 fn log_start(file_name: &str, args: &str, working_dir: &Path) -> usize {
-    let mut log = command_log().lock().unwrap();
+    let mut log = command_log().lock().unwrap_or_else(PoisonError::into_inner);
     if log.len() >= MAX_LOG_ENTRIES {
         log.remove(0);
     }
@@ -160,7 +160,7 @@ fn log_start(file_name: &str, args: &str, working_dir: &Path) -> usize {
 }
 
 fn log_end(index: usize, args: &str, started: Instant, exit_code: i32) {
-    let mut log = command_log().lock().unwrap();
+    let mut log = command_log().lock().unwrap_or_else(PoisonError::into_inner);
     // The index may have shifted if entries were evicted; search from the end.
     let i = if log.get(index).is_some_and(|e| e.arguments == args && e.exit_code.is_none()) {
         Some(index)
@@ -180,11 +180,11 @@ fn git_command_path() -> &'static Mutex<String> {
 }
 
 pub fn set_git_command(path: &str) {
-    *git_command_path().lock().unwrap() = if path.trim().is_empty() { "git".to_string() } else { path.to_string() };
+    *git_command_path().lock().unwrap_or_else(PoisonError::into_inner) = if path.trim().is_empty() { "git".to_string() } else { path.to_string() };
 }
 
 pub fn git_command() -> String {
-    git_command_path().lock().unwrap().clone()
+    git_command_path().lock().unwrap_or_else(PoisonError::into_inner).clone()
 }
 
 static WSL_GIT_ENABLED: AtomicBool = AtomicBool::new(true);
@@ -215,7 +215,7 @@ impl RunningProcess {
     /// Kills the process.
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::SeqCst);
-        if let Some(child) = self.child.lock().unwrap().as_mut() {
+        if let Some(child) = self.child.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {
             let _ = child.kill();
         }
     }
@@ -335,7 +335,7 @@ impl Executable {
             }
         };
         if let Some(input) = stdin {
-            let mut pipe = child.stdin.take().unwrap();
+            let mut pipe = child.stdin.take().expect("stdin is piped");
             let input = input.to_vec();
             std::thread::spawn(move || {
                 let _ = pipe.write_all(&input);
@@ -380,7 +380,7 @@ impl Executable {
                 return Err(GitError::Io(e));
             }
         };
-        let mut stdout = child.stdout.take().unwrap();
+        let mut stdout = child.stdout.take().expect("stdout is piped");
         let mut out = Vec::new();
         let mut buf = vec![0u8; 64 * 1024];
         let mut complete = true;
@@ -417,7 +417,7 @@ impl Executable {
         let mut cmd = self.command(args.as_slice());
         cmd.stdout(Stdio::piped()).stderr(Stdio::null()).stdin(Stdio::null());
         let mut child = cmd.spawn()?;
-        let stdout = child.stdout.take().unwrap();
+        let stdout = child.stdout.take().expect("stdout is piped");
         Ok(RawProcess { stdout, child: Mutex::new(child) })
     }
 
@@ -429,8 +429,8 @@ impl Executable {
         let mut cmd = self.command(args.as_slice());
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null());
         let mut child = cmd.spawn()?;
-        let stdout = child.stdout.take().unwrap();
-        let stderr = child.stderr.take().unwrap();
+        let stdout = child.stdout.take().expect("stdout is piped");
+        let stderr = child.stderr.take().expect("stderr is piped");
         let (tx, rx) = mpsc::channel();
         let child = Arc::new(Mutex::new(Some(child)));
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -452,7 +452,7 @@ impl Executable {
             let _ = out_thread.join();
             let _ = err_thread.join();
             let code = {
-                let mut guard = child_wait.lock().unwrap();
+                let mut guard = child_wait.lock().unwrap_or_else(PoisonError::into_inner);
                 match guard.as_mut() {
                     Some(c) => c.wait().ok().and_then(|s| s.code()).unwrap_or(-1),
                     None => -1,

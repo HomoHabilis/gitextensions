@@ -179,7 +179,7 @@ fn get_or_create_parent(root: &mut TreeNode, previous: &[usize], current_path: &
             split_candidate
         } else {
             // Split: insert a common folder node in place of split_candidate
-            let (idx, parent_path) = split_candidate.split_last().unwrap();
+            let (idx, parent_path) = split_candidate.split_last().expect("a split candidate is never the root");
             let parent_node = node_at_mut(root, parent_path);
             let sub = parent_node.nodes.remove(*idx);
             let mut common = TreeNode::folder(&common_path);

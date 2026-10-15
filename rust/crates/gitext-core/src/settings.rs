@@ -374,8 +374,7 @@ mod tests {
     fn save_and_load_roundtrip_and_tolerate_partial_files() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        let mut s = AppSettings::default();
-        s.theme = Theme::Dark;
+        let mut s = AppSettings { theme: Theme::Dark, ..Default::default() };
         s.commit_templates.push(CommitTemplate { name: "fix".into(), text: "fix: ".into() });
         s.save(&path).unwrap();
         assert_eq!(AppSettings::load(&path), s);

@@ -379,7 +379,7 @@ impl LeftPanel {
         cmd
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the state the view reads and updates")]
     fn branch_tree(
         &mut self,
         ui: &mut Ui,
