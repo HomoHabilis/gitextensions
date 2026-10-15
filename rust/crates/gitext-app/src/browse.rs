@@ -1008,37 +1008,13 @@ impl BrowseView {
                 // the commit and its parent
                 let (first, second) = self.diff_revisions();
                 let Some(second) = second else { return };
-                let mut args = GitArgs::new("difftool").arg("--dir-diff").arg("--find-renames").arg("--find-copies");
-                match (first, second) {
-                    (Some(f), s) if s == ObjectId::INDEX => {
-                        args.add("--cached");
-                        if f != self.data.head {
-                            args.add(f.to_string());
-                        }
-                    }
-                    // the work tree to the index is plain `git difftool`
-                    (Some(f), s) if s == ObjectId::WORK_TREE => {
-                        if f != ObjectId::INDEX {
-                            args.add(f.to_string());
-                        }
-                    }
-                    (Some(f), s) if f.is_artificial() => {
-                        // from the work tree / index to a commit: the reverse direction
-                        args.add("-R");
-                        if f == ObjectId::INDEX {
-                            args.add("--cached");
-                        }
-                        args.add(s.to_string());
-                    }
-                    (Some(f), s) => {
-                        args.add(f.to_string());
-                        args.add(s.to_string());
-                    }
-                    (None, s) => {
-                        args.add(format!("{s}^"));
-                        args.add(s.to_string());
-                    }
-                }
+                let args = difftool_dir_diff_args(first, second, self.data.head);
+                actions.push(Action::RunTool { tool_type: gitext_core::diff_tools::ToolType::Diff, args });
+            }
+            GridCommand::DifftoolWithWorkTree(id) => {
+                // the commit on one side, the working directory files on the other: changes made
+                // in the tool are copied back to the working directory when it closes
+                let args = difftool_dir_diff_args(Some(id), ObjectId::WORK_TREE, self.data.head);
                 actions.push(Action::RunTool { tool_type: gitext_core::diff_tools::ToolType::Diff, args });
             }
             GridCommand::EditGitIgnore => open(actions, Box::new(gitignore::GitIgnoreDialog::new(false))),
@@ -1144,5 +1120,65 @@ impl BrowseView {
                 }))));
             }
         }
+    }
+}
+
+/// The `git difftool --dir-diff` arguments of `first` → `second` (`OpenWithDifftoolDirDiff`); no
+/// `first` means the parent of `second`.
+fn difftool_dir_diff_args(first: Option<ObjectId>, second: ObjectId, head: ObjectId) -> GitArgs {
+    let mut args = GitArgs::new("difftool").arg("--dir-diff").arg("--find-renames").arg("--find-copies");
+    match (first, second) {
+        (Some(f), s) if s == ObjectId::INDEX => {
+            args.add("--cached");
+            if f != head {
+                args.add(f.to_string());
+            }
+        }
+        // the work tree to the index is plain `git difftool`
+        (Some(f), s) if s == ObjectId::WORK_TREE => {
+            if f != ObjectId::INDEX {
+                args.add(f.to_string());
+            }
+        }
+        (Some(f), s) if f.is_artificial() => {
+            // from the work tree / index to a commit: the reverse direction
+            args.add("-R");
+            if f == ObjectId::INDEX {
+                args.add("--cached");
+            }
+            args.add(s.to_string());
+        }
+        (Some(f), s) => {
+            args.add(f.to_string());
+            args.add(s.to_string());
+        }
+        (None, s) => {
+            args.add(format!("{s}^"));
+            args.add(s.to_string());
+        }
+    }
+    args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn difftool_dir_diff_arguments() {
+        let c1 = ObjectId::parse("a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1").unwrap();
+        let c2 = ObjectId::parse("b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2").unwrap();
+        let head = c2;
+        let args = |first, second| difftool_dir_diff_args(first, second, head).to_string();
+        let base = "difftool --dir-diff --find-renames --find-copies";
+        // a commit against the working directory files
+        assert_eq!(args(Some(c1), ObjectId::WORK_TREE), format!("{base} {c1}"));
+        // the index against the working directory
+        assert_eq!(args(Some(ObjectId::INDEX), ObjectId::WORK_TREE), base);
+        assert_eq!(args(Some(c1), ObjectId::INDEX), format!("{base} --cached {c1}"));
+        assert_eq!(args(Some(head), ObjectId::INDEX), format!("{base} --cached"));
+        assert_eq!(args(Some(ObjectId::WORK_TREE), c1), format!("{base} -R {c1}"));
+        assert_eq!(args(Some(c1), c2), format!("{base} {c1} {c2}"));
+        assert_eq!(args(None, c2), format!("{base} {c2}^ {c2}"));
     }
 }

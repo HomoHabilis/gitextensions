@@ -147,6 +147,8 @@ pub enum GridCommand {
     CompareToBranch(ObjectId),
     /// `git difftool --dir-diff` of the selected commits.
     OpenWithDifftool,
+    /// `git difftool --dir-diff <commit>`: the commit against the working directory files.
+    DifftoolWithWorkTree(ObjectId),
     EditGitIgnore,
 }
 
@@ -1120,6 +1122,7 @@ fn compare_menu(ui: &mut Ui, id: ObjectId, data: &RepoData, state: &MenuState, c
     item(ui, real, "Compare to branch…", "", GridCommand::CompareToBranch(id));
     item(ui, state.selected_count > 1, "Compare selected commits", "", GridCommand::CompareSelected);
     item(ui, true, "Open selected commits with difftool", "", GridCommand::OpenWithDifftool);
+    item(ui, id != ObjectId::WORK_TREE, "Open with difftool against working directory", "", GridCommand::DifftoolWithWorkTree(id));
 }
 
 /// The context menu of a revision row (port of `RevisionGridControl` context menu).
