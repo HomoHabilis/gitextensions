@@ -10,7 +10,7 @@
 //! background of a folder window. Items can be hidden in *Settings → General*.
 
 // The registry code is only used on Windows (the menu building is tested everywhere).
-#![cfg_attr(not(windows), allow(dead_code))]
+#![cfg_attr(not(windows), allow(dead_code, reason = "the registry code is only used on Windows"))]
 
 /// Where an item is shown.
 const FILE: u8 = 1;

@@ -379,9 +379,9 @@ pub fn create_tag(
             a.add(sign_key_id);
         }
     }
-    if operation.can_provide_message() {
+    if let Some(file) = message_file.filter(|_| operation.can_provide_message()) {
         a.add("-F");
-        a.add(to_posix_path(message_file.unwrap()));
+        a.add(to_posix_path(file));
     }
     a.add(tag_name.trim());
     a.add("--");
@@ -1107,7 +1107,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::type_complexity)]
+    #[allow(clippy::type_complexity, reason = "table of test cases")]
     fn rebase_cmd() {
         let p = "-c rebase.autosquash=false rebase";
         let cases: [(bool, bool, bool, bool, bool, bool, Option<bool>, &str); 15] = [

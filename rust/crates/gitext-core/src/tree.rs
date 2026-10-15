@@ -31,12 +31,12 @@ impl GitItem {
 
 fn tree_line() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^(?<mode>\d{6}) (?<type>(?:blob|tree|commit)+) (?<objectid>[0-9a-f]{40})\t(?<name>.+)$").unwrap())
+    RE.get_or_init(|| Regex::new(r"^(?<mode>\d{6}) (?<type>(?:blob|tree|commit)+) (?<objectid>[0-9a-f]{40})\t(?<name>.+)$").expect("valid regex"))
 }
 
 fn ls_files_line() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^(?<mode>\d{6}) (?<objectid>[0-9a-f]{40}) (?:[0-9])\t(?<name>.+)$").unwrap())
+    RE.get_or_init(|| Regex::new(r"^(?<mode>\d{6}) (?<objectid>[0-9a-f]{40}) (?:[0-9])\t(?<name>.+)$").expect("valid regex"))
 }
 
 /// Parses one `ls-tree` line.
@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn parse_ls_files_types() {
-        let items = parse_ls_files("100644 07c4d877fa885b9ef1ea2c343fe237beaf7a087c 0\texternals/Directory.Build.props\0160000 1b0386aea1acdd2ba258977bd79e40a0a7b95665 0\texternals/Git.hub");
+        let items = parse_ls_files("100644 07c4d877fa885b9ef1ea2c343fe237beaf7a087c 0\texternals/Directory.Build.props\x00160000 1b0386aea1acdd2ba258977bd79e40a0a7b95665 0\texternals/Git.hub");
         assert_eq!(items.len(), 2);
         assert_eq!(items[1].object_type, GitObjectType::Commit);
     }

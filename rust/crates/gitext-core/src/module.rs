@@ -1319,7 +1319,7 @@ pub(crate) mod test_repo {
             std::fs::write(p, content).unwrap();
         }
 
-        #[allow(dead_code)]
+        #[allow(dead_code, reason = "helper for future tests")]
         pub fn git(&self, args: &[&str]) -> String {
             self.module.output(&GitArgs::empty().args(args.iter().copied())).unwrap()
         }
@@ -1393,7 +1393,7 @@ pub fn parse_conflicts(out: &str) -> Vec<ConflictData> {
         if list.last().is_none_or(|c| c.file_name != path) {
             list.push(ConflictData { file_name: path.to_string(), ..Default::default() });
         }
-        let c = list.last_mut().unwrap();
+        let Some(c) = list.last_mut() else { continue };
         let s = Some(ConflictStage { mode: mode.to_string(), id: id.to_string() });
         match stage {
             "1" => c.base = s,

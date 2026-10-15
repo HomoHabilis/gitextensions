@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 
 use egui::{Color32, Rect, Sense, TextureHandle, Ui, Vec2};
@@ -221,7 +221,7 @@ fn start_workers(ctx: &egui::Context, results: Sender<(String, Option<egui::Colo
     for _ in 0..WORKERS {
         let (rx, results, ctx, agent) = (Arc::clone(&rx), results.clone(), ctx.clone(), agent.clone());
         std::thread::spawn(move || loop {
-            let req = match rx.lock().unwrap().recv() {
+            let req = match rx.lock().unwrap_or_else(PoisonError::into_inner).recv() {
                 Ok(r) => r,
                 Err(_) => return,
             };

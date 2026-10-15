@@ -83,7 +83,7 @@ impl Dialog for SparseCheckoutDialog {
             self.enabled = Some(p.is_some());
             self.patterns = p.unwrap_or_else(|| "/*\n".into());
         }
-        let enabled = self.enabled.as_mut().unwrap();
+        let Some(enabled) = self.enabled.as_mut() else { return false };
         ui.checkbox(enabled, tr("Enable sparse working copy"));
         ui.label(tr("Patterns (one per line, like .gitignore):"));
         ui.add_enabled(*enabled, egui::TextEdit::multiline(&mut self.patterns).font(egui::TextStyle::Monospace).desired_rows(14).desired_width(f32::INFINITY));

@@ -16,9 +16,12 @@ use crate::views::file_actions::{self, FileAction, Selection};
 use crate::views::file_list::FileList;
 use crate::views::{plain_key, shortcut};
 
+/// A file menu item: label, command and shortcut.
+type MenuEntry = (&'static str, &'static str, Option<(Modifiers, Key)>);
+
 /// The context menu entries of the unstaged files: label, command, key.
 /// (Delete, rename, open with, copy path and the like come from [`file_actions`].)
-const UNSTAGED_MENU: &[(&str, &str, Option<(Modifiers, Key)>)] = &[
+const UNSTAGED_MENU: &[MenuEntry] = &[
     (n_("Stage"), "stage", Some((Modifiers::NONE, Key::S))),
     (n_("Reset file changes…"), "reset", Some((Modifiers::NONE, Key::R))),
     (n_("Add to .gitignore…"), "ignore", None),
@@ -29,7 +32,7 @@ const UNSTAGED_MENU: &[(&str, &str, Option<(Modifiers, Key)>)] = &[
 ];
 
 /// The context menu entries of the staged files.
-const STAGED_MENU: &[(&str, &str, Option<(Modifiers, Key)>)] = &[
+const STAGED_MENU: &[MenuEntry] = &[
     (n_("Unstage"), "unstage", Some((Modifiers::NONE, Key::U))),
     (n_("Reset file changes…"), "reset", Some((Modifiers::NONE, Key::R))),
     (n_("Edit file"), "open", Some((Modifiers::NONE, Key::F4))),
@@ -40,7 +43,7 @@ const STAGED_MENU: &[(&str, &str, Option<(Modifiers, Key)>)] = &[
 ];
 
 /// Shows the file context menu `entries`; returns the command clicked.
-fn file_menu(ui: &mut Ui, entries: &[(&str, &'static str, Option<(Modifiers, Key)>)]) -> Option<&'static str> {
+fn file_menu(ui: &mut Ui, entries: &[MenuEntry]) -> Option<&'static str> {
     let mut cmd = None;
     for &(label, key, shortcut) in entries {
         let text = shortcut.map(|(m, k)| ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(m, k))).unwrap_or_default();
@@ -53,7 +56,7 @@ fn file_menu(ui: &mut Ui, entries: &[(&str, &'static str, Option<(Modifiers, Key
 }
 
 /// The command of the key pressed in a file list with the keyboard focus.
-fn file_key(ui: &Ui, entries: &[(&str, &'static str, Option<(Modifiers, Key)>)]) -> Option<&'static str> {
+fn file_key(ui: &Ui, entries: &[MenuEntry]) -> Option<&'static str> {
     entries.iter().find_map(|&(_, key, s)| s.filter(|&(m, k)| shortcut(ui.ctx(), m, k)).map(|_| key))
 }
 

@@ -482,10 +482,8 @@ impl DiffViewer {
             _ => {}
         }
 
-        if ui.ui_contains_pointer() || self.has_focus(ui.ctx()) {
-            if ui.input(|i| i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::F)) {
-                self.find_open = true;
-            }
+        if (ui.ui_contains_pointer() || self.has_focus(ui.ctx())) && ui.input(|i| i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::F)) {
+            self.find_open = true;
         }
         if self.has_focus(ui.ctx()) && crate::views::shortcut(ui.ctx(), egui::Modifiers::COMMAND, egui::Key::G) {
             self.open_go_to_line();

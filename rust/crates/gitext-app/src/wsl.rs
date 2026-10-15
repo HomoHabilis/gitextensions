@@ -29,7 +29,7 @@ pub fn prefer_x11() {
 
 /// What `explorer.exe` opens for `target`: a URL as is, a path of the distro as a Windows path
 /// (`\\wsl$\<distro>\home\…`, or `C:\…` for `/mnt/c/…`).
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code, reason = "only used on Linux, tested everywhere"))]
 fn windows_target(target: &str, distro: &str) -> String {
     if target.contains("://") {
         target.to_string()

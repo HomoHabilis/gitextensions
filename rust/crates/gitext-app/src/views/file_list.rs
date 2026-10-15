@@ -344,7 +344,7 @@ impl FileList {
         resp
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the state the view reads and updates")]
     fn show_item(
         &mut self,
         ui: &mut Ui,
@@ -494,7 +494,7 @@ mod tests {
     /// are), and the selected row is scrolled into view.
     #[test]
     fn arrow_keys_move_over_all_rows() {
-        let items: Vec<GitItemStatus> = (0..300).map(|i| GitItemStatus::from_status_character(StagedStatus::None, &format!("f{i:03}.txt"), 'M')).collect();
+        let items: Vec<GitItemStatus> = (0..300).map(|i| GitItemStatus::from_status_character(StagedStatus::None, format!("f{i:03}.txt"), 'M')).collect();
         let ctx = egui::Context::default();
         let mut list = FileList { has_focus: true, ..Default::default() };
         let area_id = std::cell::Cell::new(None);

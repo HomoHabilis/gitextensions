@@ -219,8 +219,8 @@ cargo test --workspace
 
 Set `UPDATE_SNAPSHOTS=1` to rewrite the approval files after an intended change.
 
-The `rust` GitHub Actions workflow runs the tests and builds the binary on Linux, macOS and
-Windows.
+The `rust` GitHub Actions workflow checks the formatting, runs clippy and the tests, and builds
+the binary on Linux, macOS and Windows.
 
 ## Why a new port
 

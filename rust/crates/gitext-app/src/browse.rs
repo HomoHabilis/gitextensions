@@ -101,7 +101,7 @@ impl BrowseView {
             actions.push(Action::CloseRepo);
         }
         if shortcut(ctx, M::COMMAND, Key::Comma) {
-            open(actions, Box::new(dialogs::settings::SettingsDialog::default()));
+            open(actions, Box::<dialogs::settings::SettingsDialog>::default());
         }
         // in a file viewer Ctrl+G is "go to line", as upstream
         let viewer_focused = self.diff.viewer.has_focus(ctx) || self.file_tree.viewer_has_focus(ctx);
@@ -109,10 +109,10 @@ impl BrowseView {
             crate::util::open_terminal(self.module.work_dir(), &settings.terminal);
         }
         if shortcut(ctx, ctrl_shift, Key::G) {
-            open(actions, Box::new(dialogs::goto_commit::GoToCommitDialog::default()));
+            open(actions, Box::<dialogs::goto_commit::GoToCommitDialog>::default());
         }
         if shortcut(ctx, ctrl_alt, Key::W) {
-            open(actions, Box::new(dialogs::worktrees::WorktreesDialog::default()));
+            open(actions, Box::new(dialogs::worktrees::WorktreesDialog));
         }
         // push / pull
         if shortcut(ctx, M::COMMAND, Key::ArrowUp) || shortcut(ctx, ctrl_shift, Key::P) {
@@ -390,11 +390,11 @@ impl BrowseView {
                 }
                 ui.separator();
                 if ui.button(tr("Manage stashes…")).clicked() {
-                    actions.push(Action::OpenDialog(Box::new(dialogs::stash::StashDialog::default())));
+                    actions.push(Action::OpenDialog(Box::<dialogs::stash::StashDialog>::default()));
                     ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button(tr("Create a stash with message…")).clicked() {
-                    actions.push(Action::OpenDialog(Box::new(dialogs::stash::CreateStashDialog::default())));
+                    actions.push(Action::OpenDialog(Box::<dialogs::stash::CreateStashDialog>::default()));
                     ui.close_kind(egui::UiKind::Menu);
                 }
             });
@@ -406,7 +406,7 @@ impl BrowseView {
                 crate::util::open_terminal(self.module.work_dir(), &settings.terminal);
             }
             if ui.button("⚙").on_hover_text(tr("Settings")).clicked() {
-                actions.push(Action::OpenDialog(Box::new(dialogs::settings::SettingsDialog::default())));
+                actions.push(Action::OpenDialog(Box::<dialogs::settings::SettingsDialog>::default()));
             }
             if self.is_loading() {
                 ui.spinner();
@@ -640,7 +640,7 @@ impl BrowseView {
                     }
                     if conflicts {
                         if ui.button(tr("Resolve conflicts…")).clicked() {
-                            actions.push(Action::OpenDialog(Box::new(dialogs::conflicts::ConflictsDialog::default())));
+                            actions.push(Action::OpenDialog(Box::<dialogs::conflicts::ConflictsDialog>::default()));
                         }
                     } else if st.merging && !st.rebasing && !st.applying_patch {
                         // the commit dialog takes the merge message (git merge --continue)
@@ -862,7 +862,7 @@ impl BrowseView {
             LeftCommand::PruneRemote(remote) => {
                 actions.push(Action::RunGit(GitRun::new(trf("Prune {0}", &[&remote]), GitArgs::new("remote").arg("prune").arg(remote))))
             }
-            LeftCommand::ManageRemotes => open(actions, Box::new(remotes::RemotesDialog::default())),
+            LeftCommand::ManageRemotes => open(actions, Box::<remotes::RemotesDialog>::default()),
             LeftCommand::DeleteTag(name) => open(actions, Box::new(tag::DeleteTagDialog::new(&self.data, Some(name)))),
             LeftCommand::PushTag(name) => open(actions, Box::new(push::PushDialog::tag(&self.data, settings, &name))),
             LeftCommand::ApplyStash(s) => {
@@ -883,7 +883,7 @@ impl BrowseView {
                 actions.push(Action::RunGit(GitRun::new(trf("Update {0}", &[&path]), commands::submodule_update(&[&path], false))))
             }
             LeftCommand::SyncSubmodule(path) => actions.push(Action::RunGit(GitRun::new(trf("Sync {0}", &[&path]), commands::submodule_sync(Some(&path))))),
-            LeftCommand::ManageSubmodules => open(actions, Box::new(submodules::SubmodulesDialog::default())),
+            LeftCommand::ManageSubmodules => open(actions, Box::<submodules::SubmodulesDialog>::default()),
             LeftCommand::OpenWorktree(path) => actions.push(Action::OpenRepo(path.into())),
             LeftCommand::RemoveWorktree(path) => {
                 let p = path.clone();
@@ -894,11 +894,11 @@ impl BrowseView {
                     })),
                 );
             }
-            LeftCommand::ManageWorktrees => open(actions, Box::new(worktrees::WorktreesDialog::default())),
+            LeftCommand::ManageWorktrees => open(actions, Box::new(worktrees::WorktreesDialog)),
             LeftCommand::SetUpstream(name) => open(actions, Box::new(branch::SetUpstreamDialog::new(&self.data, &name))),
-            LeftCommand::CreateStash => open(actions, Box::new(stash::CreateStashDialog::default())),
+            LeftCommand::CreateStash => open(actions, Box::<stash::CreateStashDialog>::default()),
             LeftCommand::CreateStashStaged => actions.push(Action::RunGit(GitRun::new(tr("Stash staged"), GitArgs::new("stash").arg("push").arg("--staged")))),
-            LeftCommand::ManageStashes => open(actions, Box::new(stash::StashDialog::default())),
+            LeftCommand::ManageStashes => open(actions, Box::<stash::StashDialog>::default()),
             LeftCommand::FetchRemoteBranch(full, then) => {
                 // `RemoteBranchNode.Fetch`: `git fetch <remote> +<branch>` updates the remote
                 // branch, then the next step opens on success
@@ -935,7 +935,7 @@ impl BrowseView {
             LeftCommand::OpenUrl(url) => crate::util::open_with_system(&url),
             LeftCommand::Copy(s) => actions.push(Action::Copy(s)),
             LeftCommand::ShowInFolder(path) => crate::util::open_folder(&path, &settings.file_manager),
-            LeftCommand::CreateWorktree => open(actions, Box::new(worktrees::CreateWorktreeDialog::default())),
+            LeftCommand::CreateWorktree => open(actions, Box::<worktrees::CreateWorktreeDialog>::default()),
             LeftCommand::PruneWorktrees => actions.push(Action::RunGit(GitRun::new(tr("Prune worktrees"), GitArgs::new("worktree").arg("prune")))),
         }
     }
@@ -994,7 +994,7 @@ impl BrowseView {
             GridCommand::CopyToClipboard(s) => actions.push(Action::Copy(s)),
             GridCommand::NavigateToParent => self.grid.navigate_parent(),
             GridCommand::NavigateToChild => self.grid.navigate_child(),
-            GridCommand::GoToCommit => open(actions, Box::new(goto_commit::GoToCommitDialog::default())),
+            GridCommand::GoToCommit => open(actions, Box::<goto_commit::GoToCommitDialog>::default()),
             GridCommand::BisectGood => actions.push(Action::RunGit(
                 GitRun::new(tr("Bisect good"), commands::continue_bisect(commands::GitBisectOption::Good, &self.grid.selected)).keep_open(),
             )),

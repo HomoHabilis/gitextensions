@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, reason = "a build script reports errors by panicking")]
+
 //! Embeds the Windows resources (icons, version information) into `gitext.exe`.
 
 use std::path::PathBuf;

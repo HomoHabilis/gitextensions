@@ -19,7 +19,7 @@ impl GitBranchNameOptions {
 }
 
 fn re(cell: &'static OnceLock<Regex>, pattern: &str) -> &'static Regex {
-    cell.get_or_init(|| Regex::new(pattern).unwrap())
+    cell.get_or_init(|| Regex::new(pattern).expect("valid regex"))
 }
 
 /// Port of `PathUtil.IsValidPathChar`: whether `c` can be used in a branch name and a file path

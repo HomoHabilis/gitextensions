@@ -60,7 +60,7 @@ pub struct GitBlame {
 
 fn header_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^(?<objectid>[0-9a-f]{40}) (?<origlinenum>\d+) (?<finallinenum>\d+)").unwrap())
+    RE.get_or_init(|| Regex::new(r"^(?<objectid>[0-9a-f]{40}) (?<origlinenum>\d+) (?<finallinenum>\d+)").expect("valid regex"))
 }
 
 /// Parses `git blame --porcelain` output.
@@ -133,7 +133,7 @@ pub fn parse_git_blame(output: &str) -> GitBlame {
 
 fn chunk_header_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"@@ -(?<prev>\d+)(?:,(?<removed>\d+))? \+(?<cur>\d+)(?:,(?<added>\d+))? @@").unwrap())
+    RE.get_or_init(|| Regex::new(r"@@ -(?<prev>\d+)(?:,(?<removed>\d+))? \+(?<cur>\d+)(?:,(?<added>\d+))? @@").expect("valid regex"))
 }
 
 /// Given the `-U0` diff introduced by a blamed commit, computes the line in the parent commit

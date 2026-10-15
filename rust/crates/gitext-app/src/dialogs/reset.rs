@@ -116,7 +116,7 @@ impl Dialog for ResetChangesDialog {
                     }
                 }
                 None => {
-                    let mut cmds = vec![commands::reset(ResetMode::Hard, Some("HEAD"), None, false).unwrap()];
+                    let mut cmds = vec![commands::reset(ResetMode::Hard, Some("HEAD"), None, false).expect("a hard reset to HEAD is valid")];
                     if self.include_untracked {
                         cmds.push(commands::clean(commands::CleanMode::OnlyNonIgnored, false, true, &[], &[]));
                     }
