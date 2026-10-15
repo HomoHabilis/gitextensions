@@ -4,6 +4,7 @@ use egui::{Ui, Vec2};
 use gitext_core::ObjectId;
 
 use super::{branch_combo, Cx, Dialog, DialogKind};
+use crate::i18n::{tr, trf};
 use crate::repo::RepoData;
 use crate::tasks::Loader;
 use crate::views::revision_diff::RevisionDiffView;
@@ -40,7 +41,7 @@ impl CompareDialog {
 
 impl Dialog for CompareDialog {
     fn title(&self) -> String {
-        "Compare".into()
+        tr("Compare").into()
     }
 
     fn kind(&self) -> DialogKind {
@@ -50,12 +51,12 @@ impl Dialog for CompareDialog {
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         let Some(m) = cx.module.cloned() else { return false };
         ui.horizontal(|ui| {
-            ui.label("Base");
+            ui.label(tr("Base"));
             branch_combo(ui, "cmp_base", &mut self.base, &self.items, 260.0);
-            ui.label("Compare");
+            ui.label(tr("Compare"));
             branch_combo(ui, "cmp_head", &mut self.head, &self.items, 260.0);
-            ui.checkbox(&mut self.merge_base, "From merge base (three dots)");
-            if ui.button("Compare").clicked() {
+            ui.checkbox(&mut self.merge_base, tr("From merge base (three dots)"));
+            if ui.button(tr("Compare")).clicked() {
                 let mut a = m.rev_parse(self.base.trim());
                 let b = m.rev_parse(self.head.trim());
                 if self.merge_base {
@@ -66,7 +67,7 @@ impl Dialog for CompareDialog {
                 self.resolved = (!a.is_zero() && !b.is_zero()).then_some((a, b));
                 self.diff.list.clear();
                 if self.resolved.is_none() {
-                    cx.error("Compare", "Revision not found");
+                    cx.error(tr("Compare"), tr("Revision not found"));
                 }
             }
         });
@@ -74,10 +75,10 @@ impl Dialog for CompareDialog {
         if let Some((a, b)) = self.resolved {
             let m2 = m.clone();
             let count = self.count.request(ui.ctx(), (a, b), move || m2.commit_count(&format!("{a}..{b}"))).map_or("…".to_string(), |c| c.to_string());
-            ui.label(format!("{count} commit(s) in {} not in {}", self.head.trim(), if self.base.trim().is_empty() { "base" } else { self.base.trim() }));
+            ui.label(trf("{0} commit(s) in {1} not in {2}", &[&count, &self.head.trim(), &if self.base.trim().is_empty() { tr("base") } else { self.base.trim() }]));
             let _ = self.diff.ui(ui, &m, Some(a), Some(b), &[], cx.settings, "compare_diff");
         } else {
-            ui.label("Choose two branches or revisions and press Compare.");
+            ui.label(tr("Choose two branches or revisions and press Compare."));
         }
         !ui.input(|i| i.key_pressed(egui::Key::Escape))
     }

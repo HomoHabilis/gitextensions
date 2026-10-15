@@ -7,6 +7,7 @@ use gitext_core::commands::{self, RebaseOptions};
 use gitext_core::{GitRevision, ObjectId};
 
 use super::{ok_cancel, Cx, Dialog, DialogKind, GitRun};
+use crate::i18n::{tr, trf};
 use crate::tasks::Task;
 use crate::theme::Palette;
 
@@ -36,7 +37,7 @@ pub fn reword_run(git_dir: &std::path::Path, message: &str, parent: Option<Objec
     // git runs the editor in the top of the work tree, where `git rev-parse` finds the file
     // whatever the platform's path form (Windows, WSL); `mv` consumes it
     let editor = format!("mv -f \"$(git rev-parse --git-path {MESSAGE_FILE})\"");
-    Ok(rebase_run("Reword commit", "reword", parent).env("GIT_EDITOR", editor))
+    Ok(rebase_run(tr("Reword commit"), "reword", parent).env("GIT_EDITOR", editor))
 }
 
 /// Port of "Reword commit": asks the new message here (upstream opens git's editor) and
@@ -58,7 +59,7 @@ impl RewordCommitDialog {
 
 impl Dialog for RewordCommitDialog {
     fn title(&self) -> String {
-        "Reword commit".into()
+        tr("Reword commit").into()
     }
 
     fn kind(&self) -> DialogKind {
@@ -78,7 +79,7 @@ impl Dialog for RewordCommitDialog {
                 self.message = Some(msg.unwrap_or_else(|| self.subject.clone()));
             }
         }
-        ui.label(format!("New message of commit {}:", self.id.to_short_string()));
+        ui.label(trf("New message of commit {0}:", &[&self.id.to_short_string()]));
         let mut ok_enabled = false;
         match &mut self.message {
             None => {
@@ -89,14 +90,14 @@ impl Dialog for RewordCommitDialog {
                 ok_enabled = !msg.trim().is_empty();
             }
         }
-        ui.label(RichText::new("The commits after it are rebased (git rebase -i): their hashes change.").small().color(palette.muted));
-        let (ok, cancel) = ok_cancel(ui, "Reword", ok_enabled);
+        ui.label(RichText::new(tr("The commits after it are rebased (git rebase -i): their hashes change.")).small().color(palette.muted));
+        let (ok, cancel) = ok_cancel(ui, tr("Reword"), ok_enabled);
         if ok {
             let Some(msg) = &self.message else { return true };
             let Some(module) = cx.module else { return false };
             match reword_run(module.git_dir(), msg, self.parent) {
                 Ok(run) => cx.run(run),
-                Err(e) => cx.error("Reword commit", e.to_string()),
+                Err(e) => cx.error(tr("Reword commit"), e.to_string()),
             }
             return false;
         }

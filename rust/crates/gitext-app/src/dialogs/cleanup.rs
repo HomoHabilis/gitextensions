@@ -4,6 +4,7 @@ use egui::{RichText, Ui};
 use gitext_core::commands::{self, CleanMode};
 
 use super::{ok_cancel, Cx, Dialog, GitRun};
+use crate::i18n::tr;
 use crate::tasks::Task;
 
 #[derive(Default)]
@@ -19,7 +20,7 @@ pub struct CleanupDialog {
 
 impl Dialog for CleanupDialog {
     fn title(&self) -> String {
-        "Clean working directory".into()
+        tr("Clean working directory").into()
     }
 
     fn kind(&self) -> super::DialogKind {
@@ -28,18 +29,18 @@ impl Dialog for CleanupDialog {
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         let mode = self.mode.get_or_insert(CleanMode::OnlyNonIgnored);
-        ui.radio_value(mode, CleanMode::OnlyNonIgnored, "Remove untracked files that are not ignored");
-        ui.radio_value(mode, CleanMode::OnlyIgnored, "Remove only ignored files");
-        ui.radio_value(mode, CleanMode::All, "Remove untracked and ignored files");
-        ui.checkbox(&mut self.directories, "Remove untracked directories too");
-        ui.checkbox(&mut self.submodules, "Also clean submodules");
+        ui.radio_value(mode, CleanMode::OnlyNonIgnored, tr("Remove untracked files that are not ignored"));
+        ui.radio_value(mode, CleanMode::OnlyIgnored, tr("Remove only ignored files"));
+        ui.radio_value(mode, CleanMode::All, tr("Remove untracked and ignored files"));
+        ui.checkbox(&mut self.directories, tr("Remove untracked directories too"));
+        ui.checkbox(&mut self.submodules, tr("Also clean submodules"));
         ui.horizontal(|ui| {
-            ui.label("Only paths");
-            ui.add(egui::TextEdit::singleline(&mut self.paths).hint_text("space separated").desired_width(360.0));
+            ui.label(tr("Only paths"));
+            ui.add(egui::TextEdit::singleline(&mut self.paths).hint_text(tr("space separated")).desired_width(360.0));
         });
         ui.horizontal(|ui| {
-            ui.label("Exclude");
-            ui.add(egui::TextEdit::singleline(&mut self.excludes).hint_text("patterns").desired_width(370.0));
+            ui.label(tr("Exclude"));
+            ui.add(egui::TextEdit::singleline(&mut self.excludes).hint_text(tr("patterns")).desired_width(370.0));
         });
         let mode = *mode;
         let paths: Vec<String> = self.paths.split_whitespace().map(str::to_string).collect();
@@ -52,7 +53,7 @@ impl Dialog for CleanupDialog {
                 self.preview = None;
             }
         }
-        if ui.button("Preview").clicked() {
+        if ui.button(tr("Preview")).clicked() {
             if let Some(m) = cx.module {
                 let m = m.clone();
                 let args = commands::clean(mode, true, self.directories, &pr, &er);
@@ -64,13 +65,13 @@ impl Dialog for CleanupDialog {
                 ui.label(RichText::new(&self.preview_text).monospace());
             });
         }
-        let (ok, cancel) = ok_cancel(ui, "Clean", true);
+        let (ok, cancel) = ok_cancel(ui, tr("Clean"), true);
         if ok {
             let mut cmds = vec![commands::clean(mode, false, self.directories, &pr, &er)];
             if self.submodules {
                 cmds.push(commands::clean_submodules(mode, false, self.directories, &pr));
             }
-            cx.run(GitRun::many("Clean", cmds).keep_open());
+            cx.run(GitRun::many(tr("Clean"), cmds).keep_open());
             return false;
         }
         !cancel

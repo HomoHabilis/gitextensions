@@ -10,6 +10,7 @@ use gitext_core::{GitArgs, GitModule, ObjectId};
 
 use crate::browse::BrowseView;
 use crate::dialogs::{self, Action, Cx, Dialog, DialogKind};
+use crate::i18n::{tr, trf};
 use crate::views::dashboard::{Dashboard, DashboardCommand};
 
 /// What to show at startup (from the command line).
@@ -82,6 +83,8 @@ impl GitExtApp {
         let settings = settings_path.as_deref().map(AppSettings::load).unwrap_or_default();
         gitext_core::exec::set_git_command(&settings.git_command);
         gitext_core::exec::set_wsl_git_enabled(settings.wsl_git_enabled);
+        crate::i18n::set_language(&settings.translation);
+        let choose_language = settings.translation.is_empty();
         let history_path = RepositoryHistory::default_path();
         let history = history_path.as_deref().map(|p| RepositoryHistory::load(p, settings.recent_repositories_history_size)).unwrap_or_default();
         let mut app = GitExtApp {
@@ -101,6 +104,9 @@ impl GitExtApp {
             tool_runs: Vec::new(),
             startup_window: Some(startup_window),
         };
+        if choose_language {
+            app.open_dialog(Box::new(dialogs::language::LanguageDialog));
+        }
         if let Some(path) = repo {
             app.open_repo(&cc.egui_ctx, &path, false);
         }
@@ -144,18 +150,21 @@ impl GitExtApp {
                     // port of UIReporter.ReportDubiousOwnership: offer to trust the repository
                     let path = path.to_path_buf();
                     self.open_dialog(Box::new(dialogs::Confirm::new(
-                        "Open repository",
+                        tr("Open repository"),
                         format!(
-                            "{text}\n\nGit refuses to work in a repository owned by another user. Trust this repository?\n\
-                             This runs: git config --global --add safe.directory {safe_dir}"
+                            "{text}\n\n{}",
+                            trf(
+                                "Git refuses to work in a repository owned by another user. Trust this repository?\nThis runs: git config --global --add safe.directory {0}",
+                                &[&safe_dir]
+                            )
                         ),
-                        "Trust and open",
+                        tr("Trust and open"),
                         move |cx| {
                             let r = gitext_core::Executable::git(std::env::temp_dir())
                                 .run_checked(&gitext_core::GitArgs::new("config").arg("--global").arg("--add").arg("safe.directory").arg(&safe_dir));
                             match r {
                                 Ok(_) => cx.push(Action::OpenRepo(path)),
-                                Err(e) => cx.error("Open repository", e.to_string()),
+                                Err(e) => cx.error(tr("Open repository"), e.to_string()),
                             }
                         },
                     )));
@@ -163,14 +172,14 @@ impl GitExtApp {
                 }
                 let mut text = text;
                 if cfg!(windows) && gitext_core::wsl::is_wsl_path(&path.to_string_lossy()) {
+                    text.push_str("\n\n");
                     text.push_str(if self.settings.wsl_git_enabled {
-                        "\n\nThis repository is run with the git of the WSL distro: make sure git is installed there \
-                         (sudo apt install git), or turn off \"Use the git of the WSL distro\" in Settings > Git."
+                        tr("This repository is run with the git of the WSL distro: make sure git is installed there (sudo apt install git), or turn off \"Use the git of the WSL distro\" in Settings > Git.")
                     } else {
-                        "\n\nTurn on \"Use the git of the WSL distro\" in Settings > Git to run WSL repositories with the git of the distro."
+                        tr("Turn on \"Use the git of the WSL distro\" in Settings > Git to run WSL repositories with the git of the distro.")
                     });
                 }
-                self.actions.push(Action::Message { title: "Open repository".into(), text, error: true });
+                self.actions.push(Action::Message { title: tr("Open repository").into(), text, error: true });
             }
         }
     }
@@ -188,7 +197,7 @@ impl GitExtApp {
             return;
         };
         let args = diff_tools::launch_args(&launch, tool_type, &args);
-        let title = format!("{} tool", if tool_type == diff_tools::ToolType::Diff { "Diff" } else { "Merge" });
+        let title = if tool_type == diff_tools::ToolType::Diff { tr("Diff tool") } else { tr("Merge tool") }.to_string();
         self.tool_runs.push((title, false, crate::tasks::Task::spawn(ctx, move || exe.run(&args))));
     }
 
@@ -207,7 +216,7 @@ impl GitExtApp {
             self.open_dialog(Box::new(dialogs::tools::NoToolDialog { tool_type: ToolType::Diff }));
             return;
         };
-        self.tool_runs.push(("Diff tool".into(), false, crate::tasks::Task::spawn(ctx, move || diff_tools::difftool_commit_with_work_tree(&exe, &launch, id))));
+        self.tool_runs.push((tr("Diff tool").into(), false, crate::tasks::Task::spawn(ctx, move || diff_tools::difftool_commit_with_work_tree(&exe, &launch, id))));
     }
 
     /// Runs git, or `program`, without a process dialog (user scripts set to run in the
@@ -239,7 +248,7 @@ impl GitExtApp {
                     }
                     continue;
                 }
-                Ok(r) => format!("The tool exited with code {}.\n\n{}", r.exit_code, r.all_output().trim()),
+                Ok(r) => format!("{}\n\n{}", trf("The tool exited with code {0}.", &[&r.exit_code]), r.all_output().trim()),
                 Err(e) => e.to_string(),
             };
             self.actions.push(Action::Message { title, text: error, error: true });
@@ -341,7 +350,7 @@ impl GitExtApp {
                         if let Some(m) = self.module() {
                             let exe = m.git();
                             let args = gitext_core::diff_tools::custom_tool_args(&tool, &args);
-                            self.tool_runs.push(("Diff tool".into(), false, crate::tasks::Task::spawn(ctx, move || exe.run(&args))));
+                            self.tool_runs.push((tr("Diff tool").into(), false, crate::tasks::Task::spawn(ctx, move || exe.run(&args))));
                         }
                     }
                     Action::DifftoolWithWorkTree(id) => self.difftool_with_work_tree(ctx, id),
@@ -437,20 +446,20 @@ impl GitExtApp {
         let at = self.browse.as_ref().map_or(head, |b| b.selected_or_head());
         let mut open: Vec<Box<dyn Dialog>> = Vec::new();
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("Start", |ui| {
-                if ui.button("Open…  (Ctrl+O)").clicked() {
+            ui.menu_button(tr("Start"), |ui| {
+                if ui.button(format!("{}  (Ctrl+O)", tr("Open…"))).clicked() {
                     self.open_folder_dialog();
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if ui.button("Clone repository…").clicked() {
+                if ui.button(tr("Clone repository…")).clicked() {
                     open.push(Box::new(clone::CloneDialog::new(None, &self.settings)));
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if ui.button("Create new repository…").clicked() {
+                if ui.button(tr("Create new repository…")).clicked() {
                     open.push(Box::new(init::InitDialog::new(None)));
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                ui.menu_button("Recent repositories", |ui| {
+                ui.menu_button(tr("Recent repositories"), |ui| {
                     for r in self.history.recent.clone() {
                         if ui.button(&r.path).clicked() {
                             self.actions.push(Action::OpenRepo(PathBuf::from(&r.path)));
@@ -458,196 +467,196 @@ impl GitExtApp {
                         }
                     }
                     ui.separator();
-                    if ui.button("Clear recent repositories").clicked() {
+                    if ui.button(tr("Clear recent repositories")).clicked() {
                         self.history.recent.retain(|r| r.anchor != RepositoryAnchor::None);
                         self.save_history();
                         ui.close_kind(egui::UiKind::Menu);
                     }
                 });
                 ui.separator();
-                if ui.add_enabled(has_repo, egui::Button::new("Close (go to Dashboard)  (Ctrl+W)")).clicked() {
+                if ui.add_enabled(has_repo, egui::Button::new(format!("{}  (Ctrl+W)", tr("Close (go to Dashboard)")))).clicked() {
                     self.actions.push(Action::CloseRepo);
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if ui.button("Exit").clicked() {
+                if ui.button(tr("Exit")).clicked() {
                     self.actions.push(Action::Exit);
                     ui.close_kind(egui::UiKind::Menu);
                 }
             });
-            if ui.button("Dashboard").clicked() {
+            if ui.button(tr("Dashboard")).clicked() {
                 self.actions.push(Action::CloseRepo);
             }
             ui.add_enabled_ui(has_repo, |ui| {
-                ui.menu_button("Repository", |ui| {
-                    if ui.button("Refresh  (F5)").clicked() {
+                ui.menu_button(tr("Repository"), |ui| {
+                    if ui.button(format!("{}  (F5)", tr("Refresh"))).clicked() {
                         self.actions.push(Action::Refresh);
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.button("File explorer").clicked() {
+                    if ui.button(tr("File explorer")).clicked() {
                         if let Some(m) = self.module() {
                             crate::util::open_folder(&m.work_dir().display().to_string(), &self.settings.file_manager);
                         }
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.button("Terminal  (Ctrl+G)").clicked() {
+                    if ui.button(format!("{}  (Ctrl+G)", tr("Terminal"))).clicked() {
                         if let Some(m) = self.module() {
                             crate::util::open_terminal(m.work_dir(), &self.settings.terminal);
                         }
                         ui.close_kind(egui::UiKind::Menu);
                     }
                     ui.separator();
-                    if ui.button("Manage remotes…").clicked() {
+                    if ui.button(tr("Manage remotes…")).clicked() {
                         open.push(Box::new(remotes::RemotesDialog::default()));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.button("Manage submodules…").clicked() {
+                    if ui.button(tr("Manage submodules…")).clicked() {
                         open.push(Box::new(submodules::SubmodulesDialog::default()));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.add_enabled(!data.is_bare, egui::Button::new("Update all submodules")).clicked() {
-                        self.actions.push(Action::RunGit(GitRun::new("Update all submodules", gitext_core::commands::submodule_update(&[], false))));
+                    if ui.add_enabled(!data.is_bare, egui::Button::new(tr("Update all submodules"))).clicked() {
+                        self.actions.push(Action::RunGit(GitRun::new(tr("Update all submodules"), gitext_core::commands::submodule_update(&[], false))));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.add_enabled(!data.is_bare, egui::Button::new("Synchronize all submodules")).clicked() {
-                        self.actions.push(Action::RunGit(GitRun::new("Synchronize all submodules", gitext_core::commands::submodule_sync(None))));
+                    if ui.add_enabled(!data.is_bare, egui::Button::new(tr("Synchronize all submodules"))).clicked() {
+                        self.actions.push(Action::RunGit(GitRun::new(tr("Synchronize all submodules"), gitext_core::commands::submodule_sync(None))));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.button("Manage worktrees…  (Ctrl+Alt+W)").clicked() {
+                    if ui.button(format!("{}  (Ctrl+Alt+W)", tr("Manage worktrees…"))).clicked() {
                         open.push(Box::new(worktrees::WorktreesDialog::default()));
                         ui.close_kind(egui::UiKind::Menu);
                     }
                     ui.separator();
-                    if ui.button("Edit .gitignore…").clicked() {
+                    if ui.button(tr("Edit .gitignore…")).clicked() {
                         open.push(Box::new(gitignore::GitIgnoreDialog::new(false)));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.button("Edit .git/info/exclude…").clicked() {
+                    if ui.button(tr("Edit .git/info/exclude…")).clicked() {
                         open.push(Box::new(gitignore::GitIgnoreDialog::new(true)));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.button("Edit .gitattributes…").clicked() {
-                        open.push(Box::new(editor::FileEditorDialog::work_file(".gitattributes", "Edit .gitattributes")));
+                    if ui.button(tr("Edit .gitattributes…")).clicked() {
+                        open.push(Box::new(editor::FileEditorDialog::work_file(".gitattributes", tr("Edit .gitattributes"))));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.button("Edit .mailmap…").clicked() {
-                        open.push(Box::new(editor::FileEditorDialog::work_file(".mailmap", "Edit .mailmap")));
+                    if ui.button(tr("Edit .mailmap…")).clicked() {
+                        open.push(Box::new(editor::FileEditorDialog::work_file(".mailmap", tr("Edit .mailmap"))));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    ui.menu_button("Git maintenance", |ui| {
-                        if ui.button("Compress git database").clicked() {
-                            self.actions.push(Action::RunGit(GitRun::new("Compress git database", GitArgs::new("gc").arg("--prune")).keep_open()));
+                    ui.menu_button(tr("Git maintenance"), |ui| {
+                        if ui.button(tr("Compress git database")).clicked() {
+                            self.actions.push(Action::RunGit(GitRun::new(tr("Compress git database"), GitArgs::new("gc").arg("--prune")).keep_open()));
                             ui.close_kind(egui::UiKind::Menu);
                         }
-                        if ui.button("Recover lost objects…").clicked() {
+                        if ui.button(tr("Recover lost objects…")).clicked() {
                             open.push(Box::new(verify::VerifyDialog::default()));
                             ui.close_kind(egui::UiKind::Menu);
                         }
-                        if ui.button("Delete index.lock").clicked() {
+                        if ui.button(tr("Delete index.lock")).clicked() {
                             if let Some(m) = self.module() {
                                 let p = m.git_dir().join("index.lock");
                                 let text = if p.exists() {
                                     match std::fs::remove_file(&p) {
-                                        Ok(()) => "index.lock deleted.".to_string(),
+                                        Ok(()) => tr("index.lock deleted.").to_string(),
                                         Err(e) => e.to_string(),
                                     }
                                 } else {
-                                    "index.lock not found.".to_string()
+                                    tr("index.lock not found.").to_string()
                                 };
-                                self.actions.push(Action::Message { title: "Delete index.lock".into(), text, error: false });
+                                self.actions.push(Action::Message { title: tr("Delete index.lock").into(), text, error: false });
                             }
                             ui.close_kind(egui::UiKind::Menu);
                         }
-                        if ui.button("Edit .git/config…").clicked() {
+                        if ui.button(tr("Edit .git/config…")).clicked() {
                             if let Some(m) = self.module() {
-                                open.push(Box::new(editor::FileEditorDialog::path(m.git_dir().join("config"), "Edit .git/config")));
+                                open.push(Box::new(editor::FileEditorDialog::path(m.git_dir().join("config"), tr("Edit .git/config"))));
                             }
                             ui.close_kind(egui::UiKind::Menu);
                         }
                     });
-                    if ui.button("Sparse working copy…").clicked() {
+                    if ui.button(tr("Sparse working copy…")).clicked() {
                         open.push(Box::new(editor::SparseCheckoutDialog::default()));
                         ui.close_kind(egui::UiKind::Menu);
                     }
-                    if ui.button("Repository settings (git config)…").clicked() {
+                    if ui.button(tr("Repository settings (git config)…")).clicked() {
                         open.push(Box::new(settings::GitConfigDialog::default()));
                         ui.close_kind(egui::UiKind::Menu);
                     }
                 });
-                ui.menu_button("Commands", |ui| {
+                ui.menu_button(tr("Commands"), |ui| {
                     let mut item = |ui: &mut egui::Ui, label: &str, d: &mut dyn FnMut() -> Box<dyn Dialog>| {
                         if ui.button(label).clicked() {
                             open.push(d());
                             ui.close_kind(egui::UiKind::Menu);
                         }
                     };
-                    item(ui, "Commit…  (Ctrl+Space)", &mut || Box::new(commit::CommitDialog::default()));
-                    item(ui, "Pull/Fetch…  (Ctrl+Down)", &mut || Box::new(pull::PullDialog::new(&data, None)));
-                    item(ui, "Push…  (Ctrl+Up)", &mut || Box::new(push::PushDialog::new(&data, &self.settings, None)));
-                    item(ui, "Manage stashes…", &mut || Box::new(stash::StashDialog::default()));
-                    item(ui, "Reset changes…", &mut || Box::new(reset::ResetChangesDialog::all()));
-                    item(ui, "Clean working directory…", &mut || Box::new(cleanup::CleanupDialog::default()));
+                    item(ui, &format!("{}  (Ctrl+Space)", tr("Commit…")), &mut || Box::new(commit::CommitDialog::default()));
+                    item(ui, &format!("{}  (Ctrl+Down)", tr("Pull/Fetch…")), &mut || Box::new(pull::PullDialog::new(&data, None)));
+                    item(ui, &format!("{}  (Ctrl+Up)", tr("Push…")), &mut || Box::new(push::PushDialog::new(&data, &self.settings, None)));
+                    item(ui, tr("Manage stashes…"), &mut || Box::new(stash::StashDialog::default()));
+                    item(ui, tr("Reset changes…"), &mut || Box::new(reset::ResetChangesDialog::all()));
+                    item(ui, tr("Clean working directory…"), &mut || Box::new(cleanup::CleanupDialog::default()));
                     ui.add_enabled_ui(!data.is_bare && !head.is_zero(), |ui| {
-                        item(ui, "Undo last commit…", &mut || {
+                        item(ui, tr("Undo last commit…"), &mut || {
                             Box::new(Confirm::new(
-                                "Undo last commit",
-                                "You will still be able to find all the commit's changes in the staging area\n\nDo you want to continue?",
-                                "Undo",
-                                |cx| cx.run(GitRun::new("Undo last commit", GitArgs::new("reset").arg("--soft").arg("HEAD~1"))),
+                                tr("Undo last commit"),
+                                tr("You will still be able to find all the commit's changes in the staging area\n\nDo you want to continue?"),
+                                tr("Undo"),
+                                |cx| cx.run(GitRun::new(tr("Undo last commit"), GitArgs::new("reset").arg("--soft").arg("HEAD~1"))),
                             ))
                         });
                     });
                     ui.separator();
-                    item(ui, "Create branch…  (Ctrl+B)", &mut || Box::new(branch::CreateBranchDialog::new(at)));
-                    item(ui, "Checkout branch…  (Ctrl+.)", &mut || Box::new(checkout::CheckoutBranchDialog::new(&data, None, false)));
-                    item(ui, "Merge branches…  (Ctrl+M)", &mut || Box::new(merge::MergeDialog::new(&data, "")));
-                    item(ui, "Rebase…  (Ctrl+Shift+E)", &mut || Box::new(rebase::RebaseDialog::new(&data, "")));
-                    item(ui, "Delete branch…", &mut || Box::new(branch::DeleteBranchDialog::new(&data, None)));
+                    item(ui, &format!("{}  (Ctrl+B)", tr("Create branch…")), &mut || Box::new(branch::CreateBranchDialog::new(at)));
+                    item(ui, &format!("{}  (Ctrl+.)", tr("Checkout branch…")), &mut || Box::new(checkout::CheckoutBranchDialog::new(&data, None, false)));
+                    item(ui, &format!("{}  (Ctrl+M)", tr("Merge branches…")), &mut || Box::new(merge::MergeDialog::new(&data, "")));
+                    item(ui, &format!("{}  (Ctrl+Shift+E)", tr("Rebase…")), &mut || Box::new(rebase::RebaseDialog::new(&data, "")));
+                    item(ui, tr("Delete branch…"), &mut || Box::new(branch::DeleteBranchDialog::new(&data, None)));
                     ui.separator();
-                    item(ui, "Create tag…  (Ctrl+T)", &mut || Box::new(tag::CreateTagDialog::new(at)));
-                    item(ui, "Delete tag…", &mut || Box::new(tag::DeleteTagDialog::new(&data, None)));
+                    item(ui, &format!("{}  (Ctrl+T)", tr("Create tag…")), &mut || Box::new(tag::CreateTagDialog::new(at)));
+                    item(ui, tr("Delete tag…"), &mut || Box::new(tag::DeleteTagDialog::new(&data, None)));
                     ui.separator();
-                    item(ui, "Checkout revision…", &mut || Box::new(checkout::CheckoutRevisionDialog::new(head)));
-                    item(ui, "Cherry pick…", &mut || Box::new(cherry_pick::CherryPickDialog::new(None, false)));
-                    item(ui, "Archive revision…", &mut || Box::new(archive::ArchiveDialog::new(head)));
-                    item(ui, "Format patch…", &mut || Box::new(patch::FormatPatchDialog::new(&[], head)));
-                    item(ui, "Apply patch…", &mut || Box::new(patch::ApplyPatchDialog::new(None)));
-                    item(ui, "View patch file…", &mut || Box::new(patch::ViewPatchDialog::default()));
+                    item(ui, tr("Checkout revision…"), &mut || Box::new(checkout::CheckoutRevisionDialog::new(head)));
+                    item(ui, tr("Cherry pick…"), &mut || Box::new(cherry_pick::CherryPickDialog::new(None, false)));
+                    item(ui, tr("Archive revision…"), &mut || Box::new(archive::ArchiveDialog::new(head)));
+                    item(ui, tr("Format patch…"), &mut || Box::new(patch::FormatPatchDialog::new(&[], head)));
+                    item(ui, tr("Apply patch…"), &mut || Box::new(patch::ApplyPatchDialog::new(None)));
+                    item(ui, tr("View patch file…"), &mut || Box::new(patch::ViewPatchDialog::default()));
                     ui.separator();
-                    item(ui, "Compare branches (diff)…", &mut || Box::new(compare::CompareDialog::new(&data)));
-                    item(ui, "Bisect…", &mut || Box::new(bisect::BisectDialog));
-                    item(ui, "Solve merge conflicts…", &mut || Box::new(conflicts::ConflictsDialog::default()));
-                    item(ui, "View reflog…", &mut || Box::new(reflog::ReflogDialog::default()));
-                    item(ui, "Go to commit…  (Ctrl+Shift+G)", &mut || Box::new(goto_commit::GoToCommitDialog::default()));
+                    item(ui, tr("Compare branches (diff)…"), &mut || Box::new(compare::CompareDialog::new(&data)));
+                    item(ui, tr("Bisect…"), &mut || Box::new(bisect::BisectDialog));
+                    item(ui, tr("Solve merge conflicts…"), &mut || Box::new(conflicts::ConflictsDialog::default()));
+                    item(ui, tr("View reflog…"), &mut || Box::new(reflog::ReflogDialog::default()));
+                    item(ui, &format!("{}  (Ctrl+Shift+G)", tr("Go to commit…")), &mut || Box::new(goto_commit::GoToCommitDialog::default()));
                 });
             });
-            ui.menu_button("View", |ui| {
+            ui.menu_button(tr("View"), |ui| {
                 let mut changed = false;
-                changed |= ui.checkbox(&mut self.settings.left_panel_visible, "Show left panel  (Ctrl+Alt+C)").changed();
-                changed |= ui.checkbox(&mut self.settings.commit_info_position_right, "Commit details right of the graph").changed();
+                changed |= ui.checkbox(&mut self.settings.left_panel_visible, format!("{}  (Ctrl+Alt+C)", tr("Show left panel"))).changed();
+                changed |= ui.checkbox(&mut self.settings.commit_info_position_right, tr("Commit details right of the graph")).changed();
                 ui.separator();
-                changed |= ui.checkbox(&mut self.settings.show_author_column, "Author column").changed();
-                changed |= ui.checkbox(&mut self.settings.show_date_column, "Date column").changed();
-                changed |= ui.checkbox(&mut self.settings.show_id_column, "Commit hash column").changed();
-                changed |= ui.checkbox(&mut self.settings.show_relative_date, "Relative dates").changed();
-                changed |= ui.checkbox(&mut self.settings.show_author_date, "Show author date (else commit date)").changed();
-                changed |= ui.checkbox(&mut self.settings.highlight_author_commits, "Highlight my commits").changed();
+                changed |= ui.checkbox(&mut self.settings.show_author_column, tr("Author column")).changed();
+                changed |= ui.checkbox(&mut self.settings.show_date_column, tr("Date column")).changed();
+                changed |= ui.checkbox(&mut self.settings.show_id_column, tr("Commit hash column")).changed();
+                changed |= ui.checkbox(&mut self.settings.show_relative_date, tr("Relative dates")).changed();
+                changed |= ui.checkbox(&mut self.settings.show_author_date, tr("Show author date (else commit date)")).changed();
+                changed |= ui.checkbox(&mut self.settings.highlight_author_commits, tr("Highlight my commits")).changed();
                 ui.separator();
-                ui.menu_button("Graph", |ui| {
+                ui.menu_button(tr("Graph"), |ui| {
                     let mut reload = false;
-                    reload |= ui.radio_value(&mut self.settings.graph_draw_style, GraphDrawStyle::Normal, "Color all branches").changed();
-                    reload |= ui.radio_value(&mut self.settings.graph_draw_style, GraphDrawStyle::DrawNonRelativesGray, "Draw non relatives gray").changed();
-                    reload |= ui.radio_value(&mut self.settings.graph_draw_style, GraphDrawStyle::HighlightSelected, "Highlight selected branch").changed();
+                    reload |= ui.radio_value(&mut self.settings.graph_draw_style, GraphDrawStyle::Normal, tr("Color all branches")).changed();
+                    reload |= ui.radio_value(&mut self.settings.graph_draw_style, GraphDrawStyle::DrawNonRelativesGray, tr("Draw non relatives gray")).changed();
+                    reload |= ui.radio_value(&mut self.settings.graph_draw_style, GraphDrawStyle::HighlightSelected, tr("Highlight selected branch")).changed();
                     ui.separator();
-                    reload |= ui.checkbox(&mut self.settings.merge_graph_lanes_having_common_parent, "Merge lanes having a common parent").changed();
-                    reload |= ui.checkbox(&mut self.settings.render_graph_with_diagonals, "Render with diagonals").changed();
-                    reload |= ui.checkbox(&mut self.settings.straighten_graph_diagonals, "Straighten diagonals").changed();
+                    reload |= ui.checkbox(&mut self.settings.merge_graph_lanes_having_common_parent, tr("Merge lanes having a common parent")).changed();
+                    reload |= ui.checkbox(&mut self.settings.render_graph_with_diagonals, tr("Render with diagonals")).changed();
+                    reload |= ui.checkbox(&mut self.settings.straighten_graph_diagonals, tr("Straighten diagonals")).changed();
                     if reload {
                         self.actions.push(Action::ReloadLog);
                         self.save_settings();
                     }
                 });
-                ui.menu_button("Theme", |ui| {
-                    for (t, l) in [(Theme::System, "Follow system"), (Theme::Light, "Light"), (Theme::Dark, "Dark")] {
+                ui.menu_button(tr("Theme"), |ui| {
+                    for (t, l) in [(Theme::System, tr("Follow system")), (Theme::Light, tr("Light")), (Theme::Dark, tr("Dark"))] {
                         if ui.radio_value(&mut self.settings.theme, t, l).changed() {
                             self.theme_applied = false;
                             self.save_settings();
@@ -655,7 +664,7 @@ impl GitExtApp {
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Zoom");
+                    ui.label(tr("Zoom"));
                     if ui.button("−").clicked() {
                         self.settings.ui_scale = (self.settings.ui_scale - 0.1).max(0.5);
                         self.theme_applied = false;
@@ -670,26 +679,26 @@ impl GitExtApp {
                     self.save_settings();
                 }
             });
-            ui.menu_button("Tools", |ui| {
-                if ui.button("Git command log…").clicked() {
+            ui.menu_button(tr("Tools"), |ui| {
+                if ui.button(tr("Git command log…")).clicked() {
                     open.push(Box::new(command_log::CommandLogDialog));
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if ui.button("Settings…  (Ctrl+,)").clicked() {
+                if ui.button(format!("{}  (Ctrl+,)", tr("Settings…"))).clicked() {
                     open.push(Box::new(settings::SettingsDialog::default()));
                     ui.close_kind(egui::UiKind::Menu);
                 }
             });
-            ui.menu_button("Help", |ui| {
-                if ui.button("User manual").clicked() {
+            ui.menu_button(tr("Help"), |ui| {
+                if ui.button(tr("User manual")).clicked() {
                     crate::util::open_with_system("https://git-extensions-documentation.readthedocs.io/");
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if ui.button("Command line help…").clicked() {
+                if ui.button(tr("Command line help…")).clicked() {
                     open.push(Box::new(about::CommandLineHelpDialog));
                     ui.close_kind(egui::UiKind::Menu);
                 }
-                if ui.button("About Git Extensions…").clicked() {
+                if ui.button(tr("About Git Extensions…")).clicked() {
                     open.push(Box::new(about::AboutDialog));
                     ui.close_kind(egui::UiKind::Menu);
                 }
@@ -711,7 +720,7 @@ impl GitExtApp {
                 }
                 let desc = self.title_description.as_ref().map(|(_, d)| d.clone()).unwrap_or_default();
                 let path = (!b.grid.filter.path.is_empty()).then(|| b.grid.filter.path.clone());
-                generate_title(Some(&desc), b.data.current_branch.as_deref(), "(no branch)", path.as_deref())
+                generate_title(Some(&desc), b.data.current_branch.as_deref(), tr("(no branch)"), path.as_deref())
             }
         };
         if title != self.last_title {
@@ -767,6 +776,7 @@ impl eframe::App for GitExtApp {
         }
         if !self.theme_applied {
             crate::theme::apply(ctx, self.settings.theme, self.settings.ui_scale, self.settings.font_size, self.settings.monospace_font_size);
+            crate::i18n::install_fonts(ctx, crate::i18n::language(&self.settings.translation));
             self.theme_applied = true;
         }
         if self.start.is_some() && (self.browse.as_ref().is_none_or(|b| !b.data.refs.is_empty() || !b.is_loading())) {

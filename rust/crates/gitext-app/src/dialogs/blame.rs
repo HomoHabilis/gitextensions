@@ -7,6 +7,7 @@ use gitext_core::blame::{GitBlame, GitBlameCommit};
 use gitext_core::ObjectId;
 
 use super::{Action, Cx, Dialog, DialogKind};
+use crate::i18n::{tr, trf};
 use crate::tasks::Loader;
 use crate::theme::Palette;
 use crate::util::format_date;
@@ -32,7 +33,7 @@ impl BlameDialog {
 
 impl Dialog for BlameDialog {
     fn title(&self) -> String {
-        format!("Blame {}", self.file)
+        trf("Blame {0}", &[&self.file])
     }
 
     fn id(&self) -> String {
@@ -55,7 +56,7 @@ impl Dialog for BlameDialog {
             .request(cx.ctx, (rev, file.clone()), move || mm.blame(rev, &file, detect_moves, detect_copies, ignore_ws).map_err(|e| e.to_string()))
             .cloned();
         ui.horizontal(|ui| {
-            if ui.add_enabled(!self.history.is_empty(), egui::Button::new("◀ Back")).clicked() {
+            if ui.add_enabled(!self.history.is_empty(), egui::Button::new(tr("◀ Back"))).clicked() {
                 if let Some((r, l)) = self.history.pop() {
                     self.rev = r;
                     self.selected_line = l;
@@ -63,8 +64,8 @@ impl Dialog for BlameDialog {
                 }
             }
             ui.label(RichText::new(&self.file).strong());
-            ui.label(RichText::new(if self.rev.is_zero() { "working directory".to_string() } else { format!("at {}", self.rev.to_short_string()) }).color(palette.muted));
-            if ui.button("File history").clicked() {
+            ui.label(RichText::new(if self.rev.is_zero() { tr("working directory").to_string() } else { trf("at {0}", &[&self.rev.to_short_string()]) }).color(palette.muted));
+            if ui.button(tr("File history")).clicked() {
                 cx.open(super::file_history::FileHistoryDialog::new(self.file.clone()));
             }
         });
@@ -75,7 +76,7 @@ impl Dialog for BlameDialog {
             }
             Some(Err(e)) => {
                 ui.colored_label(palette.error, e);
-                return !ui.button("Close").clicked();
+                return !ui.button(tr("Close")).clicked();
             }
             Some(Ok(b)) => b,
         };
@@ -92,11 +93,11 @@ impl Dialog for BlameDialog {
                     });
                     ui.label(RichText::new(format!("{} <{}> — {}", c.author, c.author_mail, format_date(c.author_time))).color(palette.muted));
                     ui.horizontal(|ui| {
-                        if ui.button("Show commit").clicked() {
+                        if ui.button(tr("Show commit")).clicked() {
                             cx.push(Action::SelectRevision(c.object_id));
                         }
                         if let Some(prev) = c.previous {
-                            if ui.button("Blame previous revision").clicked() {
+                            if ui.button(tr("Blame previous revision")).clicked() {
                                 let line = self.selected_line.unwrap_or(0) as i64 + 1;
                                 let revision = gitext_core::GitRevision::new(c.object_id).with_parents(vec![prev]);
                                 let target = m.original_line_in_previous_commit(&revision, &c.file_name, line);
@@ -107,13 +108,13 @@ impl Dialog for BlameDialog {
                                 self.scroll_to = self.selected_line;
                             }
                         }
-                        if ui.button("Copy hash").clicked() {
+                        if ui.button(tr("Copy hash")).clicked() {
                             cx.push(Action::Copy(c.object_id.to_string()));
                         }
                     });
                 }
                 None => {
-                    ui.label(RichText::new("Click a line to see its commit.").color(palette.muted));
+                    ui.label(RichText::new(tr("Click a line to see its commit.")).color(palette.muted));
                 }
             }
         });

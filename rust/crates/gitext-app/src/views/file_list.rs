@@ -6,6 +6,7 @@ use egui::{RichText, Sense, Ui, Vec2};
 use gitext_core::file_tree::{create_tree_sorted_by_path, NodeTag, TreeNode};
 use gitext_core::status::GitItemStatus;
 
+use crate::i18n::{tr, trf};
 use crate::theme::Palette;
 
 #[derive(Default)]
@@ -271,7 +272,7 @@ impl FileList {
         let area = egui::ScrollArea::both().id_salt(id).auto_shrink([false, false]);
         let inner_rect = if items.is_empty() {
             area.show(ui, |ui| {
-                ui.label(RichText::new("No changes").italics().color(palette.muted));
+                ui.label(RichText::new(tr("No changes")).italics().color(palette.muted));
             })
             .inner_rect
         } else {
@@ -353,11 +354,11 @@ impl FileList {
                 let mut text = name.to_string();
                 if let Some(old) = &item.old_name {
                     if item.is_renamed || item.is_copied {
-                        text = format!("{text}  (from {old})");
+                        text = trf("{0}  (from {1})", &[&text, old]);
                     }
                 }
                 if item.is_submodule {
-                    text = format!("{text} (submodule{})", if item.is_dirty { ", dirty" } else { "" });
+                    text = if item.is_dirty { trf("{0} (submodule, dirty)", &[&text]) } else { trf("{0} (submodule)", &[&text]) };
                 }
                 ui.add(egui::Button::selectable(selected, text))
             })
@@ -387,10 +388,10 @@ impl FileList {
         // makes a resizable parent panel grow every frame)
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.selectable_label(self.tree_mode, "🌲").on_hover_text("Show as tree").clicked() {
+                if ui.selectable_label(self.tree_mode, "🌲").on_hover_text(tr("Show as tree")).clicked() {
                     self.tree_mode = !self.tree_mode;
                 }
-                let r = ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("Filter files…").desired_width(ui.available_width()));
+                let r = ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text(tr("Filter files…")).desired_width(ui.available_width()));
                 if std::mem::take(&mut self.focus_filter) {
                     r.request_focus();
                 }

@@ -7,6 +7,7 @@ use gitext_core::settings::AppSettings;
 use gitext_core::repo_history::RepositoryHistory;
 use gitext_core::{GitArgs, GitModule, ObjectId};
 
+use crate::i18n::tr;
 use crate::repo::RepoData;
 
 pub mod about;
@@ -27,6 +28,7 @@ pub mod file_history;
 pub mod gitignore;
 pub mod goto_commit;
 pub mod init;
+pub mod language;
 pub mod merge;
 pub mod open_repo;
 pub mod message;
@@ -209,7 +211,7 @@ pub fn ok_cancel(ui: &mut Ui, ok_text: &str, ok_enabled: bool) -> (bool, bool) {
     ui.separator();
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            cancel = ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape));
+            cancel = ui.button(tr("Cancel")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape));
             ok = ui.add_enabled(ok_enabled, egui::Button::new(egui::RichText::new(ok_text).strong())).clicked();
         });
     });

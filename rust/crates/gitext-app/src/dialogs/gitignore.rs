@@ -3,6 +3,7 @@
 use egui::{RichText, Ui, Vec2};
 
 use super::{ok_cancel, Action, Cx, Dialog, DialogKind};
+use crate::i18n::{tr, trf};
 
 const DEFAULT_PATTERNS: &str = "#ignore thumbnails created by windows\nThumbs.db\n#Ignore files built by Visual Studio\n*.obj\n*.exe\n*.pdb\n*.user\n*.aps\n*.pch\n*.vspscc\n*_i.c\n*_p.c\n*.ncb\n*.suo\n*.tlb\n*.tlh\n*.bak\n*.cache\n*.ilk\n*.log\n[Bb]in\n[Dd]ebug*/\n*.lib\n*.sbr\nobj/\n[Rr]elease*/\n_ReSharper*/\n[Tt]est[Rr]esult*\n.vs/\n#Nuget packages folder\npackages/\n#Rust\ntarget/\n#Node\nnode_modules/\n";
 
@@ -20,7 +21,7 @@ impl GitIgnoreDialog {
 
 impl Dialog for GitIgnoreDialog {
     fn title(&self) -> String {
-        if self.local { "Edit .git/info/exclude".into() } else { "Edit .gitignore".into() }
+        if self.local { tr("Edit .git/info/exclude").into() } else { tr("Edit .gitignore").into() }
     }
 
     fn kind(&self) -> DialogKind {
@@ -33,7 +34,7 @@ impl Dialog for GitIgnoreDialog {
         let text = self.text.get_or_insert_with(|| std::fs::read_to_string(&path).unwrap_or_default());
         ui.horizontal(|ui| {
             ui.label(RichText::new(path.display().to_string()).small());
-            if ui.button("Add default patterns").clicked() {
+            if ui.button(tr("Add default patterns")).clicked() {
                 text.push_str(DEFAULT_PATTERNS);
             }
         });
@@ -41,13 +42,13 @@ impl Dialog for GitIgnoreDialog {
         egui::ScrollArea::vertical().max_height(h).show(ui, |ui| {
             ui.add_sized(Vec2::new(ui.available_width(), h), egui::TextEdit::multiline(text).font(egui::TextStyle::Monospace));
         });
-        let (ok, cancel) = ok_cancel(ui, "Save", true);
+        let (ok, cancel) = ok_cancel(ui, tr("Save"), true);
         if ok {
             if let Some(p) = path.parent() {
                 let _ = std::fs::create_dir_all(p);
             }
             if let Err(e) = std::fs::write(&path, text.as_bytes()) {
-                cx.error("Save", e.to_string());
+                cx.error(tr("Save"), e.to_string());
                 return true;
             }
             cx.push(Action::RefreshStatus);
@@ -70,7 +71,7 @@ impl AddToGitIgnoreDialog {
 
 impl Dialog for AddToGitIgnoreDialog {
     fn title(&self) -> String {
-        "Add to .gitignore".into()
+        tr("Add to .gitignore").into()
     }
 
     fn kind(&self) -> DialogKind {
@@ -78,19 +79,19 @@ impl Dialog for AddToGitIgnoreDialog {
     }
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
-        ui.label("Patterns to ignore:");
+        ui.label(tr("Patterns to ignore:"));
         ui.add(egui::TextEdit::multiline(&mut self.patterns).font(egui::TextStyle::Monospace).desired_rows(5).desired_width(f32::INFINITY));
-        ui.checkbox(&mut self.local, "Add to .git/info/exclude (not shared)");
+        ui.checkbox(&mut self.local, tr("Add to .git/info/exclude (not shared)"));
         let patterns: Vec<&str> = self.patterns.lines().filter(|l| !l.trim().is_empty()).collect();
         if let Some(m) = cx.module {
             let matching = m.files_matching_ignore(&patterns);
-            ui.label(RichText::new(format!("{} untracked file(s) will be ignored", matching.len())).small());
+            ui.label(RichText::new(trf("{0} untracked file(s) will be ignored", &[&matching.len()])).small());
         }
-        let (ok, cancel) = ok_cancel(ui, "Add", !patterns.is_empty());
+        let (ok, cancel) = ok_cancel(ui, tr("Add"), !patterns.is_empty());
         if ok {
             if let Some(m) = cx.module {
                 if let Err(e) = m.add_to_ignore(&patterns, self.local) {
-                    cx.error("Add to .gitignore", e.to_string());
+                    cx.error(tr("Add to .gitignore"), e.to_string());
                 }
             }
             cx.push(Action::RefreshStatus);
@@ -114,14 +115,14 @@ impl AddFilesDialog {
 
 impl Dialog for AddFilesDialog {
     fn title(&self) -> String {
-        "Add files".into()
+        tr("Add files").into()
     }
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
-        ui.label("Files to add (a path or a pattern, e.g. *.txt):");
+        ui.label(tr("Files to add (a path or a pattern, e.g. *.txt):"));
         ui.add(egui::TextEdit::singleline(&mut self.pattern).desired_width(400.0).font(egui::TextStyle::Monospace));
-        ui.checkbox(&mut self.force, "Force (also add ignored files)");
-        let (ok, cancel) = ok_cancel(ui, "Add files", !self.pattern.trim().is_empty());
+        ui.checkbox(&mut self.force, tr("Force (also add ignored files)"));
+        let (ok, cancel) = ok_cancel(ui, tr("Add files"), !self.pattern.trim().is_empty());
         if ok {
             let mut args = gitext_core::GitArgs::new("add");
             if self.force {
@@ -129,7 +130,7 @@ impl Dialog for AddFilesDialog {
             }
             args.add("--");
             args.add(self.pattern.trim());
-            cx.run(super::GitRun::new("Add files", args));
+            cx.run(super::GitRun::new(tr("Add files"), args));
             return false;
         }
         !cancel

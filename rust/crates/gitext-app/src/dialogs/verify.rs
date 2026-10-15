@@ -4,6 +4,7 @@ use egui::{RichText, Ui, Vec2};
 use gitext_core::{GitArgs, ObjectId};
 
 use super::{Action, Cx, Dialog, DialogKind, GitRun};
+use crate::i18n::tr;
 use crate::tasks::Loader;
 
 #[derive(Default)]
@@ -14,7 +15,7 @@ pub struct VerifyDialog {
 
 impl Dialog for VerifyDialog {
     fn title(&self) -> String {
-        "Recover lost objects".into()
+        tr("Recover lost objects").into()
     }
 
     fn kind(&self) -> DialogKind {
@@ -35,13 +36,13 @@ impl Dialog for VerifyDialog {
                     .collect()
             })
             .cloned();
-        ui.checkbox(&mut self.only_commits, "Show only commits");
+        ui.checkbox(&mut self.only_commits, tr("Show only commits"));
         ui.separator();
         match objects {
             None => {
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label("Running git fsck…");
+                    ui.label(tr("Running git fsck…"));
                 });
             }
             Some(objs) => {
@@ -53,15 +54,15 @@ impl Dialog for VerifyDialog {
                             ui.label(subject);
                             ui.horizontal(|ui| {
                                 if kind == "commit" {
-                                    if ui.small_button("Create tag").clicked() {
+                                    if ui.small_button(tr("Create tag")).clicked() {
                                         let name = format!("LOST_FOUND_{}", id.to_short_string());
-                                        cx.run(GitRun::new("Create tag", GitArgs::new("tag").arg(name).arg(id.to_string())));
+                                        cx.run(GitRun::new(tr("Create tag"), GitArgs::new("tag").arg(name).arg(id.to_string())));
                                     }
-                                    if ui.small_button("Create branch…").clicked() {
+                                    if ui.small_button(tr("Create branch…")).clicked() {
                                         cx.open(super::branch::CreateBranchDialog::new(*id));
                                     }
                                 }
-                                if ui.small_button("Copy hash").clicked() {
+                                if ui.small_button(tr("Copy hash")).clicked() {
                                     cx.push(Action::Copy(id.to_string()));
                                 }
                             });
@@ -69,7 +70,7 @@ impl Dialog for VerifyDialog {
                         }
                     });
                     if objs.is_empty() {
-                        ui.label("No lost objects found.");
+                        ui.label(tr("No lost objects found."));
                     }
                 });
             }

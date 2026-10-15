@@ -5,6 +5,7 @@ use gitext_core::settings::PullAction;
 use gitext_core::GitArgs;
 
 use super::{branch_combo, ok_cancel, Cx, Dialog, GitRun};
+use crate::i18n::{tr, trf};
 use crate::repo::RepoData;
 
 pub struct PullDialog {
@@ -44,18 +45,18 @@ impl PullDialog {
         let remote = if self.remote.starts_with("[ All") { "" } else { self.remote.trim() };
         Some(match self.action {
             PullAction::Merge | PullAction::Rebase => {
-                (format!("Pull {}", remote), m.pull_args(remote, self.remote_branch.trim(), self.action == PullAction::Rebase, self.tags, self.auto_stash, self.prune))
+                (trf("Pull {0}", &[&remote]), m.pull_args(remote, self.remote_branch.trim(), self.action == PullAction::Rebase, self.tags, self.auto_stash, self.prune))
             }
-            PullAction::Fetch => (format!("Fetch {}", remote), m.fetch_args(remote, self.remote_branch.trim(), "", self.tags, self.prune, self.unshallow)),
-            PullAction::FetchAll => ("Fetch all".into(), m.fetch_args("", "", "", self.tags, self.prune, self.unshallow)),
-            PullAction::FetchPruneAll => ("Fetch and prune all".into(), m.fetch_args("", "", "", self.tags, true, self.unshallow)),
+            PullAction::Fetch => (trf("Fetch {0}", &[&remote]), m.fetch_args(remote, self.remote_branch.trim(), "", self.tags, self.prune, self.unshallow)),
+            PullAction::FetchAll => (tr("Fetch all").into(), m.fetch_args("", "", "", self.tags, self.prune, self.unshallow)),
+            PullAction::FetchPruneAll => (tr("Fetch and prune all").into(), m.fetch_args("", "", "", self.tags, true, self.unshallow)),
         })
     }
 }
 
 impl Dialog for PullDialog {
     fn title(&self) -> String {
-        "Pull".into()
+        tr("Pull").into()
     }
 
     fn kind(&self) -> super::DialogKind {
@@ -77,10 +78,10 @@ impl Dialog for PullDialog {
             }
         }
         egui::Grid::new("pull").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-            ui.label("Remote");
+            ui.label(tr("Remote"));
             branch_combo(ui, "pull_remote", &mut self.remote, &self.remotes, 340.0);
             ui.end_row();
-            ui.label("Remote branch");
+            ui.label(tr("Remote branch"));
             let branches: Vec<String> = cx
                 .data
                 .map(|d| d.remote_branches().filter(|r| r.remote == self.remote).map(|r| r.local_name()).collect())
@@ -88,23 +89,23 @@ impl Dialog for PullDialog {
             branch_combo(ui, "pull_branch", &mut self.remote_branch, &branches, 340.0);
             ui.end_row();
         });
-        ui.label(egui::RichText::new("Leave the branch empty to pull the tracked branch.").small());
+        ui.label(egui::RichText::new(tr("Leave the branch empty to pull the tracked branch.")).small());
         ui.add_space(4.0);
-        ui.label("Action");
-        ui.radio_value(&mut self.action, PullAction::Merge, "Merge remote branch into current branch");
-        ui.radio_value(&mut self.action, PullAction::Rebase, "Rebase current branch on top of remote branch");
-        ui.radio_value(&mut self.action, PullAction::Fetch, "Do not merge, only fetch remote changes");
+        ui.label(tr("Action"));
+        ui.radio_value(&mut self.action, PullAction::Merge, tr("Merge remote branch into current branch"));
+        ui.radio_value(&mut self.action, PullAction::Rebase, tr("Rebase current branch on top of remote branch"));
+        ui.radio_value(&mut self.action, PullAction::Fetch, tr("Do not merge, only fetch remote changes"));
         ui.add_space(4.0);
-        ui.checkbox(&mut self.auto_stash, "Auto stash");
-        ui.checkbox(&mut self.prune, "Prune remote branches");
-        ui.checkbox(&mut self.unshallow, "Unshallow (fetch full history)");
+        ui.checkbox(&mut self.auto_stash, tr("Auto stash"));
+        ui.checkbox(&mut self.prune, tr("Prune remote branches"));
+        ui.checkbox(&mut self.unshallow, tr("Unshallow (fetch full history)"));
         ui.horizontal(|ui| {
-            ui.label("Tags:");
-            ui.radio_value(&mut self.tags, None, "Default");
-            ui.radio_value(&mut self.tags, Some(true), "All");
-            ui.radio_value(&mut self.tags, Some(false), "None");
+            ui.label(tr("Tags:"));
+            ui.radio_value(&mut self.tags, None, tr("Default"));
+            ui.radio_value(&mut self.tags, Some(true), tr("All"));
+            ui.radio_value(&mut self.tags, Some(false), tr("None"));
         });
-        let (ok, cancel) = ok_cancel(ui, if matches!(self.action, PullAction::Merge | PullAction::Rebase) { "⬇ Pull" } else { "⬇ Fetch" }, true);
+        let (ok, cancel) = ok_cancel(ui, if matches!(self.action, PullAction::Merge | PullAction::Rebase) { tr("⬇ Pull") } else { tr("⬇ Fetch") }, true);
         if ok {
             cx.settings.pull_action = self.action;
             cx.settings.auto_stash_on_pull = self.auto_stash;
