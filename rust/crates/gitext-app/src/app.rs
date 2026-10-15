@@ -192,6 +192,24 @@ impl GitExtApp {
         self.tool_runs.push((title, false, crate::tasks::Task::spawn(ctx, move || exe.run(&args))));
     }
 
+    /// Opens the diff tool on a commit (checked out to a temporary folder) and the real
+    /// working directory. The git of a WSL distro cannot read the temporary folder, so there
+    /// `git difftool --dir-diff` (temporary copies on both sides) is used.
+    fn difftool_with_work_tree(&mut self, ctx: &egui::Context, id: gitext_core::ObjectId) {
+        use gitext_core::diff_tools::{self, ToolConfigStore, ToolType};
+        let Some(m) = self.module() else { return };
+        let exe = m.git();
+        if !exe.wsl_distro.is_empty() {
+            self.run_tool(ctx, ToolType::Diff, GitArgs::new("difftool").arg("--dir-diff").arg(id.to_string()));
+            return;
+        }
+        let Some(launch) = diff_tools::resolve_launch(&ToolConfigStore::new(exe.clone()), ToolType::Diff) else {
+            self.open_dialog(Box::new(dialogs::tools::NoToolDialog { tool_type: ToolType::Diff }));
+            return;
+        };
+        self.tool_runs.push(("Diff tool".into(), false, crate::tasks::Task::spawn(ctx, move || diff_tools::difftool_commit_with_work_tree(&exe, &launch, id))));
+    }
+
     /// Runs git, or `program`, without a process dialog (user scripts set to run in the
     /// background); the repository is refreshed when it succeeds.
     fn run_in_background(&mut self, ctx: &egui::Context, title: String, program: Option<String>, args: GitArgs) {
@@ -326,6 +344,7 @@ impl GitExtApp {
                             self.tool_runs.push(("Diff tool".into(), false, crate::tasks::Task::spawn(ctx, move || exe.run(&args))));
                         }
                     }
+                    Action::DifftoolWithWorkTree(id) => self.difftool_with_work_tree(ctx, id),
                     Action::RunInBackground { title, program, args } => self.run_in_background(ctx, title, program, args),
                     Action::Message { title, text, error } => self.open_dialog(Box::new(dialogs::message::MessageDialog { title, text, error })),
                     Action::SelectRevision(id) => {

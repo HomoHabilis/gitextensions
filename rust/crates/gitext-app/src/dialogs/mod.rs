@@ -64,6 +64,8 @@ pub enum Action {
     RunTool { tool_type: gitext_core::diff_tools::ToolType, args: GitArgs },
     /// Starts `git difftool --tool=<tool>` + `args` without the command (a tool picked in a menu).
     RunDiffToolNamed { tool: String, args: GitArgs },
+    /// Opens the diff tool on a commit and the real working directory.
+    DifftoolWithWorkTree(gitext_core::ObjectId),
     /// Runs git without a process dialog; failures are reported, success refreshes.
     RunInBackground { title: String, program: Option<String>, args: GitArgs },
     Message { title: String, text: String, error: bool },

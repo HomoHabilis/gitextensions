@@ -1012,10 +1012,8 @@ impl BrowseView {
                 actions.push(Action::RunTool { tool_type: gitext_core::diff_tools::ToolType::Diff, args });
             }
             GridCommand::DifftoolWithWorkTree(id) => {
-                // the commit on one side, the working directory files on the other: changes made
-                // in the tool are copied back to the working directory when it closes
-                let args = difftool_dir_diff_args(Some(id), ObjectId::WORK_TREE, self.data.head);
-                actions.push(Action::RunTool { tool_type: gitext_core::diff_tools::ToolType::Diff, args });
+                // the commit on one side, the working directory itself on the other
+                actions.push(Action::DifftoolWithWorkTree(id));
             }
             GridCommand::EditGitIgnore => open(actions, Box::new(gitignore::GitIgnoreDialog::new(false))),
             GridCommand::FixupCommit(id, kind) => {
