@@ -134,11 +134,14 @@ pub fn menu(ui: &mut Ui, sel: &Selection) -> Option<FileAction> {
     let work_tree = sel.is_work_tree();
     let files: Vec<&GitItemStatus> = sel.items.iter().copied().filter(|i| !i.is_submodule).collect();
     ui.separator();
+    // as upstream, for any revision: it opens the working directory file
+    if let Some(f) = sel.single().filter(|f| !f.is_deleted || !work_tree) {
+        if item(ui, if cfg!(windows) { "Open working directory file with…" } else { "Open with default application" }, "Shift+F4") {
+            action = Some(FileAction::OpenWith(f.name.clone()));
+        }
+    }
     if work_tree {
         if let Some(f) = sel.single().filter(|f| !f.is_deleted) {
-            if item(ui, if cfg!(windows) { "Open working directory file with…" } else { "Open with default application" }, "Shift+F4") {
-                action = Some(FileAction::OpenWith(f.name.clone()));
-            }
             if item(ui, "Rename / move…", "F2") {
                 action = Some(FileAction::RenameMove(f.name.clone()));
             }
@@ -184,7 +187,15 @@ pub fn menu(ui: &mut Ui, sel: &Selection) -> Option<FileAction> {
 
 /// The keys of the file actions in a file list with the keyboard focus.
 pub fn keys(ctx: &egui::Context, sel: &Selection) -> Option<FileAction> {
-    if !sel.is_work_tree() || sel.items.is_empty() {
+    if sel.items.is_empty() {
+        return None;
+    }
+    if let Some(f) = sel.single().filter(|f| !f.is_deleted || !sel.is_work_tree()) {
+        if shortcut(ctx, Modifiers::SHIFT, Key::F4) {
+            return Some(FileAction::OpenWith(f.name.clone()));
+        }
+    }
+    if !sel.is_work_tree() {
         return None;
     }
     let single = sel.single().filter(|f| !f.is_deleted).map(|f| f.name.clone());
@@ -195,9 +206,6 @@ pub fn keys(ctx: &egui::Context, sel: &Selection) -> Option<FileAction> {
     if let Some(name) = single {
         if plain_key(ctx, Key::F2) {
             return Some(FileAction::RenameMove(name));
-        }
-        if shortcut(ctx, Modifiers::SHIFT, Key::F4) {
-            return Some(FileAction::OpenWith(name));
         }
     }
     None
@@ -239,7 +247,14 @@ pub fn run(action: FileAction, m: &GitModule, actions: &mut Vec<Action>) {
     let error = |actions: &mut Vec<Action>, title: &str, e: String| actions.push(Action::Message { title: title.into(), text: e, error: true });
     match action {
         FileAction::CopyPaths { files, kind } => actions.push(Action::Copy(path_text(m.work_dir(), &files, kind))),
-        FileAction::OpenWith(f) => open_with_chooser(&m.work_dir().join(f)),
+        FileAction::OpenWith(f) => {
+            let path = m.work_dir().join(&f);
+            if path.is_file() {
+                open_with_chooser(&path);
+            } else {
+                error(actions, "Open with", format!("{f} does not exist in the working directory."));
+            }
+        }
         FileAction::RenameMove(f) => actions.push(Action::OpenDialog(Box::new(RenameMoveDialog::new(f)))),
         FileAction::Delete(files) => {
             let list = files.clone();
@@ -386,5 +401,18 @@ mod tests {
         assert_eq!(run(ObjectId::WORK_TREE, Key::Delete), Some(FileAction::Delete(vec!["a.txt".into()])));
         assert_eq!(run(ObjectId::WORK_TREE, Key::F2), Some(FileAction::RenameMove("a.txt".into())));
         assert_eq!(run(ObjectId::INDEX, Key::Delete), None);
+    }
+
+    #[test]
+    fn open_with_from_any_revision() {
+        let f = status("a.txt", 'M');
+        let ctx = egui::Context::default();
+        let shift_f4 = egui::RawInput { events: vec![egui::Event::Key { key: Key::F4, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::SHIFT }], modifiers: Modifiers::SHIFT, ..Default::default() };
+        let commit = ObjectId::parse("0123456789012345678901234567890123456789").unwrap();
+        for second in [ObjectId::WORK_TREE, ObjectId::INDEX, commit] {
+            let mut out = None;
+            let _ = ctx.run(shift_f4.clone(), |ctx| out = keys(ctx, &Selection { items: vec![&f], first: None, second }));
+            assert_eq!(out, Some(FileAction::OpenWith("a.txt".into())), "{second:?}");
+        }
     }
 }

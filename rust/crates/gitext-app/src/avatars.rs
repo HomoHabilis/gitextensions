@@ -3,8 +3,9 @@
 //! Author initials on a coloured square (`InitialsAvatarProvider`) are drawn when there is no
 //! image. With the GitHub / Gravatar provider, images are downloaded on background threads
 //! (`AvatarDownloader`) and kept in a disk cache for some days (`FileSystemAvatarCache`), then
-//! in textures for the session (`AvatarMemoryCache`). A miss is cached too, so an author
-//! without an image is not asked for again until the cache entry expires.
+//! in textures for the session (`AvatarMemoryCache`). As upstream, a miss is only remembered for
+//! the session: a failed download (offline, proxy, rate limit) must not hide an author's image
+//! for days.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -231,28 +232,30 @@ fn start_workers(ctx: &egui::Context, results: Sender<(String, Option<egui::Colo
 }
 
 /// The image bytes of `email`: from the disk cache when fresh, else downloaded (and cached).
-/// `None` when the author has no image (also cached, as an empty file).
+/// `None` when the author has no image or the download failed; nothing is cached then.
 fn load(agent: &ureq::Agent, email: &str, cache_days: u32) -> Option<Vec<u8>> {
     let file = cache_dir().map(|d| d.join(format!("{}.{IMAGE_SIZE}px", md5_hex(email))));
-    if let Some(f) = &file {
-        let fresh = std::fs::metadata(f)
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| SystemTime::now().duration_since(t).ok())
-            .is_some_and(|age| age < Duration::from_secs(u64::from(cache_days) * 86_400));
-        if fresh {
-            let bytes = std::fs::read(f).ok()?;
-            return (!bytes.is_empty()).then_some(bytes);
-        }
+    if let Some(bytes) = file.as_deref().and_then(|f| read_cached(f, cache_days)) {
+        return Some(bytes);
     }
-    let downloaded = image_urls(email).into_iter().find_map(|url| download(agent, &url));
+    let downloaded = image_urls(email).into_iter().find_map(|url| download(agent, &url))?;
     if let Some(f) = &file {
         if let Some(dir) = f.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let _ = std::fs::write(f, downloaded.as_deref().unwrap_or_default());
+        let _ = std::fs::write(f, &downloaded);
     }
-    downloaded
+    Some(downloaded)
+}
+
+/// The cached image in `file` when younger than `cache_days`. Empty files (misses cached by
+/// earlier versions) are ignored, so the image is asked for again.
+fn read_cached(file: &std::path::Path, cache_days: u32) -> Option<Vec<u8>> {
+    let age = SystemTime::now().duration_since(std::fs::metadata(file).ok()?.modified().ok()?).ok()?;
+    if age >= Duration::from_secs(u64::from(cache_days) * 86_400) {
+        return None;
+    }
+    std::fs::read(file).ok().filter(|b| !b.is_empty())
 }
 
 fn download(agent: &ureq::Agent, url: &str) -> Option<Vec<u8>> {
@@ -394,6 +397,19 @@ mod tests {
         assert!(urls[1].starts_with("https://www.gravatar.com/avatar/"));
         assert_eq!(image_urls("octo@users.noreply.github.com")[0], "https://avatars.githubusercontent.com/octo?s=80&v=4");
         assert_eq!(image_urls("a@b.c").len(), 1);
+    }
+
+    #[test]
+    fn empty_or_expired_cache_files_are_not_used() {
+        let dir = tempfile::tempdir().unwrap();
+        let miss = dir.path().join("miss.80px");
+        std::fs::write(&miss, b"").unwrap();
+        assert_eq!(read_cached(&miss, 30), None);
+        let hit = dir.path().join("hit.80px");
+        std::fs::write(&hit, b"img").unwrap();
+        assert_eq!(read_cached(&hit, 30), Some(b"img".to_vec()));
+        assert_eq!(read_cached(&hit, 0), None);
+        assert_eq!(read_cached(&dir.path().join("none.80px"), 30), None);
     }
 
     #[test]

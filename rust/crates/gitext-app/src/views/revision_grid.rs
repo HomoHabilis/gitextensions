@@ -765,10 +765,10 @@ impl RevisionGrid {
             .sense(Sense::click())
             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
             .column(Column::exact(graph_width));
+        table = table.column(Column::remainder().at_least(200.0).clip(true));
         if settings.show_author_avatar_column {
             table = table.column(Column::exact(row_height));
         }
-        table = table.column(Column::remainder().at_least(200.0).clip(true));
         if settings.show_author_column {
             table = table.column(Column::initial(150.0).at_least(60.0).clip(true));
         }
@@ -790,12 +790,12 @@ impl RevisionGrid {
                 header.col(|ui| {
                     ui.label(egui::RichText::new("Graph").small().color(palette.muted));
                 });
-                if settings.show_author_avatar_column {
-                    header.col(|_| {});
-                }
                 header.col(|ui| {
                     ui.label(egui::RichText::new("Message").small().color(palette.muted));
                 });
+                if settings.show_author_avatar_column {
+                    header.col(|_| {});
+                }
                 if settings.show_author_column {
                     header.col(|ui| {
                         ui.label(egui::RichText::new("Author").small().color(palette.muted));
@@ -834,16 +834,6 @@ impl RevisionGrid {
                         }
                     });
 
-                    if settings.show_author_avatar_column {
-                        row.col(|ui| {
-                            if !rev.is_artificial() {
-                                let size = (row_height - 4.0).max(8.0);
-                                let rect = Rect::from_center_size(ui.max_rect().center(), Vec2::splat(size));
-                                avatars.paint(ui, rect, &rev.author_email, &rev.author, settings.avatar_cache_days);
-                            }
-                        });
-                    }
-
                     let highlight = settings.highlight_author_commits && !author_email.is_empty() && rev.author_email == author_email && !selected.contains(&id);
                     let paint_highlight = |ui: &mut Ui| {
                         if highlight {
@@ -877,6 +867,15 @@ impl RevisionGrid {
                             ui.label(egui::RichText::new(format!("[{}]", notes.lines().next().unwrap_or_default())).small().color(palette.muted));
                         }
                     });
+                    if settings.show_author_avatar_column {
+                        row.col(|ui| {
+                            if !rev.is_artificial() {
+                                let size = (row_height - 4.0).max(8.0);
+                                let rect = Rect::from_center_size(ui.max_rect().center(), Vec2::splat(size));
+                                avatars.paint(ui, rect, &rev.author_email, &rev.author, settings.avatar_cache_days);
+                            }
+                        });
+                    }
                     if settings.show_author_column {
                         row.col(|ui| {
                             paint_highlight(ui);
