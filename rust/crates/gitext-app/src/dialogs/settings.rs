@@ -396,6 +396,8 @@ impl Dialog for SettingsDialog {
                                 t.ui(ui);
                                 ui.add_space(6.0);
                             }
+                            ui.checkbox(&mut s.show_available_diff_tools, "Show all available difftools in a dropdown")
+                                .on_hover_text("Show all configured difftools in a dropdown.\nThe primary difftool can still be selected by clicking the main menu entry.");
                         }
                         ui.separator();
                         ui.label(RichText::new("Applications").strong());

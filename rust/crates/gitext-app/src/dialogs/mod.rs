@@ -62,6 +62,8 @@ pub enum Action {
     /// Starts the diff or merge tool (`git difftool` / `git mergetool` + `args` without the
     /// command), in the background; failures are reported.
     RunTool { tool_type: gitext_core::diff_tools::ToolType, args: GitArgs },
+    /// Starts `git difftool --tool=<tool>` + `args` without the command (a tool picked in a menu).
+    RunDiffToolNamed { tool: String, args: GitArgs },
     /// Runs git without a process dialog; failures are reported, success refreshes.
     RunInBackground { title: String, program: Option<String>, args: GitArgs },
     Message { title: String, text: String, error: bool },

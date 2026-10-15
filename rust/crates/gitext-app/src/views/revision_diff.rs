@@ -31,7 +31,6 @@ pub enum DiffCommand {
     ResetWorkFiles(Vec<String>),
     CopyPaths(Vec<String>),
     OpenContainingFolder(String),
-    ExternalDiff { first: Option<ObjectId>, second: ObjectId, file: String },
     AddToGitIgnore(Vec<String>),
     StagePatch { patch: String, reverse: bool },
     ResetPatch(String),
@@ -704,6 +703,7 @@ impl RevisionDiffView {
             if self.grep.open && self.grep_ui(ui, module, second, settings, &palette) {
                 cmd = Some(DiffCommand::SaveSettings);
             }
+            let tools = if settings.show_available_diff_tools { file_actions::available_tools(module, ui.ctx()) } else { Vec::new() };
             let resp = self.list.ui(ui, &format!("{id}_list"), &files, |ui, sel| {
                 let names: Vec<String> = sel.iter().filter_map(|&i| files.get(i)).map(|f| f.name.clone()).collect();
                 let Some(first_name) = names.first().cloned() else { return };
@@ -737,6 +737,10 @@ impl RevisionDiffView {
                     }
                 }
                 ui.separator();
+                let selection = file_actions::Selection { items: sel.iter().filter_map(|&i| files.get(i)).collect(), first, second };
+                if let Some(a) = file_actions::difftool_menu(ui, &selection, parents, &tools) {
+                    cmd = Some(DiffCommand::File(a));
+                }
                 if menu_item(ui, "Open working directory file", "F4") {
                     cmd = Some(DiffCommand::OpenWorkFile(first_name.clone()));
                     ui.close_kind(egui::UiKind::Menu);
@@ -747,10 +751,6 @@ impl RevisionDiffView {
                 }
                 if !second.is_artificial() && ui.button("Save as…").clicked() {
                     cmd = Some(DiffCommand::SaveAs { rev: second, file: first_name.clone() });
-                    ui.close_kind(egui::UiKind::Menu);
-                }
-                if menu_item(ui, "Open with external difftool", "F3") {
-                    cmd = Some(DiffCommand::ExternalDiff { first, second, file: first_name.clone() });
                     ui.close_kind(egui::UiKind::Menu);
                 }
                 ui.separator();
@@ -776,10 +776,14 @@ impl RevisionDiffView {
                     ui.close_kind(egui::UiKind::Menu);
                 }
                 let selection = file_actions::Selection { items: sel.iter().filter_map(|&i| files.get(i)).collect(), first, second };
-                if let Some(a) = file_actions::menu(ui, &selection) {
+                if let Some(a) = file_actions::menu_without_remember(ui, &selection) {
                     cmd = Some(DiffCommand::File(a));
                 }
             });
+            if matches!(cmd, Some(DiffCommand::File(file_actions::FileAction::HideToolList))) {
+                settings.show_available_diff_tools = false;
+                cmd = Some(DiffCommand::SaveSettings);
+            }
             // the keys of the file list (`RevisionDiffControl` hotkeys)
             let names: Vec<String> = self.list.selected_items(&files).iter().map(|f| f.name.clone()).collect();
             if resp.has_focus && cmd.is_none() {
@@ -801,8 +805,9 @@ impl RevisionDiffView {
                         cmd = Some(DiffCommand::FileHistory(first_name));
                     } else if plain_key(&ctx, Key::B) {
                         cmd = Some(DiffCommand::Blame { file: first_name, rev: second });
-                    } else if plain_key(&ctx, Key::F3) {
-                        cmd = Some(DiffCommand::ExternalDiff { first, second, file: first_name });
+                    } else if plain_key(&ctx, Key::F3) && first != Some(ObjectId::COMBINED_DIFF) {
+                        let files = self.list.selected_items(&files).iter().filter(|f| !f.is_submodule).map(|f| file_actions::DiffFile { name: f.name.clone(), old_name: f.old_name.clone(), is_tracked: f.is_tracked }).collect();
+                        cmd = Some(DiffCommand::File(file_actions::FileAction::Difftool { kind: gitext_core::diff_tools::FileDiffKind::FirstToSecond, first, second, files, tool: None }));
                     } else if plain_key(&ctx, Key::F4) {
                         cmd = Some(DiffCommand::OpenWorkFile(first_name));
                     } else if !second.is_artificial() && shortcut(&ctx, Modifiers::COMMAND, Key::F3) {

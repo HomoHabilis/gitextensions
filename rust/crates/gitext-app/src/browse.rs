@@ -1090,18 +1090,6 @@ impl BrowseView {
                 let p = m.work_dir().join(f);
                 crate::util::open_folder(&p.parent().unwrap_or(m.work_dir()).display().to_string(), &settings.file_manager);
             }
-            DiffCommand::ExternalDiff { first, second, file } => {
-                let mut args = GitArgs::new("difftool").arg("--find-renames").arg("--find-copies");
-                if second == ObjectId::INDEX {
-                    args.add("--cached");
-                } else if second != ObjectId::WORK_TREE {
-                    args.add(first.map(|f| f.to_string()).unwrap_or_else(|| format!("{second}^")));
-                    args.add(second.to_string());
-                }
-                args.add("--");
-                args.add(file);
-                actions.push(Action::RunTool { tool_type: gitext_core::diff_tools::ToolType::Diff, args });
-            }
             DiffCommand::AddToGitIgnore(files) => actions.push(Action::OpenDialog(Box::new(gitignore::AddToGitIgnoreDialog::new(files)))),
             DiffCommand::StagePatch { patch, reverse } => {
                 if let Err(e) = m.apply_patch_text(&patch, true, reverse) {

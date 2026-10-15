@@ -319,6 +319,13 @@ impl GitExtApp {
                     Action::OpenDialog(d) => self.open_dialog(d),
                     Action::RunGit(run) => self.open_dialog(Box::new(dialogs::process::ProcessDialog::new(run))),
                     Action::RunTool { tool_type, args } => self.run_tool(ctx, tool_type, args),
+                    Action::RunDiffToolNamed { tool, args } => {
+                        if let Some(m) = self.module() {
+                            let exe = m.git();
+                            let args = gitext_core::diff_tools::custom_tool_args(&tool, &args);
+                            self.tool_runs.push(("Diff tool".into(), false, crate::tasks::Task::spawn(ctx, move || exe.run(&args))));
+                        }
+                    }
                     Action::RunInBackground { title, program, args } => self.run_in_background(ctx, title, program, args),
                     Action::Message { title, text, error } => self.open_dialog(Box::new(dialogs::message::MessageDialog { title, text, error })),
                     Action::SelectRevision(id) => {

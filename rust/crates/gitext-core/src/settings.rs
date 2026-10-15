@@ -200,6 +200,8 @@ pub struct AppSettings {
     pub show_author_avatar_in_commit_info: bool,
     /// Days a downloaded avatar is kept in the disk cache (`AvatarImageCacheDays`).
     pub avatar_cache_days: u32,
+    /// Lists the available difftools in a dropdown of the difftool menu items (`ShowAvailableDiffTools`).
+    pub show_available_diff_tools: bool,
 
     // Dialogs
     pub checkout_other_branch_after_reset: bool,
@@ -305,6 +307,7 @@ impl Default for AppSettings {
             show_author_avatar_column: true,
             show_author_avatar_in_commit_info: true,
             avatar_cache_days: 13,
+            show_available_diff_tools: true,
             checkout_other_branch_after_reset: true,
         }
     }
