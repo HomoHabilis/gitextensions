@@ -7,6 +7,7 @@ use gitext_core::settings::AppSettings;
 use gitext_core::repo_history::RepositoryHistory;
 use gitext_core::{GitArgs, GitModule, ObjectId};
 
+use crate::i18n::tr;
 use crate::repo::RepoData;
 
 pub mod about;
@@ -27,6 +28,7 @@ pub mod file_history;
 pub mod gitignore;
 pub mod goto_commit;
 pub mod init;
+pub mod language;
 pub mod merge;
 pub mod open_repo;
 pub mod message;
@@ -35,6 +37,8 @@ pub mod process;
 pub mod pull;
 pub mod push;
 pub mod rebase;
+pub mod reword;
+pub mod revision_filter;
 pub mod reflog;
 pub mod remotes;
 pub mod reset;
@@ -60,6 +64,10 @@ pub enum Action {
     /// Starts the diff or merge tool (`git difftool` / `git mergetool` + `args` without the
     /// command), in the background; failures are reported.
     RunTool { tool_type: gitext_core::diff_tools::ToolType, args: GitArgs },
+    /// Starts `git difftool --tool=<tool>` + `args` without the command (a tool picked in a menu).
+    RunDiffToolNamed { tool: String, args: GitArgs },
+    /// Opens the diff tool on a commit and the real working directory.
+    DifftoolWithWorkTree(gitext_core::ObjectId),
     /// Runs git without a process dialog; failures are reported, success refreshes.
     RunInBackground { title: String, program: Option<String>, args: GitArgs },
     Message { title: String, text: String, error: bool },
@@ -78,6 +86,8 @@ pub enum Action {
     ReloadLog,
     /// Copy text to the clipboard.
     Copy(String),
+    /// Set the revision filter of the browse window and reload the log.
+    SetRevisionFilter(crate::views::revision_grid::RevisionFilter),
     Exit,
 }
 
@@ -92,15 +102,17 @@ pub struct GitRun {
     pub check_conflicts: bool,
     /// Keep the dialog open even on success.
     pub keep_open: bool,
+    /// Environment variables for the git processes.
+    pub env: Vec<(String, String)>,
 }
 
 impl GitRun {
     pub fn new(title: impl Into<String>, args: GitArgs) -> Self {
-        GitRun { title: title.into(), commands: vec![args], working_dir: None, refresh: true, then: Vec::new(), check_conflicts: false, keep_open: false }
+        GitRun { title: title.into(), commands: vec![args], working_dir: None, refresh: true, then: Vec::new(), check_conflicts: false, keep_open: false, env: Vec::new() }
     }
 
     pub fn many(title: impl Into<String>, commands: Vec<GitArgs>) -> Self {
-        GitRun { title: title.into(), commands, working_dir: None, refresh: true, then: Vec::new(), check_conflicts: false, keep_open: false }
+        GitRun { title: title.into(), commands, working_dir: None, refresh: true, then: Vec::new(), check_conflicts: false, keep_open: false, env: Vec::new() }
     }
 
     pub fn conflicts(mut self) -> Self {
@@ -125,6 +137,11 @@ impl GitRun {
 
     pub fn keep_open(mut self) -> Self {
         self.keep_open = true;
+        self
+    }
+
+    pub fn env(mut self, name: &str, value: impl Into<String>) -> Self {
+        self.env.push((name.to_string(), value.into()));
         self
     }
 }
@@ -194,7 +211,7 @@ pub fn ok_cancel(ui: &mut Ui, ok_text: &str, ok_enabled: bool) -> (bool, bool) {
     ui.separator();
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            cancel = ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape));
+            cancel = ui.button(tr("Cancel")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape));
             ok = ui.add_enabled(ok_enabled, egui::Button::new(egui::RichText::new(ok_text).strong())).clicked();
         });
     });
@@ -222,17 +239,51 @@ pub fn branch_combo(ui: &mut Ui, id: &str, value: &mut String, items: &[String],
     });
 }
 
+/// The height a text or list of variable length may take in a small dialog before it scrolls
+/// (so that the buttons stay on screen).
+pub fn max_content_height(ui: &Ui) -> f32 {
+    (ui.ctx().screen_rect().height() * 0.5).clamp(120.0, 420.0)
+}
+
+/// A text of any length (wrapped), scrolling when taller than [`max_content_height`].
+pub fn scroll_text(ui: &mut Ui, id: &str, text: &str) {
+    egui::ScrollArea::vertical().id_salt((id, "text")).max_height(max_content_height(ui)).show(ui, |ui| {
+        ui.add(egui::Label::new(text).wrap());
+    });
+}
+
+/// A list of names (e.g. file paths), one per line and not wrapped, in a framed box that
+/// scrolls when it is taller than [`max_content_height`] or wider than the dialog.
+pub fn scroll_list(ui: &mut Ui, id: &str, items: &[String]) {
+    let max_h = max_content_height(ui);
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        let width = ui.available_width();
+        egui::ScrollArea::both().id_salt((id, "list")).max_height(max_h).max_width(width).auto_shrink([false, true]).show(ui, |ui| {
+            for item in items {
+                ui.add(egui::Label::new(item).extend());
+            }
+        });
+    });
+}
+
 /// Simple yes/no confirmation which runs actions on "yes".
 pub struct Confirm {
     pub title: String,
     pub text: String,
+    /// Names listed under the text (e.g. the files the action changes), in a scrolling box.
+    pub list: Vec<String>,
     pub yes: String,
     pub on_yes: Option<Box<dyn FnOnce(&mut Cx)>>,
 }
 
 impl Confirm {
     pub fn new(title: impl Into<String>, text: impl Into<String>, yes: impl Into<String>, on_yes: impl FnOnce(&mut Cx) + 'static) -> Self {
-        Confirm { title: title.into(), text: text.into(), yes: yes.into(), on_yes: Some(Box::new(on_yes)) }
+        Confirm { title: title.into(), text: text.into(), list: Vec::new(), yes: yes.into(), on_yes: Some(Box::new(on_yes)) }
+    }
+
+    pub fn with_list(mut self, list: Vec<String>) -> Self {
+        self.list = list;
+        self
     }
 }
 
@@ -242,11 +293,14 @@ impl Dialog for Confirm {
     }
 
     fn id(&self) -> String {
-        format!("{}:{}", self.title, self.text)
+        format!("{}:{}:{}", self.title, self.text, self.list.join("\n"))
     }
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
-        ui.label(&self.text);
+        scroll_text(ui, "confirm", &self.text);
+        if !self.list.is_empty() {
+            scroll_list(ui, "confirm", &self.list);
+        }
         let (ok, cancel) = ok_cancel(ui, &self.yes, true);
         if ok {
             if let Some(f) = self.on_yes.take() {

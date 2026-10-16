@@ -5,6 +5,7 @@ use gitext_core::GitArgs;
 use gitext_core::ObjectId;
 
 use super::{Action, Cx, Dialog, DialogKind};
+use crate::i18n::{tr, trf};
 use crate::tasks::Loader;
 use crate::theme::Palette;
 use crate::views::diff_viewer::{content_from_bytes, DiffViewer, ViewerContent};
@@ -13,6 +14,7 @@ use crate::views::revision_grid::RevisionGrid;
 pub struct FileHistoryDialog {
     file: String,
     grid: RevisionGrid,
+    avatars: crate::avatars::Avatars,
     started: bool,
     tab: usize,
     diff: Loader<(ObjectId, usize, String), ViewerContent>,
@@ -27,13 +29,13 @@ impl FileHistoryDialog {
         let mut grid = RevisionGrid::default();
         grid.filter.path = file.clone();
         grid.filter.follow = true;
-        FileHistoryDialog { file, grid, started: false, tab: 0, diff: Loader::default(), viewer: DiffViewer::default(), follow: true, follow_initialized: false }
+        FileHistoryDialog { file, grid, avatars: Default::default(), started: false, tab: 0, diff: Loader::default(), viewer: DiffViewer::default(), follow: true, follow_initialized: false }
     }
 }
 
 impl Dialog for FileHistoryDialog {
     fn title(&self) -> String {
-        format!("File history - {}", self.file)
+        trf("File history - {0}", &[&self.file])
     }
 
     fn kind(&self) -> DialogKind {
@@ -58,7 +60,7 @@ impl Dialog for FileHistoryDialog {
         }
         ui.horizontal(|ui| {
             ui.label(RichText::new(&self.file).strong());
-            if ui.checkbox(&mut self.follow, "Follow renames").changed() {
+            if ui.checkbox(&mut self.follow, tr("Follow renames")).changed() {
                 self.started = false;
             }
             if self.grid.loading {
@@ -69,7 +71,7 @@ impl Dialog for FileHistoryDialog {
         egui::TopBottomPanel::bottom("fh_bottom").resizable(true).default_height(ui.available_height() * 0.55).show_inside(ui, |ui| {
             ui.set_min_height(ui.available_height());
             ui.horizontal(|ui| {
-                for (i, l) in ["± Diff", "🗋 View", "Blame"].iter().enumerate() {
+                for (i, l) in [tr("± Diff"), tr("🗋 View"), tr("Blame")].iter().enumerate() {
                     if ui.selectable_label(self.tab == i, *l).clicked() {
                         if i == 2 {
                             if let Some(id) = selected {
@@ -83,7 +85,7 @@ impl Dialog for FileHistoryDialog {
             });
             ui.separator();
             let Some(id) = selected else {
-                ui.label(RichText::new("Select a commit").color(palette.muted));
+                ui.label(RichText::new(tr("Select a commit")).color(palette.muted));
                 return;
             };
             let file = self.file.clone();
@@ -106,16 +108,17 @@ impl Dialog for FileHistoryDialog {
                             .run(&GitArgs::with_config(&gitext_core::commands::DIFF_CONFIGS, "log").args(["-1", "-p", "-M", "--format="]).args(opts.extra_args()).arg_if(follow, "--follow").arg(id.to_string()).arg("--").arg(&file))
                             .map(|r| r.stdout_str())
                             .unwrap_or_default();
-                        if out.trim().is_empty() { ViewerContent::Empty("No changes to this file".into()) } else { ViewerContent::Diff(out) }
+                        if out.trim().is_empty() { ViewerContent::Empty(tr("No changes to this file").into()) } else { ViewerContent::Diff(out) }
                     } else {
                         match mm.get_file_bytes(id, &name) {
                             Ok(b) => content_from_bytes(&b),
-                            Err(_) => ViewerContent::Empty(format!("{name} does not exist in this commit")),
+                            Err(_) => ViewerContent::Empty(trf("{0} does not exist in this commit", &[&name])),
                         }
                     }
                 })
                 .cloned()
-                .unwrap_or(ViewerContent::Empty("Loading…".into()));
+                .unwrap_or(ViewerContent::Empty(tr("Loading…").into()));
+            self.viewer.set_file_name(Some(&self.file));
             if self.viewer.toolbar(ui, &content, cx.settings) {
                 cx.push(Action::SaveSettings);
             }
@@ -124,7 +127,8 @@ impl Dialog for FileHistoryDialog {
         egui::CentralPanel::default().show_inside(ui, |ui| {
             let mut settings = cx.settings.clone();
             settings.show_artificial_commits = false;
-            let events = self.grid.ui(ui, &settings, &data);
+            self.avatars.update(ui.ctx(), &settings);
+            let events = self.grid.ui(ui, &settings, &data, &mut self.avatars);
             if let Some(id) = events.double_clicked {
                 cx.push(super::Action::SelectRevision(id));
             }

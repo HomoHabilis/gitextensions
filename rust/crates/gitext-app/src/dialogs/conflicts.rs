@@ -6,6 +6,7 @@ use gitext_core::module::{ConflictData, ConflictSide};
 use gitext_core::{commands, GitArgs, GitModule};
 
 use super::{Action, Cx, Dialog, DialogKind, GitRun};
+use crate::i18n::{tr, trf};
 use crate::tasks::{Loader, Task};
 use crate::theme::Palette;
 use crate::views::plain_key;
@@ -65,55 +66,55 @@ impl ConflictsDialog {
         match (c.local.is_some(), c.remote.is_some()) {
             (true, true) => {
                 if !c.is_special() {
-                    v.push((Choice::Merge, "Merge in merge tool".to_string(), Some(Key::M)));
+                    v.push((Choice::Merge, tr("Merge in merge tool").to_string(), Some(Key::M)));
                 }
-                v.push((Choice::Local, format!("Choose local ({ours})"), Some(Key::L)));
-                v.push((Choice::Remote, format!("Choose remote ({theirs})"), Some(Key::R)));
+                v.push((Choice::Local, trf("Choose local ({0})", &[&ours]), Some(Key::L)));
+                v.push((Choice::Remote, trf("Choose remote ({0})", &[&theirs]), Some(Key::R)));
                 if c.base.is_some() {
-                    v.push((Choice::Base, "Choose base".to_string(), Some(Key::B)));
+                    v.push((Choice::Base, tr("Choose base").to_string(), Some(Key::B)));
                 } else {
-                    v.push((Choice::Delete, "Delete file".to_string(), Some(Key::D)));
+                    v.push((Choice::Delete, tr("Delete file").to_string(), Some(Key::D)));
                 }
             }
             (false, true) => {
-                v.push((Choice::Delete, "Delete file (local)".to_string(), Some(Key::D)));
-                v.push((Choice::Remote, "Keep modified (remote)".to_string(), Some(Key::R)));
+                v.push((Choice::Delete, tr("Delete file (local)").to_string(), Some(Key::D)));
+                v.push((Choice::Remote, tr("Keep modified (remote)").to_string(), Some(Key::R)));
             }
             (true, false) => {
-                v.push((Choice::Local, "Keep modified (local)".to_string(), Some(Key::L)));
-                v.push((Choice::Delete, "Delete file (remote)".to_string(), Some(Key::D)));
+                v.push((Choice::Local, tr("Keep modified (local)").to_string(), Some(Key::L)));
+                v.push((Choice::Delete, tr("Delete file (remote)").to_string(), Some(Key::D)));
             }
             (false, false) => {
-                v.push((Choice::Delete, "Delete file".to_string(), Some(Key::D)));
+                v.push((Choice::Delete, tr("Delete file").to_string(), Some(Key::D)));
             }
         }
         if c.base.is_some() && !(c.local.is_some() && c.remote.is_some()) {
-            v.push((Choice::Base, "Keep base file".to_string(), Some(Key::B)));
+            v.push((Choice::Base, tr("Keep base file").to_string(), Some(Key::B)));
         }
         if c.local.is_some() || c.remote.is_some() {
-            v.push((Choice::Editor, "Open in editor".to_string(), None));
+            v.push((Choice::Editor, tr("Open in editor").to_string(), None));
         }
-        v.push((Choice::MarkSolved, "Mark as solved".to_string(), None));
+        v.push((Choice::MarkSolved, tr("Mark as solved").to_string(), None));
         v
     }
 
     fn description(c: &ConflictData) -> &'static str {
         match (c.base.is_some(), c.local.is_some(), c.remote.is_some()) {
-            (true, true, true) => "The file has been changed both locally and remotely. Merge the changes.",
-            (false, true, true) => "A file with the same name has been created locally and remotely. Choose the file you want to keep or merge the files.",
-            (_, false, true) => "The file has been deleted locally and modified remotely. Choose to delete the file or keep the modified version.",
-            (_, true, false) => "The file has been modified locally and deleted remotely. Choose to delete the file or keep the modified version.",
-            (_, false, false) => "The file has been deleted both locally and remotely.",
+            (true, true, true) => tr("The file has been changed both locally and remotely. Merge the changes."),
+            (false, true, true) => tr("A file with the same name has been created locally and remotely. Choose the file you want to keep or merge the files."),
+            (_, false, true) => tr("The file has been deleted locally and modified remotely. Choose to delete the file or keep the modified version."),
+            (_, true, false) => tr("The file has been modified locally and deleted remotely. Choose to delete the file or keep the modified version."),
+            (_, false, false) => tr("The file has been deleted both locally and remotely."),
         }
     }
 
     fn short_state(c: &ConflictData) -> &'static str {
         match (c.base.is_some(), c.local.is_some(), c.remote.is_some()) {
-            (true, true, true) => "both modified",
-            (false, true, true) => "both added",
-            (_, false, true) => "deleted locally",
-            (_, true, false) => "deleted remotely",
-            (_, false, false) => "deleted by both",
+            (true, true, true) => tr("both modified"),
+            (false, true, true) => tr("both added"),
+            (_, false, true) => tr("deleted locally"),
+            (_, true, false) => tr("deleted remotely"),
+            (_, false, false) => tr("deleted by both"),
         }
     }
 
@@ -136,7 +137,7 @@ impl ConflictsDialog {
             Choice::MarkSolved => m.run_checked(&GitArgs::new("add").arg("-A").arg("--").arg(f)).map(|_| ()),
         };
         if let Err(e) = result {
-            cx.error("Resolve", e.to_string());
+            cx.error(tr("Resolve"), e.to_string());
         }
         self.ask_solved = None;
         self.rescan();
@@ -178,7 +179,7 @@ impl ConflictsDialog {
 
 impl Dialog for ConflictsDialog {
     fn title(&self) -> String {
-        "Resolve merge conflicts".into()
+        tr("Resolve merge conflicts").into()
     }
 
     fn kind(&self) -> DialogKind {
@@ -288,7 +289,7 @@ impl Dialog for ConflictsDialog {
                                 }
                             }
                             if files.is_empty() && loaded {
-                                ui.label(RichText::new("All conflicts are resolved.").color(palette.success));
+                                ui.label(RichText::new(tr("All conflicts are resolved.")).color(palette.success));
                             }
                         });
                     });
@@ -300,11 +301,11 @@ impl Dialog for ConflictsDialog {
                     ui.label(RichText::new(&c.file_name).strong());
                     ui.label(Self::description(c));
                     let (local, remote) = if state.rebasing {
-                        ("the branch you are rebasing onto", "the commit you are rebasing")
+                        (tr("the branch you are rebasing onto"), tr("the commit you are rebasing"))
                     } else {
-                        ("the current branch", "the branch you are merging")
+                        (tr("the current branch"), tr("the branch you are merging"))
                     };
-                    ui.label(RichText::new(format!("Local: {local}. Remote: {remote}.")).small().weak());
+                    ui.label(RichText::new(trf("Local: {0}. Remote: {1}.", &[&local, &remote])).small().weak());
                     ui.add_space(6.0);
                 }
                 ui.add_enabled_ui(current.is_some() && !busy, |ui| {
@@ -319,7 +320,7 @@ impl Dialog for ConflictsDialog {
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label(format!("Waiting for the merge tool to close ({})…", run.file));
+                        ui.label(trf("Waiting for the merge tool to close ({0})…", &[&run.file]));
                     });
                 }
                 if let Some(a) = self.ask_solved.as_ref().map(|a| AskSolved {
@@ -327,27 +328,27 @@ impl Dialog for ConflictsDialog {
                     output: a.output.clone(),
                 }) {
                     ui.add_space(6.0);
-                    ui.label(RichText::new(format!("The merge tool closed but '{}' is still in conflict. Is the merge conflict solved?", a.file)).color(palette.warning));
+                    ui.label(RichText::new(trf("The merge tool closed but '{0}' is still in conflict. Is the merge conflict solved?", &[&a.file])).color(palette.warning));
                     if !a.output.trim().is_empty() {
                         egui::ScrollArea::vertical().id_salt("merge_tool_output").max_height(80.0).show(ui, |ui| {
                             ui.label(RichText::new(a.output.trim()).monospace().small());
                         });
                     }
                     ui.horizontal(|ui| {
-                        if ui.button("Yes, mark as solved").clicked() {
+                        if ui.button(tr("Yes, mark as solved")).clicked() {
                             let file = a.file.clone();
                             if let Err(e) = m.run_checked(&GitArgs::new("add").arg("-A").arg("--").arg(&file)) {
-                                cx.error("Resolve", e.to_string());
+                                cx.error(tr("Resolve"), e.to_string());
                             }
                             self.ask_solved = None;
                             self.rescan();
-                        } else if ui.button("No").clicked() {
+                        } else if ui.button(tr("No")).clicked() {
                             self.ask_solved = None;
                         }
                     });
                 }
                 ui.add_space(12.0);
-                if ui.add(egui::Button::new("⟳ Rescan").shortcut_text("F5")).clicked() {
+                if ui.add(egui::Button::new(format!("⟳ {}", tr("Rescan"))).shortcut_text("F5")).clicked() {
                     self.rescan();
                 }
             });
@@ -363,37 +364,37 @@ impl Dialog for ConflictsDialog {
         let mut keep = true;
         ui.horizontal(|ui| {
             if files.is_empty() && loaded {
-                if state.rebasing && ui.button("Continue rebase").clicked() {
-                    cx.run(GitRun::new("Continue rebase", commands::continue_rebase()).conflicts());
+                if state.rebasing && ui.button(tr("Continue rebase")).clicked() {
+                    cx.run(GitRun::new(tr("Continue rebase"), commands::continue_rebase()).conflicts());
                     keep = false;
                 }
-                if state.merging && ui.button("Commit merge…").clicked() {
+                if state.merging && ui.button(tr("Commit merge…")).clicked() {
                     cx.push(Action::OpenCommit);
                     keep = false;
                 }
-                if state.cherry_picking && ui.button("Continue cherry-pick").clicked() {
-                    cx.run(GitRun::new("Continue", GitArgs::new("cherry-pick").arg("--continue")).conflicts());
+                if state.cherry_picking && ui.button(tr("Continue cherry-pick")).clicked() {
+                    cx.run(GitRun::new(tr("Continue"), GitArgs::new("cherry-pick").arg("--continue")).conflicts());
                     keep = false;
                 }
-                if state.reverting && ui.button("Continue revert").clicked() {
-                    cx.run(GitRun::new("Continue", GitArgs::new("revert").arg("--continue")).conflicts());
+                if state.reverting && ui.button(tr("Continue revert")).clicked() {
+                    cx.run(GitRun::new(tr("Continue"), GitArgs::new("revert").arg("--continue")).conflicts());
                     keep = false;
                 }
-                if state.applying_patch && ui.button("Continue applying patches").clicked() {
-                    cx.run(GitRun::new("Continue", commands::resolved_mailbox()).conflicts());
+                if state.applying_patch && ui.button(tr("Continue applying patches")).clicked() {
+                    cx.run(GitRun::new(tr("Continue"), commands::resolved_mailbox()).conflicts());
                     keep = false;
                 }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Close").clicked() {
+                if ui.button(tr("Close")).clicked() {
                     keep = false;
                 }
-                if state.merging && ui.button("Abort merge").clicked() {
-                    cx.run(GitRun::new("Abort merge", commands::abort_merge()));
+                if state.merging && ui.button(tr("Abort merge")).clicked() {
+                    cx.run(GitRun::new(tr("Abort merge"), commands::abort_merge()));
                     keep = false;
                 }
-                if state.rebasing && ui.button("Abort rebase").clicked() {
-                    cx.run(GitRun::new("Abort rebase", commands::abort_rebase()));
+                if state.rebasing && ui.button(tr("Abort rebase")).clicked() {
+                    cx.run(GitRun::new(tr("Abort rebase"), commands::abort_rebase()));
                     keep = false;
                 }
             });

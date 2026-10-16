@@ -11,7 +11,7 @@ use crate::git_ref::{ref_name, GitRef};
 use crate::object_id::ObjectId;
 use crate::revision::GitRevision;
 use crate::revision_reader::{log_format, read_revisions};
-use crate::status::{parse_diff_raw, parse_status_v2, GitItemStatus, StagedStatus};
+use crate::status::{parse_diff_raw, parse_ls_files_flags, parse_status_v2, GitItemStatus, StagedStatus};
 use crate::tree::{self, GitItem};
 
 /// The hash of the empty tree (diff against it for root commits).
@@ -401,6 +401,23 @@ impl GitModule {
         Ok(parse_status_v2(&out.stdout_str()))
     }
 
+    /// Like [`Self::get_status`], optionally with the ignored, assumed-unchanged and
+    /// skip-worktree files (port of `GetAllChangedFiles` with its `exclude*` flags; the last
+    /// two cost one `git ls-files -v` call).
+    pub fn get_status_with(&self, untracked: commands::UntrackedFilesMode, ignored: bool, assume_unchanged: bool, skip_worktree: bool) -> GitResult<Vec<GitItemStatus>> {
+        let args = commands::get_all_changed_files(!ignored, untracked, commands::IgnoreSubmodulesMode::None, false);
+        let out = self.run(&args)?;
+        if !out.success() {
+            return Err(GitError::Failed { args: args.to_string(), exit_code: out.exit_code, stderr: out.stderr_str() });
+        }
+        let mut items = parse_status_v2(&out.stdout_str());
+        if assume_unchanged || skip_worktree {
+            let ls = self.output(&GitArgs::new("ls-files").arg("-v").arg("-z"))?;
+            items.extend(parse_ls_files_flags(&ls, assume_unchanged, skip_worktree));
+        }
+        Ok(items)
+    }
+
     /// Changes between two revisions; handles the artificial work tree / index revisions
     /// (port of `GetDiffFilesWithSubmodulesStatus`). `first` = older revision.
     pub fn get_diff_files(&self, first: Option<ObjectId>, second: ObjectId) -> GitResult<Vec<GitItemStatus>> {
@@ -697,6 +714,57 @@ impl GitModule {
             return Ok(ExecResult::default());
         }
         self.run_checked(&commands::remove(force, false, &files.iter().map(|f| f.as_ref()).collect::<Vec<&str>>()))
+    }
+
+    /// Stops tracking files, keeping them on disk (`git rm --cached`, port of `StopTrackingFile`).
+    pub fn stop_tracking(&self, files: &[&str]) -> GitResult<ExecResult> {
+        self.run_checked(&GitArgs::new("rm").arg("--cached").arg("-r").arg("--").args(files.iter().map(|f| to_posix_path(f))))
+    }
+
+    /// Renames or moves a file or folder (port of `MoveCommand`): `git mv` when git tracks it,
+    /// else a plain rename on disk. Missing parent folders of `new` are created.
+    pub fn move_file(&self, old: &str, new: &str) -> GitResult<()> {
+        let (old, new) = (old.trim_end_matches('/'), new.trim().trim_end_matches('/'));
+        if new.is_empty() || new == old {
+            return Err(GitError::Invalid("Enter a new name.".into()));
+        }
+        let target = self.work_dir.join(new);
+        if target.exists() && !old.eq_ignore_ascii_case(new) {
+            return Err(GitError::Invalid(format!("'{new}' already exists.")));
+        }
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| GitError::Invalid(e.to_string()))?;
+        }
+        let tracked = !self.output(&GitArgs::new("ls-files").arg("-z").arg("--").arg(to_posix_path(old))).unwrap_or_default().is_empty();
+        if tracked {
+            self.run_checked(&GitArgs::new("mv").arg("--").arg(to_posix_path(old)).arg(to_posix_path(new)))?;
+        } else {
+            std::fs::rename(self.work_dir.join(old), target).map_err(|e| GitError::Invalid(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Applies the changes of `files` between `first` (`None`: the parent) and `second` to the
+    /// work tree and the index (port of "Cherry pick changes": `git apply --3way --index`).
+    pub fn cherry_pick_file_changes(&self, first: Option<ObjectId>, second: ObjectId, files: &[&str]) -> GitResult<ExecResult> {
+        let from = first.map(|f| f.to_string()).unwrap_or_else(|| format!("{second}^"));
+        let diff = GitArgs::with_config(&commands::DIFF_CONFIGS, "diff")
+            .arg("--binary")
+            .arg("--no-ext-diff")
+            .arg(from)
+            .arg(second.to_string())
+            .arg("--")
+            .args(files.iter().map(|f| to_posix_path(f)));
+        let patch = self.run_checked(&diff)?.stdout;
+        if patch.is_empty() {
+            return Err(GitError::Invalid("There are no changes to apply.".into()));
+        }
+        let args = GitArgs::new("apply").arg("--3way").arg("--index").arg("--whitespace=nowarn").arg("-");
+        let r = self.git().run_with_input(&args, Some(&patch))?;
+        if !r.success() {
+            return Err(GitError::Failed { args: args.to_string(), exit_code: r.exit_code, stderr: r.all_output() });
+        }
+        Ok(r)
     }
 
     /// Deletes untracked files from disk.
@@ -1332,6 +1400,60 @@ mod tests {
     //! integration tests against real temporary repositories.
     use super::test_repo::TestRepo;
     use super::*;
+
+    #[test]
+    fn status_with_ignored_assumed_and_skipped_files() {
+        let repo = TestRepo::new();
+        repo.commit_file(".gitignore", "*.log\n", "ignore");
+        repo.commit_file("a.txt", "a\n", "a");
+        repo.commit_file("b.txt", "b\n", "b");
+        repo.write("x.log", "log\n");
+        repo.module.assume_unchanged(&["a.txt"], true).unwrap();
+        repo.module.skip_worktree(&["b.txt"], true).unwrap();
+        let names = |i, a, s| -> Vec<String> {
+            let mut n: Vec<String> = repo.module.get_status_with(commands::UntrackedFilesMode::All, i, a, s).unwrap().into_iter().map(|f| f.name).collect();
+            n.sort();
+            n
+        };
+        assert!(names(false, false, false).is_empty());
+        assert_eq!(names(true, false, false), ["x.log"]);
+        assert_eq!(names(false, true, false), ["a.txt"]);
+        assert_eq!(names(false, false, true), ["b.txt"]);
+        assert_eq!(names(true, true, true), ["a.txt", "b.txt", "x.log"]);
+    }
+
+    #[test]
+    fn stop_tracking_and_move_files() {
+        let repo = TestRepo::new();
+        repo.commit_file("a.txt", "a\n", "a");
+        repo.commit_file("b.txt", "b\n", "b");
+        repo.module.stop_tracking(&["a.txt"]).unwrap();
+        assert!(repo.dir.path().join("a.txt").exists(), "kept on disk");
+        assert_eq!(repo.git(&["ls-files"]).trim(), "b.txt");
+        // tracked: git mv (staged rename); untracked: renamed on disk
+        repo.module.move_file("b.txt", "sub/c.txt").unwrap();
+        assert_eq!(repo.git(&["ls-files"]).trim(), "sub/c.txt");
+        repo.module.move_file("a.txt", "d.txt").unwrap();
+        assert!(repo.dir.path().join("d.txt").exists() && !repo.dir.path().join("a.txt").exists());
+        assert!(repo.module.move_file("d.txt", "sub/c.txt").is_err(), "existing target");
+        assert!(repo.module.move_file("d.txt", "d.txt").is_err(), "same name");
+    }
+
+    #[test]
+    fn cherry_pick_file_changes_applies_to_work_tree_and_index() {
+        let repo = TestRepo::new();
+        repo.commit_file("a.txt", "1\n2\n3\n", "a");
+        repo.git(&["checkout", "-q", "-b", "other"]);
+        repo.write("b.txt", "new\n");
+        repo.module.stage_files(&["b.txt"]).unwrap();
+        let picked = repo.commit_file("a.txt", "1\nTWO\n3\n", "change");
+        repo.git(&["checkout", "-q", "master"]);
+        repo.module.cherry_pick_file_changes(None, picked, &["a.txt"]).unwrap();
+        assert_eq!(std::fs::read_to_string(repo.dir.path().join("a.txt")).unwrap(), "1\nTWO\n3\n");
+        assert!(!repo.dir.path().join("b.txt").exists(), "only the selected file");
+        assert_eq!(repo.git(&["diff", "--cached", "--name-only"]).trim(), "a.txt");
+        assert!(repo.module.cherry_pick_file_changes(None, picked, &["unchanged.txt"]).is_err(), "nothing to apply");
+    }
 
     #[test]
     fn diff_options_whitespace_arguments() {

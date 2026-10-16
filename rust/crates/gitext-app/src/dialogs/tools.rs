@@ -8,6 +8,7 @@ use gitext_core::diff_tools::{self, ToolConfigStore, ToolConfiguration, ToolType
 use gitext_core::exec::GitResult;
 
 use super::{Cx, Dialog};
+use crate::i18n::{tr, trf};
 use crate::theme::Palette;
 
 /// Editor for the diff or the merge tool of the global git config.
@@ -97,18 +98,18 @@ impl ToolEdit {
         };
         let detected: Vec<(&'static str, PathBuf)> = self.detected().to_vec();
         egui::Grid::new(("tool_grid", label)).num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-            ui.label(label);
+            ui.label(tr(label));
             ui.horizontal(|ui| {
                 let shown = diff_tools::get(&self.name).map(|tool| tool.display_name.to_string()).unwrap_or_else(|| {
                     if self.name.is_empty() {
-                        "(none)".to_string()
+                        tr("(none)").to_string()
                     } else {
                         self.name.clone()
                     }
                 });
                 let mut choice: Option<(String, Option<String>)> = None;
                 egui::ComboBox::from_id_salt(("tool_combo", label)).selected_text(shown).width(230.0).show_ui(ui, |ui| {
-                    if ui.selectable_label(self.name.is_empty(), "(none)").clicked() {
+                    if ui.selectable_label(self.name.is_empty(), tr("(none)")).clicked() {
                         choice = Some((String::new(), None));
                     }
                     for tool in diff_tools::tools_for(t) {
@@ -117,7 +118,7 @@ impl ToolEdit {
                         let r = ui.selectable_label(self.name.eq_ignore_ascii_case(tool.name), text);
                         let r = match found {
                             Some((_, p)) => r.on_hover_text(p.display().to_string()),
-                            None => r.on_hover_text("Not found on this computer"),
+                            None => r.on_hover_text(tr("Not found on this computer")),
                         };
                         if r.clicked() {
                             choice = Some((tool.name.to_string(), found.map(|(_, p)| p.display().to_string())));
@@ -134,28 +135,28 @@ impl ToolEdit {
                         self.select(&name, path);
                     }
                 }
-                ui.label(RichText::new("name").small().color(palette.muted));
-                ui.add(egui::TextEdit::singleline(&mut self.name).desired_width(110.0)).on_hover_text("The git tool name (--tool=<name>); any name for a custom tool");
+                ui.label(RichText::new(tr("name")).small().color(palette.muted));
+                ui.add(egui::TextEdit::singleline(&mut self.name).desired_width(110.0)).on_hover_text(tr("The git tool name (--tool=<name>); any name for a custom tool"));
             });
             ui.end_row();
 
-            ui.label("Path");
+            ui.label(tr("Path"));
             ui.horizontal(|ui| {
-                let r = ui.add(egui::TextEdit::singleline(&mut self.path).desired_width(380.0).hint_text("executable of the tool"));
+                let r = ui.add(egui::TextEdit::singleline(&mut self.path).desired_width(380.0).hint_text(tr("executable of the tool")));
                 if r.changed() {
                     self.exists = None;
                 }
-                if ui.button("Browse…").clicked() {
+                if ui.button(tr("Browse…")).clicked() {
                     let start = PathBuf::from(self.path.trim());
                     let start = start.parent().filter(|p| p.is_dir()).map(|p| p.display().to_string());
-                    let filter: Option<(&str, &[&str])> = if cfg!(windows) { Some(("Programs", &["exe", "cmd", "bat"])) } else { None };
+                    let filter: Option<(&str, &[&str])> = if cfg!(windows) { Some((tr("Programs"), &["exe", "cmd", "bat"])) } else { None };
                     if let Some(p) = crate::util::pick_file(start.as_deref(), filter) {
                         self.path = p;
                         self.suggest_command();
                         self.exists = None;
                     }
                 }
-                if ui.button("Detect").on_hover_text("Look for the tool in the usual install locations").clicked() {
+                if ui.button(tr("Detect")).on_hover_text(tr("Look for the tool in the usual install locations")).clicked() {
                     self.detected = None;
                     let detected = self.detected().to_vec();
                     let current = detected.iter().find(|(n, _)| n.eq_ignore_ascii_case(self.name.trim())).cloned();
@@ -164,19 +165,19 @@ impl ToolEdit {
                             self.select(name, Some(p.display().to_string()));
                             self.message = None;
                         }
-                        None => self.message = Some(format!("No {} tool was found. {}", t.label(), diff_tools::install_hint())),
+                        None => self.message = Some(trf("No {0} tool was found. {1}", &[&t.label(), &diff_tools::install_hint()])),
                     }
                 }
             });
             ui.end_row();
 
-            ui.label("Command");
+            ui.label(tr("Command"));
             ui.horizontal(|ui| {
                 let r = ui.add(egui::TextEdit::singleline(&mut self.command).desired_width(380.0).font(egui::TextStyle::Monospace));
                 if r.changed() {
                     self.exists = None;
                 }
-                if ui.add_enabled(diff_tools::get(&self.name).is_some(), egui::Button::new("Suggest")).on_hover_text("The command line for this tool and path").clicked() {
+                if ui.add_enabled(diff_tools::get(&self.name).is_some(), egui::Button::new(tr("Suggest"))).on_hover_text(tr("The command line for this tool and path")).clicked() {
                     self.suggest_command();
                 }
             });
@@ -194,20 +195,21 @@ impl ToolEdit {
             ui.label(RichText::new(m).color(palette.warning));
         } else if self.name.trim().is_empty() {
             if detected.is_empty() {
-                ui.label(RichText::new(format!("No {} tool is configured or installed. {}", t.label(), diff_tools::install_hint())).color(palette.warning));
+                ui.label(RichText::new(trf("No {0} tool is configured or installed. {1}", &[&t.label(), &diff_tools::install_hint()])).color(palette.warning));
             } else {
                 let names: Vec<&str> = detected.iter().filter_map(|(n, _)| diff_tools::get(n).map(|tool| tool.display_name)).collect();
                 ui.label(
-                    RichText::new(format!("No {} tool is configured; {} will be used. Installed: {}.", t.label(), names[0], names.join(", "))).color(palette.muted),
+                    RichText::new(trf("No {0} tool is configured; {1} will be used. Installed: {2}.", &[&t.label(), &names[0], &names.join(", ")])).color(palette.muted),
                 );
             }
         } else if ok {
-            ui.label(RichText::new(format!("✔ {}", if exe.is_empty() { "found" } else { exe.as_str() })).color(palette.success));
+            ui.label(RichText::new(format!("✔ {}", if exe.is_empty() { tr("found") } else { exe.as_str() })).color(palette.success));
         } else {
             let fallback = detected.iter().find(|(n, _)| !n.eq_ignore_ascii_case(self.name.trim())).and_then(|(n, _)| diff_tools::get(n));
-            let mut text = format!("⚠ The executable '{exe}' was not found.");
+            let mut text = format!("⚠ {}", trf("The executable '{0}' was not found.", &[&exe]));
             if let Some(f) = fallback {
-                text.push_str(&format!(" {} will be used instead.", f.display_name));
+                text.push(' ');
+                text.push_str(&trf("{0} will be used instead.", &[&f.display_name]));
             } else {
                 text.push(' ');
                 text.push_str(diff_tools::install_hint());
@@ -224,20 +226,20 @@ pub struct NoToolDialog {
 
 impl Dialog for NoToolDialog {
     fn title(&self) -> String {
-        format!("No {} tool", self.tool_type.label())
+        trf("No {0} tool", &[&self.tool_type.label()])
     }
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         ui.set_max_width(520.0);
-        ui.label(format!("No external {} tool is configured or installed.", self.tool_type.label()));
+        ui.label(trf("No external {0} tool is configured or installed.", &[&self.tool_type.label()]));
         ui.add_space(4.0);
         ui.label(diff_tools::install_hint());
         if !cfg!(windows) && !cfg!(target_os = "macos") {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label("Install Meld:");
+                ui.label(tr("Install Meld:"));
                 ui.code("sudo apt install meld");
-                if ui.small_button("Copy").clicked() {
+                if ui.small_button(tr("Copy")).clicked() {
                     cx.push(super::Action::Copy("sudo apt install meld".into()));
                 }
             });
@@ -245,11 +247,11 @@ impl Dialog for NoToolDialog {
         ui.add_space(8.0);
         let mut keep = true;
         ui.horizontal(|ui| {
-            if ui.button("Open settings").clicked() {
+            if ui.button(tr("Open settings")).clicked() {
                 cx.open(super::settings::SettingsDialog::at_page(5));
                 keep = false;
             }
-            if ui.button("Close").clicked() {
+            if ui.button(tr("Close")).clicked() {
                 keep = false;
             }
         });

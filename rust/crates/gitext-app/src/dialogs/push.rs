@@ -5,6 +5,7 @@ use gitext_core::commands::{self, ForcePushOptions, GitPushAction};
 use gitext_core::settings::AppSettings;
 
 use super::{branch_combo, ok_cancel, Cx, Dialog, GitRun};
+use crate::i18n::{tr, trf};
 use crate::repo::RepoData;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,7 +78,7 @@ impl PushDialog {
 
 impl Dialog for PushDialog {
     fn title(&self) -> String {
-        "Push".into()
+        tr("Push").into()
     }
 
     fn kind(&self) -> super::DialogKind {
@@ -86,9 +87,9 @@ impl Dialog for PushDialog {
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         ui.horizontal(|ui| {
-            ui.label("Remote");
+            ui.label(tr("Remote"));
             branch_combo(ui, "push_remote", &mut self.remote, &self.remotes, 300.0);
-            if ui.button("Manage remotes…").clicked() {
+            if ui.button(tr("Manage remotes…")).clicked() {
                 cx.open(super::remotes::RemotesDialog::default());
             }
         });
@@ -97,32 +98,32 @@ impl Dialog for PushDialog {
         }
         ui.separator();
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.mode, Mode::Branch, "Push branch");
-            ui.selectable_value(&mut self.mode, Mode::Tags, "Push tags");
-            ui.selectable_value(&mut self.mode, Mode::Multiple, "Push multiple branches");
+            ui.selectable_value(&mut self.mode, Mode::Branch, tr("Push branch"));
+            ui.selectable_value(&mut self.mode, Mode::Tags, tr("Push tags"));
+            ui.selectable_value(&mut self.mode, Mode::Multiple, tr("Push multiple branches"));
         });
         ui.add_space(4.0);
         match self.mode {
             Mode::Branch => {
-                ui.checkbox(&mut self.push_all_branches, "Push all branches");
+                ui.checkbox(&mut self.push_all_branches, tr("Push all branches"));
                 ui.add_enabled_ui(!self.push_all_branches, |ui| {
                     egui::Grid::new("push_branch").num_columns(2).show(ui, |ui| {
-                        ui.label("Branch to push");
+                        ui.label(tr("Branch to push"));
                         branch_combo(ui, "push_local", &mut self.local, &self.locals, 320.0);
                         ui.end_row();
-                        ui.label("To remote branch");
+                        ui.label(tr("To remote branch"));
                         ui.add(egui::TextEdit::singleline(&mut self.remote_branch).desired_width(320.0));
                         ui.end_row();
                     });
                 });
-                ui.checkbox(&mut self.set_upstream, "Set upstream (track the remote branch)");
-                ui.checkbox(&mut self.with_tags, "Push tags as well (--follow-tags)");
+                ui.checkbox(&mut self.set_upstream, tr("Set upstream (track the remote branch)"));
+                ui.checkbox(&mut self.with_tags, tr("Push tags as well (--follow-tags)"));
             }
             Mode::Tags => {
-                ui.checkbox(&mut self.all_tags, "Push all tags");
+                ui.checkbox(&mut self.all_tags, tr("Push all tags"));
                 ui.add_enabled_ui(!self.all_tags, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label("Tag");
+                        ui.label(tr("Tag"));
                         branch_combo(ui, "push_tag", &mut self.tag, &self.tags, 320.0);
                     });
                 });
@@ -130,11 +131,11 @@ impl Dialog for PushDialog {
             Mode::Multiple => {
                 egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                     egui::Grid::new("push_multi").striped(true).num_columns(5).show(ui, |ui| {
-                        ui.strong("Local");
-                        ui.strong("Remote");
-                        ui.strong("Push");
-                        ui.strong("Force");
-                        ui.strong("Delete");
+                        ui.strong(tr("Local"));
+                        ui.strong(tr("Remote"));
+                        ui.strong(tr("Push"));
+                        ui.strong(tr("Force"));
+                        ui.strong(tr("Delete"));
                         ui.end_row();
                         for (l, r, push, force, delete) in &mut self.multiple {
                             ui.label(l.as_str());
@@ -150,18 +151,18 @@ impl Dialog for PushDialog {
         }
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            ui.label("Force:");
-            ui.radio_value(&mut self.force, ForcePushOptions::DoNotForce, "No");
-            ui.radio_value(&mut self.force, ForcePushOptions::ForceWithLease, "With lease");
-            ui.radio_value(&mut self.force, ForcePushOptions::Force, "Force");
+            ui.label(tr("Force:"));
+            ui.radio_value(&mut self.force, ForcePushOptions::DoNotForce, tr("No"));
+            ui.radio_value(&mut self.force, ForcePushOptions::ForceWithLease, tr("With lease"));
+            ui.radio_value(&mut self.force, ForcePushOptions::Force, tr("Force"));
         });
         ui.horizontal(|ui| {
-            ui.label("Submodules:");
-            ui.radio_value(&mut self.recurse, 0, "Don't check");
-            ui.radio_value(&mut self.recurse, 1, "Check");
-            ui.radio_value(&mut self.recurse, 2, "On demand");
+            ui.label(tr("Submodules:"));
+            ui.radio_value(&mut self.recurse, 0, tr("Don't check"));
+            ui.radio_value(&mut self.recurse, 1, tr("Check"));
+            ui.radio_value(&mut self.recurse, 2, tr("On demand"));
         });
-        let (ok, cancel) = ok_cancel(ui, "⬆ Push", !self.remote.trim().is_empty());
+        let (ok, cancel) = ok_cancel(ui, tr("⬆ Push"), !self.remote.trim().is_empty());
         if ok {
             let remote = self.remote.trim();
             let args = match self.mode {
@@ -185,10 +186,10 @@ impl Dialog for PushDialog {
                 }
             };
             if args.is_empty() {
-                cx.error("Push", "Nothing to push");
+                cx.error(tr("Push"), tr("Nothing to push"));
                 return true;
             }
-            cx.run(GitRun::new(format!("Push to {remote}"), args));
+            cx.run(GitRun::new(trf("Push to {0}", &[&remote]), args));
             return false;
         }
         !cancel

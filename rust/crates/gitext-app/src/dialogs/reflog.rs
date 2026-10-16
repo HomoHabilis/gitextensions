@@ -4,6 +4,7 @@ use egui::{RichText, Ui, Vec2};
 use gitext_core::module::RefLogItem;
 
 use super::{Action, Cx, Dialog, DialogKind};
+use crate::i18n::tr;
 use crate::tasks::Loader;
 
 #[derive(Default)]
@@ -14,7 +15,7 @@ pub struct ReflogDialog {
 
 impl Dialog for ReflogDialog {
     fn title(&self) -> String {
-        "Reflog".into()
+        tr("Reflog").into()
     }
 
     fn kind(&self) -> DialogKind {
@@ -28,7 +29,7 @@ impl Dialog for ReflogDialog {
         }
         let refs: Vec<String> = std::iter::once("HEAD".to_string()).chain(cx.data.map(|d| d.branch_names(true)).unwrap_or_default()).collect();
         ui.horizontal(|ui| {
-            ui.label("Reference");
+            ui.label(tr("Reference"));
             egui::ComboBox::from_id_salt("reflog_ref").selected_text(&self.git_ref).width(260.0).height(400.0).show_ui(ui, |ui| {
                 for r in &refs {
                     ui.selectable_value(&mut self.git_ref, r.clone(), r);
@@ -51,21 +52,21 @@ impl Dialog for ReflogDialog {
                                 cx.push(Action::SelectRevision(it.object_id));
                             }
                             r.context_menu(|ui| {
-                                if ui.button("Select in revision grid").clicked() {
+                                if ui.button(tr("Select in revision grid")).clicked() {
                                     cx.push(Action::SelectRevision(it.object_id));
                                     ui.close_kind(egui::UiKind::Menu);
                                 }
-                                if ui.button("Create branch here…").clicked() {
+                                if ui.button(tr("Create branch here…")).clicked() {
                                     cx.open(super::branch::CreateBranchDialog::new(it.object_id));
                                     ui.close_kind(egui::UiKind::Menu);
                                 }
-                                if ui.button("Reset current branch here…").clicked() {
+                                if ui.button(tr("Reset current branch here…")).clicked() {
                                     if let Some(d) = cx.data {
                                         cx.open(super::reset::ResetBranchDialog::new(d, it.object_id));
                                     }
                                     ui.close_kind(egui::UiKind::Menu);
                                 }
-                                if ui.button("Copy hash").clicked() {
+                                if ui.button(tr("Copy hash")).clicked() {
                                     cx.push(Action::Copy(it.object_id.to_string()));
                                     ui.close_kind(egui::UiKind::Menu);
                                 }

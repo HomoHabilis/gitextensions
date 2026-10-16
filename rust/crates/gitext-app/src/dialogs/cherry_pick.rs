@@ -4,6 +4,7 @@ use egui::{RichText, Ui};
 use gitext_core::{commands, GitRevision};
 
 use super::{ok_cancel, Cx, Dialog, GitRun};
+use crate::i18n::tr;
 
 pub struct CherryPickDialog {
     revision: Option<GitRevision>,
@@ -23,7 +24,7 @@ impl CherryPickDialog {
 
 impl Dialog for CherryPickDialog {
     fn title(&self) -> String {
-        if self.revert { "Revert commit".into() } else { "Cherry pick commit".into() }
+        if self.revert { tr("Revert commit").into() } else { tr("Cherry pick commit").into() }
     }
 
     fn kind(&self) -> super::DialogKind {
@@ -31,7 +32,7 @@ impl Dialog for CherryPickDialog {
     }
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
-        ui.label("Commit:");
+        ui.label(tr("Commit:"));
         ui.add(egui::TextEdit::singleline(&mut self.revision_text).font(egui::TextStyle::Monospace).desired_width(440.0));
         if let Some(r) = &self.revision {
             if r.guid() == self.revision_text {
@@ -41,20 +42,20 @@ impl Dialog for CherryPickDialog {
         let parents = self.revision.as_ref().map(|r| r.parents().len()).unwrap_or(0);
         if parents > 1 {
             ui.horizontal(|ui| {
-                ui.label("This is a merge commit. Mainline parent:");
+                ui.label(tr("This is a merge commit. Mainline parent:"));
                 ui.add(egui::DragValue::new(&mut self.parent).range(1..=parents as u32));
             });
         }
-        ui.checkbox(&mut self.commit, "Automatically create a commit");
+        ui.checkbox(&mut self.commit, tr("Automatically create a commit"));
         if !self.revert {
-            ui.checkbox(&mut self.append_source, "Add commit reference to message (-x)");
+            ui.checkbox(&mut self.append_source, tr("Add commit reference to message (-x)"));
         }
-        let (ok, cancel) = ok_cancel(ui, if self.revert { "Revert" } else { "Cherry pick" }, !self.revision_text.trim().is_empty());
+        let (ok, cancel) = ok_cancel(ui, if self.revert { tr("Revert") } else { tr("Cherry pick") }, !self.revision_text.trim().is_empty());
         if ok {
             let Some(m) = cx.module else { return false };
             let id = m.rev_parse(self.revision_text.trim());
             if id.is_zero() {
-                cx.error(&self.title(), "Revision not found");
+                cx.error(&self.title(), tr("Revision not found"));
                 return true;
             }
             let parent = if parents > 1 { self.parent } else { 0 };

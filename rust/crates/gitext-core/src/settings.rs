@@ -23,6 +23,17 @@ pub enum Theme {
     Dark,
 }
 
+/// How the diff tab shows a file's changes (`DiffDisplayAppearance`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum DiffAppearance {
+    #[default]
+    Patch,
+    /// `git diff --word-diff=color`
+    WordDiff,
+    /// `git difftool --tool=difftastic`
+    Difftastic,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum PullAction {
     #[default]
@@ -76,6 +87,9 @@ pub struct UserScript {
 #[serde(default)]
 pub struct AppSettings {
     // General
+    /// The language of the UI (`AppSettings.Translation`): a language name such as "French";
+    /// empty until one was chosen, which shows the language picker at start.
+    pub translation: String,
     pub git_command: String,
     /// Run repositories on `\\wsl$\` paths with the git of the distro (Windows only,
     /// `WslGitEnabled`).
@@ -132,6 +146,15 @@ pub struct AppSettings {
     pub use_histogram_diff: bool,
     pub show_line_numbers: bool,
     pub show_whitespace: bool,
+    /// Colour the code in diffs and files by its language.
+    pub syntax_highlighting: bool,
+    /// Not remembered: upstream goes back to the patch at start (`RememberDiffDisplayAppearance`
+    /// is off by default).
+    #[serde(skip)]
+    pub diff_appearance: DiffAppearance,
+    /// "Find in commit files using git grep" options.
+    pub grep_ignore_case: bool,
+    pub grep_match_whole_word: bool,
 
     // Blame
     pub detect_copy_in_file_on_blame: bool,
@@ -173,11 +196,35 @@ pub struct AppSettings {
     pub left_panel_visible: bool,
     pub commit_info_position_right: bool,
     pub last_browse_tab: usize,
+
+    // Avatars (`AppSettings.AvatarProvider` and related)
+    pub avatar_provider: AvatarProvider,
+    pub show_author_avatar_column: bool,
+    pub show_author_avatar_in_commit_info: bool,
+    /// Days a downloaded avatar is kept in the disk cache (`AvatarImageCacheDays`).
+    pub avatar_cache_days: u32,
+    /// Lists the available difftools in a dropdown of the difftool menu items (`ShowAvailableDiffTools`).
+    pub show_available_diff_tools: bool,
+
+    // Dialogs
+    pub checkout_other_branch_after_reset: bool,
+}
+
+/// Where author images come from (`AvatarProvider`); author initials are shown when there is
+/// no image (`AvatarFallbackType.AuthorInitials`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum AvatarProvider {
+    /// Author initials only (upstream's default).
+    #[default]
+    None,
+    /// GitHub for GitHub no-reply addresses, else Gravatar (upstream "Default").
+    Gravatar,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         AppSettings {
+            translation: String::new(),
             git_command: "git".into(),
             wsl_git_enabled: true,
             theme: Theme::System,
@@ -226,6 +273,10 @@ impl Default for AppSettings {
             use_histogram_diff: false,
             show_line_numbers: true,
             show_whitespace: false,
+            syntax_highlighting: true,
+            diff_appearance: DiffAppearance::Patch,
+            grep_ignore_case: false,
+            grep_match_whole_word: false,
             detect_copy_in_file_on_blame: true,
             detect_copy_in_all_on_blame: false,
             ignore_whitespace_on_blame: true,
@@ -256,6 +307,12 @@ impl Default for AppSettings {
             left_panel_visible: true,
             commit_info_position_right: false,
             last_browse_tab: 0,
+            avatar_provider: AvatarProvider::None,
+            show_author_avatar_column: true,
+            show_author_avatar_in_commit_info: true,
+            avatar_cache_days: 13,
+            show_available_diff_tools: true,
+            checkout_other_branch_after_reset: true,
         }
     }
 }

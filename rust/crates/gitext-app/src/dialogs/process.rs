@@ -6,6 +6,7 @@ use egui::{RichText, Ui, Vec2};
 use gitext_core::exec::{Executable, OutputEvent, RunningProcess};
 
 use super::{Action, Cx, Dialog, DialogKind, GitRun};
+use crate::i18n::{tr, trf};
 use crate::theme::Palette;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,7 +56,9 @@ impl ProcessDialog {
             .or_else(|| cx.module.map(|m| m.work_dir().to_path_buf()))
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         self.output.push_str(&format!("$ git {args}\n"));
-        match Executable::git(dir).spawn_streaming(args) {
+        let mut git = Executable::git(dir);
+        git.env.extend(self.run.env.iter().cloned());
+        match git.spawn_streaming(args) {
             Ok(p) => self.process = Some(p),
             Err(e) => {
                 self.output.push_str(&format!("{e}\n"));
@@ -96,15 +99,17 @@ impl ProcessDialog {
             self.process = None;
             if cancelled {
                 self.state = State::Cancelled;
-                self.output.push_str("\nAborted.\n");
+                self.output.push_str(&format!("\n{}\n", tr("Aborted.")));
             } else if code != 0 {
                 self.state = State::Failed;
-                self.output.push_str(&format!("\nDone (exit code {code}) after {:.1}s\n", self.started.elapsed().as_secs_f32()));
+                let secs = format!("{:.1}", self.started.elapsed().as_secs_f32());
+                self.output.push_str(&format!("\n{}\n", trf("Done (exit code {0}) after {1}s", &[&code, &secs])));
             } else {
                 self.index += 1;
                 if self.index >= self.run.commands.len() {
                     self.state = State::Succeeded;
-                    self.output.push_str(&format!("\nDone after {:.1}s\n", self.started.elapsed().as_secs_f32()));
+                    let secs = format!("{:.1}", self.started.elapsed().as_secs_f32());
+                    self.output.push_str(&format!("\n{}\n", trf("Done after {0}s", &[&secs])));
                 }
             }
         } else {
@@ -161,16 +166,16 @@ impl Dialog for ProcessDialog {
             match self.state {
                 State::Running => {
                     ui.spinner();
-                    ui.label(RichText::new(self.progress.clone().unwrap_or_else(|| "Running…".into())).monospace());
+                    ui.label(RichText::new(self.progress.clone().unwrap_or_else(|| tr("Running…").into())).monospace());
                 }
                 State::Succeeded => {
-                    ui.label(RichText::new("✔ Done").color(palette.success).strong());
+                    ui.label(RichText::new(format!("✔ {}", tr("Done"))).color(palette.success).strong());
                 }
                 State::Failed => {
-                    ui.label(RichText::new("✖ Failed").color(palette.error).strong());
+                    ui.label(RichText::new(format!("✖ {}", tr("Failed"))).color(palette.error).strong());
                 }
                 State::Cancelled => {
-                    ui.label(RichText::new("Aborted").color(palette.warning).strong());
+                    ui.label(RichText::new(tr("Aborted")).color(palette.warning).strong());
                 }
             }
         });
@@ -181,21 +186,21 @@ impl Dialog for ProcessDialog {
         });
         ui.separator();
         ui.horizontal(|ui| {
-            if self.state == State::Failed && self.run.check_conflicts && self.has_conflicts() && ui.button("Solve conflicts…").clicked() {
+            if self.state == State::Failed && self.run.check_conflicts && self.has_conflicts() && ui.button(tr("Solve conflicts…")).clicked() {
                 cx.open(super::conflicts::ConflictsDialog::default());
                 keep = false;
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if self.state == State::Running {
-                    if ui.button("Abort").clicked() {
+                    if ui.button(tr("Abort")).clicked() {
                         if let Some(p) = &self.process {
                             p.cancel();
                         }
                     }
-                } else if ui.button("Close").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                } else if ui.button(tr("Close")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                     keep = false;
                 }
-                if ui.button("Copy output").clicked() {
+                if ui.button(tr("Copy output")).clicked() {
                     crate::util::copy_to_clipboard(cx.ctx, self.output.clone());
                 }
             });

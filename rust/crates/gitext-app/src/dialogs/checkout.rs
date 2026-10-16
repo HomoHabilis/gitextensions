@@ -5,6 +5,7 @@ use gitext_core::commands::{self, CheckoutNewBranchMode, LocalChangesAction};
 use gitext_core::{GitArgs, ObjectId};
 
 use super::{branch_combo, ok_cancel, Cx, Dialog, GitRun};
+use crate::i18n::{tr, trf};
 use crate::repo::RepoData;
 
 pub struct CheckoutBranchDialog {
@@ -56,7 +57,7 @@ pub fn checkout_run(branch: &str, checkout: GitArgs, local_changes: LocalChanges
     if update_submodules {
         cmds.push(commands::submodule_update(&[], false));
     }
-    GitRun::many(format!("Checkout {branch}"), cmds).conflicts()
+    GitRun::many(trf("Checkout {0}", &[&branch]), cmds).conflicts()
 }
 
 fn local_name(remote_branch: &str, data: &RepoData) -> String {
@@ -70,7 +71,7 @@ fn local_name(remote_branch: &str, data: &RepoData) -> String {
 
 impl Dialog for CheckoutBranchDialog {
     fn title(&self) -> String {
-        "Checkout branch".into()
+        tr("Checkout branch").into()
     }
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
@@ -79,8 +80,8 @@ impl Dialog for CheckoutBranchDialog {
             self.local_changes = cx.settings.default_local_changes_action;
         }
         ui.horizontal(|ui| {
-            ui.radio_value(&mut self.remote, false, "Local branch");
-            ui.radio_value(&mut self.remote, true, "Remote branch");
+            ui.radio_value(&mut self.remote, false, tr("Local branch"));
+            ui.radio_value(&mut self.remote, true, tr("Remote branch"));
         });
         let items = if self.remote { self.remotes.clone() } else { self.locals.clone() };
         let before = self.branch.clone();
@@ -91,20 +92,20 @@ impl Dialog for CheckoutBranchDialog {
         }
         if self.remote {
             ui.add_space(4.0);
-            ui.radio_value(&mut self.new_branch_mode, CheckoutNewBranchMode::Create, "Create local branch with the name:");
+            ui.radio_value(&mut self.new_branch_mode, CheckoutNewBranchMode::Create, tr("Create local branch with the name:"));
             ui.add_enabled(self.new_branch_mode != CheckoutNewBranchMode::DontCreate, egui::TextEdit::singleline(&mut self.new_branch_name).desired_width(380.0));
-            ui.radio_value(&mut self.new_branch_mode, CheckoutNewBranchMode::Reset, "Reset local branch with the same name (-B)");
-            ui.radio_value(&mut self.new_branch_mode, CheckoutNewBranchMode::DontCreate, "Checkout remote branch (detached HEAD)");
+            ui.radio_value(&mut self.new_branch_mode, CheckoutNewBranchMode::Reset, tr("Reset local branch with the same name (-B)"));
+            ui.radio_value(&mut self.new_branch_mode, CheckoutNewBranchMode::DontCreate, tr("Checkout remote branch (detached HEAD)"));
         }
         ui.add_space(4.0);
-        ui.label(if self.has_changes { "Local changes:" } else { "Local changes (none):" });
+        ui.label(if self.has_changes { tr("Local changes:") } else { tr("Local changes (none):") });
         ui.horizontal_wrapped(|ui| {
-            ui.radio_value(&mut self.local_changes, LocalChangesAction::DontChange, "Don't change");
-            ui.radio_value(&mut self.local_changes, LocalChangesAction::Merge, "Merge");
-            ui.radio_value(&mut self.local_changes, LocalChangesAction::Stash, "Stash");
-            ui.radio_value(&mut self.local_changes, LocalChangesAction::Reset, "Reset");
+            ui.radio_value(&mut self.local_changes, LocalChangesAction::DontChange, tr("Don't change"));
+            ui.radio_value(&mut self.local_changes, LocalChangesAction::Merge, tr("Merge"));
+            ui.radio_value(&mut self.local_changes, LocalChangesAction::Stash, tr("Stash"));
+            ui.radio_value(&mut self.local_changes, LocalChangesAction::Reset, tr("Reset"));
         });
-        let (ok, cancel) = ok_cancel(ui, "Checkout", !self.branch.trim().is_empty());
+        let (ok, cancel) = ok_cancel(ui, tr("Checkout"), !self.branch.trim().is_empty());
         if ok {
             let branch = self.branch.trim().to_string();
             let checkout = commands::checkout_branch(&branch, self.remote, self.local_changes, self.new_branch_mode, Some(self.new_branch_name.trim()));
@@ -128,17 +129,17 @@ impl CheckoutRevisionDialog {
 
 impl Dialog for CheckoutRevisionDialog {
     fn title(&self) -> String {
-        "Checkout revision".into()
+        tr("Checkout revision").into()
     }
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
-        ui.label("Revision to checkout (detached HEAD):");
+        ui.label(tr("Revision to checkout (detached HEAD):"));
         ui.add(egui::TextEdit::singleline(&mut self.revision).desired_width(400.0).font(egui::TextStyle::Monospace));
-        ui.checkbox(&mut self.force, "Force (discard local changes)");
-        let (ok, cancel) = ok_cancel(ui, "Checkout", !self.revision.trim().is_empty());
+        ui.checkbox(&mut self.force, tr("Force (discard local changes)"));
+        let (ok, cancel) = ok_cancel(ui, tr("Checkout"), !self.revision.trim().is_empty());
         if ok {
             let action = if self.force { LocalChangesAction::Reset } else { LocalChangesAction::DontChange };
-            cx.run(GitRun::new("Checkout revision", commands::checkout(self.revision.trim(), action)));
+            cx.run(GitRun::new(tr("Checkout revision"), commands::checkout(self.revision.trim(), action)));
             return false;
         }
         !cancel

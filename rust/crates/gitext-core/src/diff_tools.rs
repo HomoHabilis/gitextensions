@@ -647,6 +647,157 @@ pub fn install_hint() -> &'static str {
     }
 }
 
+
+/// The tools of `git difftool --tool-help` usable now, the configured one first
+/// (`CustomDiffMergeToolCache.ParseCustomDiffMergeTool`). Tools that need a terminal are left out.
+pub fn parse_tool_help(output: &str, default_tool: &str) -> Vec<String> {
+    let mut tools: Vec<String> = Vec::new();
+    for line in output.lines() {
+        if line == "The following tools are valid, but not currently available:" {
+            break;
+        }
+        let Some(rest) = line.strip_prefix("\t\t") else { continue };
+        // "<name>   <description>" or, for a user-defined tool, "<name>.cmd <command>"
+        let end = [rest.find(' '), rest.find(".cmd")].into_iter().flatten().min().unwrap_or(rest.len());
+        let name = rest[..end].trim();
+        if !name.is_empty() && !tools.iter().any(|t| t == name) && !["vimdiff", "vimdiff1", "vimdiff2", "vimdiff3"].contains(&name) {
+            tools.push(name.to_string());
+        }
+    }
+    tools.sort_by(|a, b| (a != default_tool).cmp(&(b != default_tool)).then_with(|| a.cmp(b)));
+    tools
+}
+
+/// Which two versions of a file the difftool compares (`RevisionDiffKind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileDiffKind {
+    /// First (A) to second (B).
+    FirstToSecond,
+    /// First (A) to the working directory file.
+    FirstToLocal,
+    /// Second (B) to the working directory file.
+    SecondToLocal,
+}
+
+/// The `git difftool` arguments for one file (`GitModule.OpenWithDifftool` with
+/// `RevisionDiffProvider`): `first` and `second` may be the artificial work tree and index;
+/// `first` `None` is the parent of `second`. Untracked files are compared to /dev/null.
+pub fn file_difftool_args(
+    kind: FileDiffKind,
+    first: Option<crate::ObjectId>,
+    second: crate::ObjectId,
+    name: &str,
+    old_name: Option<&str>,
+    is_tracked: bool,
+) -> GitArgs {
+    use crate::ObjectId;
+    // empty: the work tree, "--cached": the index (they are options, not revisions)
+    let rev = |id: ObjectId| -> String {
+        if id == ObjectId::WORK_TREE {
+            String::new()
+        } else if id == ObjectId::INDEX {
+            "--cached".into()
+        } else {
+            id.to_string()
+        }
+    };
+    let first = first.map(rev).unwrap_or_else(|| format!("{second}^"));
+    let second = rev(second);
+    let (mut a, mut b) = match kind {
+        FileDiffKind::FirstToSecond => (first, second),
+        FileDiffKind::FirstToLocal => (first, String::new()),
+        FileDiffKind::SecondToLocal => (second, String::new()),
+    };
+    let mut args = GitArgs::new("difftool").arg("--find-renames").arg("--find-copies");
+    // the options keep their meaning only as the second side: reverse the diff
+    if a != b && (a.is_empty() || (a == "--cached" && !b.is_empty())) {
+        args.add("-R");
+    }
+    // the work tree against the index needs neither
+    if (a.is_empty() && b == "--cached") || (a == "--cached" && b.is_empty()) {
+        a.clear();
+        b.clear();
+    }
+    if b == "--cached" {
+        args.add("--cached");
+        b.clear();
+    }
+    if !is_tracked {
+        args.add("--no-index");
+        args.add("--");
+        args.add("/dev/null");
+        args.add(name);
+        return args;
+    }
+    for r in [a, b] {
+        if !r.is_empty() {
+            args.add(r);
+        }
+    }
+    args.add("--");
+    args.add(name);
+    if let Some(old) = old_name.filter(|o| !o.is_empty() && *o != name) {
+        args.add(old);
+    }
+    args
+}
+
+/// `git difftool` with a tool chosen in the menu (`--tool=<name>` instead of `--gui`).
+pub fn custom_tool_args(tool: &str, rest: &GitArgs) -> GitArgs {
+    let mut a = GitArgs::new("difftool").arg(format!("--tool={tool}")).arg("--no-prompt");
+    for arg in rest.as_slice().iter().skip(1) {
+        a.add(arg.clone());
+    }
+    a
+}
+
+/// Arguments and environment for git's `difftool--helper` comparing two folders, the way
+/// `git difftool --dir-diff` starts the tool, but on folders the caller chooses.
+pub fn dir_diff_helper_command(launch: &ToolLaunch, left: &Path, right: &Path) -> (GitArgs, Vec<(String, String)>) {
+    let mut env = vec![("GIT_DIFFTOOL_DIRDIFF".to_string(), "true".to_string()), ("GIT_DIFFTOOL_NO_PROMPT".to_string(), "true".to_string())];
+    let mut args = match launch {
+        ToolLaunch::Configured => {
+            env.push(("GIT_MERGETOOL_GUI".into(), "true".into()));
+            GitArgs::new("difftool--helper")
+        }
+        ToolLaunch::Override { name, command, .. } => {
+            env.push(("GIT_DIFF_TOOL".into(), name.clone()));
+            let key = setting_key(name, ToolType::Diff, "cmd");
+            GitArgs::with_config(&[(key.as_str(), command.as_str())], "difftool--helper")
+        }
+    };
+    args.add(git_path(left));
+    args.add(git_path(right));
+    (args, env)
+}
+
+fn git_path(p: &Path) -> String {
+    p.display().to_string().replace('\\', "/")
+}
+
+/// Opens the diff tool on a commit (left) and the real working directory (right), so the
+/// tool shows and edits the working directory files themselves. `git difftool --dir-diff`
+/// only offers temporary copies, so the commit is checked out to a temporary folder (with
+/// a private index, leaving the repository index alone), and git's difftool helper is
+/// started on that folder and the working directory. The folder is removed afterwards.
+pub fn difftool_commit_with_work_tree(exe: &Executable, launch: &ToolLaunch, commit: crate::ObjectId) -> crate::exec::GitResult<crate::exec::ExecResult> {
+    let root = std::env::temp_dir().join(format!("gitext-difftool-{:08x}", fastrand::u32(..)));
+    let left = root.join(commit.to_short_string());
+    std::fs::create_dir_all(&left).map_err(crate::exec::GitError::Io)?;
+    let result = (|| {
+        let mut export = exe.clone();
+        export.env.push(("GIT_INDEX_FILE".into(), root.join("index").display().to_string()));
+        export.run_checked(&GitArgs::new("read-tree").arg(commit.to_string()))?;
+        export.run_checked(&GitArgs::new("checkout-index").arg("--all").arg("--force").arg(format!("--prefix={}/", git_path(&left))))?;
+        let (args, env) = dir_diff_helper_command(launch, &left, &exe.working_dir);
+        let mut tool = exe.clone();
+        tool.env.extend(env);
+        tool.run(&args)
+    })();
+    let _ = std::fs::remove_dir_all(&root);
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -836,5 +987,83 @@ mod tests {
 
         store.unset(ToolType::Diff).unwrap();
         assert_eq!(store.get(DIFF_TOOL_KEY), "");
+    }
+
+    #[test]
+    fn dir_diff_helper_runs_the_tool_on_the_given_folders() {
+        let o = ToolLaunch::Override { name: "meld".into(), command: "meld \"$LOCAL\" \"$REMOTE\"".into(), reason: String::new() };
+        let (args, env) = dir_diff_helper_command(&o, Path::new("/tmp/x/abc"), Path::new("/repo"));
+        assert_eq!(args.as_slice(), ["-c", r#"difftool.meld.cmd=meld "$LOCAL" "$REMOTE""#, "difftool--helper", "/tmp/x/abc", "/repo"]);
+        assert!(env.contains(&("GIT_DIFFTOOL_DIRDIFF".into(), "true".into())));
+        assert!(env.contains(&("GIT_DIFF_TOOL".into(), "meld".into())));
+        let (args, env) = dir_diff_helper_command(&ToolLaunch::Configured, Path::new("C:\\t\\abc"), Path::new("C:\\repo"));
+        assert_eq!(args.as_slice(), ["difftool--helper", "C:/t/abc", "C:/repo"]);
+        assert!(env.contains(&("GIT_MERGETOOL_GUI".into(), "true".into())));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn difftool_with_work_tree_opens_the_real_working_directory() {
+        let home = tempfile::tempdir().unwrap();
+        let repo = tempfile::tempdir().unwrap();
+        let out = home.path().join("out.txt");
+        let mut exe = Executable::git(repo.path());
+        exe.env.push(("HOME".into(), home.path().display().to_string()));
+        exe.env.push(("XDG_CONFIG_HOME".into(), home.path().join(".config").display().to_string()));
+        exe.env.push(("GIT_CONFIG_NOSYSTEM".into(), "1".into()));
+        let git = |args: &[&str]| {
+            let mut a = GitArgs::new(args[0]);
+            for x in &args[1..] {
+                a.add(*x);
+            }
+            exe.run_checked(&a).unwrap().stdout_str()
+        };
+        git(&["init", "-q"]);
+        std::fs::create_dir(repo.path().join("d")).unwrap();
+        std::fs::write(repo.path().join("d/a.txt"), "one\n").unwrap();
+        git(&["add", "."]);
+        git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c1"]);
+        let commit = crate::ObjectId::parse(git(&["rev-parse", "HEAD"]).trim()).unwrap();
+        std::fs::write(repo.path().join("d/a.txt"), "two\n").unwrap();
+
+        let tool = format!("echo \"$REMOTE\" > '{0}'; cat \"$LOCAL/d/a.txt\" >> '{0}'; echo \"$LOCAL\" >> '{0}'", out.display());
+        let launch = ToolLaunch::Override { name: "fake".into(), command: tool, reason: String::new() };
+        let r = difftool_commit_with_work_tree(&exe, &launch, commit).unwrap();
+        assert!(r.success(), "{}", r.all_output());
+        let logged = std::fs::read_to_string(&out).unwrap();
+        let lines: Vec<&str> = logged.lines().collect();
+        assert_eq!(lines[..2], [repo.path().display().to_string().as_str(), "one"]);
+        // the repository index is left alone, the temporary checkout is removed
+        assert_eq!(git(&["status", "--porcelain"]), " M d/a.txt\n");
+        assert!(lines[2].contains("gitext-difftool") && !Path::new(lines[2]).exists());
+    }
+
+    #[test]
+    fn tool_help_lists_the_available_tools_default_first() {
+        let out = "'git difftool --tool=<tool>' may be set to one of the following:\n\t\taraxis           Use Araxis Merge\n\t\tvimdiff          Use Vim\n\t\twinmerge         Use WinMerge\n\n\tuser-defined:\n\t\tvscode.cmd code --wait --diff \"$LOCAL\" \"$REMOTE\"\n\nThe following tools are valid, but not currently available:\n\t\tmeld             Use Meld\n";
+        assert_eq!(parse_tool_help(out, "winmerge"), ["winmerge", "araxis", "vscode"]);
+        assert_eq!(parse_tool_help(out, ""), ["araxis", "vscode", "winmerge"]);
+    }
+
+    #[test]
+    fn file_difftool_arguments_as_upstream() {
+        use crate::ObjectId;
+        let a = ObjectId::parse("a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1").unwrap();
+        let b = ObjectId::parse("b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2").unwrap();
+        let run = |k, f, s, tracked| file_difftool_args(k, f, s, "f.txt", None, tracked).to_string();
+        let base = "difftool --find-renames --find-copies";
+        assert_eq!(run(FileDiffKind::FirstToSecond, Some(a), b, true), format!("{base} {a} {b} -- f.txt"));
+        assert_eq!(run(FileDiffKind::FirstToSecond, None, b, true), format!("{base} {b}^ {b} -- f.txt"));
+        assert_eq!(run(FileDiffKind::FirstToLocal, Some(a), b, true), format!("{base} {a} -- f.txt"));
+        assert_eq!(run(FileDiffKind::SecondToLocal, Some(a), b, true), format!("{base} {b} -- f.txt"));
+        // index and work tree
+        assert_eq!(run(FileDiffKind::FirstToSecond, Some(ObjectId::INDEX), ObjectId::WORK_TREE, true), format!("{base} -- f.txt"));
+        assert_eq!(run(FileDiffKind::FirstToSecond, Some(a), ObjectId::INDEX, true), format!("{base} --cached {a} -- f.txt"));
+        assert_eq!(run(FileDiffKind::SecondToLocal, Some(a), ObjectId::INDEX, true), format!("{base} -- f.txt"));
+        assert_eq!(run(FileDiffKind::FirstToSecond, Some(ObjectId::WORK_TREE), a, true), format!("{base} -R {a} -- f.txt"));
+        assert_eq!(run(FileDiffKind::FirstToSecond, Some(ObjectId::INDEX), ObjectId::WORK_TREE, false), format!("{base} --no-index -- /dev/null f.txt"));
+        assert_eq!(file_difftool_args(FileDiffKind::FirstToSecond, Some(a), b, "new.txt", Some("old.txt"), true).to_string(), format!("{base} {a} {b} -- new.txt old.txt"));
+        let custom = custom_tool_args("winmerge", &file_difftool_args(FileDiffKind::FirstToSecond, Some(a), b, "f.txt", None, true));
+        assert_eq!(custom.to_string(), format!("difftool --tool=winmerge --no-prompt --find-renames --find-copies {a} {b} -- f.txt"));
     }
 }

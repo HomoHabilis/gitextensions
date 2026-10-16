@@ -6,6 +6,7 @@ use gitext_core::status::StagedStatus;
 use gitext_core::{GitArgs, ObjectId};
 
 use super::{ok_cancel, Action, Cx, Dialog, GitRun};
+use crate::i18n::{tr, trf};
 use crate::repo::RepoData;
 use crate::theme::Palette;
 
@@ -23,7 +24,7 @@ impl ResetBranchDialog {
 
 impl Dialog for ResetBranchDialog {
     fn title(&self) -> String {
-        "Reset current branch".into()
+        tr("Reset current branch").into()
     }
 
     fn kind(&self) -> super::DialogKind {
@@ -32,20 +33,20 @@ impl Dialog for ResetBranchDialog {
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         let palette = Palette::for_ui(ui);
-        ui.label(format!("Reset branch '{}' to {}", self.branch, self.id.to_short_string()));
+        ui.label(trf("Reset branch '{0}' to {1}", &[&self.branch, &self.id.to_short_string()]));
         ui.add_space(4.0);
-        ui.radio_value(&mut self.mode, ResetMode::Soft, "Soft: leave working directory and index untouched");
-        ui.radio_value(&mut self.mode, ResetMode::Mixed, "Mixed: leave working directory untouched, reset index");
-        ui.radio_value(&mut self.mode, ResetMode::Keep, "Keep: update working directory to the commit, keep local changes");
-        ui.radio_value(&mut self.mode, ResetMode::Merge, "Merge: reset index, update files that differ, keep local changes");
-        ui.radio_value(&mut self.mode, ResetMode::Hard, "Hard: reset working directory and index (discard ALL local changes)");
+        ui.radio_value(&mut self.mode, ResetMode::Soft, tr("Soft: leave working directory and index untouched"));
+        ui.radio_value(&mut self.mode, ResetMode::Mixed, tr("Mixed: leave working directory untouched, reset index"));
+        ui.radio_value(&mut self.mode, ResetMode::Keep, tr("Keep: update working directory to the commit, keep local changes"));
+        ui.radio_value(&mut self.mode, ResetMode::Merge, tr("Merge: reset index, update files that differ, keep local changes"));
+        ui.radio_value(&mut self.mode, ResetMode::Hard, tr("Hard: reset working directory and index (discard ALL local changes)"));
         if self.mode == ResetMode::Hard {
-            ui.label(RichText::new("⚠ All uncommitted changes will be lost!").color(palette.error));
+            ui.label(RichText::new(format!("⚠ {}", tr("All uncommitted changes will be lost!"))).color(palette.error));
         }
-        let (ok, cancel) = ok_cancel(ui, "Reset", true);
+        let (ok, cancel) = ok_cancel(ui, tr("Reset"), true);
         if ok {
             if let Ok(args) = commands::reset(self.mode, Some(&self.id.to_string()), None, false) {
-                cx.run(GitRun::new("Reset current branch", args));
+                cx.run(GitRun::new(tr("Reset current branch"), args));
             }
             return false;
         }
@@ -56,43 +57,70 @@ impl Dialog for ResetBranchDialog {
 pub struct ResetChangesDialog {
     files: Option<Vec<String>>,
     include_untracked: bool,
+    /// Reset the unstaged changes only (`onlyWorkTree`): the index is kept.
+    work_tree_only: bool,
+    /// Whether tracked files have unstaged changes (`git checkout -- .` fails when none is tracked).
+    tracked_changes: bool,
 }
 
 impl ResetChangesDialog {
     /// Reset all changes of the working directory.
     pub fn all() -> Self {
-        ResetChangesDialog { files: None, include_untracked: false }
+        ResetChangesDialog { files: None, include_untracked: false, work_tree_only: false, tracked_changes: true }
+    }
+
+    /// Reset the unstaged changes of the work tree, keeping the index ("Reset unstaged").
+    pub fn unstaged(tracked_changes: bool) -> Self {
+        ResetChangesDialog { files: None, include_untracked: !tracked_changes, work_tree_only: true, tracked_changes }
     }
 
     /// Reset changes of the given files.
     pub fn files(files: Vec<String>) -> Self {
-        ResetChangesDialog { files: Some(files), include_untracked: true }
+        ResetChangesDialog { files: Some(files), include_untracked: true, work_tree_only: false, tracked_changes: true }
     }
 }
 
 impl Dialog for ResetChangesDialog {
     fn title(&self) -> String {
-        "Reset changes".into()
+        tr("Reset changes").into()
     }
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         let palette = Palette::for_ui(ui);
         match &self.files {
-            None => ui.label("Reset all changes in the working directory and the index?"),
-            Some(f) => ui.label(format!("Reset changes of {} file(s)?\n{}", f.len(), f.iter().take(10).cloned().collect::<Vec<_>>().join("\n"))),
+            None if self.work_tree_only => ui.label(tr("Reset the unstaged changes in the working directory? Staged changes are kept.")),
+            None => ui.label(tr("Reset all changes in the working directory and the index?")),
+            Some(f) => {
+                let r = ui.label(trf("Reset changes of {0} file(s)?", &[&f.len()]));
+                super::scroll_list(ui, "reset_files", f);
+                r
+            }
         };
-        ui.checkbox(&mut self.include_untracked, "Also delete new (untracked) files");
-        ui.label(RichText::new("⚠ This cannot be undone.").color(palette.error));
-        let (ok, cancel) = ok_cancel(ui, "Reset", true);
+        ui.checkbox(&mut self.include_untracked, tr("Also delete new (untracked) files"));
+        ui.label(RichText::new(format!("⚠ {}", tr("This cannot be undone."))).color(palette.error));
+        let (ok, cancel) = ok_cancel(ui, tr("Reset"), true);
         if ok {
             let Some(m) = cx.module else { return false };
             match &self.files {
+                None if self.work_tree_only => {
+                    // the tracked files are restored from the index, which keeps the staged changes
+                    let mut cmds = Vec::new();
+                    if self.tracked_changes {
+                        cmds.push(GitArgs::new("checkout").arg("--").arg("."));
+                    }
+                    if self.include_untracked {
+                        cmds.push(commands::clean(commands::CleanMode::OnlyNonIgnored, false, true, &[], &[]));
+                    }
+                    if !cmds.is_empty() {
+                        cx.run(GitRun::many(tr("Reset unstaged changes"), cmds));
+                    }
+                }
                 None => {
                     let mut cmds = vec![commands::reset(ResetMode::Hard, Some("HEAD"), None, false).unwrap()];
                     if self.include_untracked {
                         cmds.push(commands::clean(commands::CleanMode::OnlyNonIgnored, false, true, &[], &[]));
                     }
-                    cx.run(GitRun::many("Reset changes", cmds));
+                    cx.run(GitRun::many(tr("Reset changes"), cmds));
                 }
                 Some(files) => {
                     let status = m.get_status(commands::UntrackedFilesMode::All, false).unwrap_or_default();
@@ -112,19 +140,109 @@ impl Dialog for ResetChangesDialog {
                         if let Err(e) = m.run_checked(&args) {
                             // file might not exist in HEAD; fall back to the index
                             if m.reset_files(&tracked).is_err() {
-                                cx.error("Reset changes", e.to_string());
+                                cx.error(tr("Reset changes"), e.to_string());
                             }
                         }
                     }
                     if self.include_untracked {
                         let refs: Vec<&str> = untracked.iter().map(|s| s.as_str()).chain(added.iter().copied()).collect();
                         if let Err(e) = m.delete_untracked(&refs) {
-                            cx.error("Reset changes", e.to_string());
+                            cx.error(tr("Reset changes"), e.to_string());
                         }
                     }
                     cx.push(Action::Refresh);
                 }
             }
+            return false;
+        }
+        !cancel
+    }
+}
+
+/// Port of `FormResetAnotherBranch`: moves a local branch (not the current one) to a commit
+/// with `git update-ref`, only fast-forward unless forced.
+pub struct ResetAnotherBranchDialog {
+    id: ObjectId,
+    subject: String,
+    /// (name, complete name, commit) of the local branches that can be reset.
+    branches: Vec<(String, String, ObjectId)>,
+    branch: String,
+    force: bool,
+    /// Whether the chosen branch is an ancestor of the commit (checked in the background).
+    fast_forward: crate::tasks::Loader<String, bool>,
+}
+
+impl ResetAnotherBranchDialog {
+    pub fn new(data: &RepoData, rev: &gitext_core::GitRevision) -> Self {
+        let current = data.current_branch.as_deref();
+        // local branches tracking a remote branch at the commit first, as upstream
+        let remotes: Vec<&gitext_core::GitRef> = rev.refs.iter().filter(|r| r.is_remote()).collect();
+        let tracks = |b: &gitext_core::GitRef| remotes.iter().any(|r| r.name == format!("{}/{}", b.tracking_remote, b.merge_with) || r.name.split_once('/').is_some_and(|(_, n)| n == b.name));
+        let mut locals: Vec<&gitext_core::GitRef> = data.local_branches().filter(|b| Some(b.name.as_str()) != current && b.object_id != rev.object_id).collect();
+        locals.sort_by_key(|b| !tracks(b));
+        let candidates: Vec<&&gitext_core::GitRef> = locals.iter().filter(|b| tracks(b)).collect();
+        let branch = if remotes.len() == 1 && candidates.len() == 1 { candidates[0].name.clone() } else { String::new() };
+        ResetAnotherBranchDialog {
+            id: rev.object_id,
+            subject: rev.subject.clone(),
+            branches: locals.iter().map(|b| (b.name.clone(), b.complete_name.clone(), b.object_id)).collect(),
+            branch,
+            force: false,
+            fast_forward: Default::default(),
+        }
+    }
+}
+
+impl Dialog for ResetAnotherBranchDialog {
+    fn title(&self) -> String {
+        tr("Reset branch").into()
+    }
+
+    fn kind(&self) -> super::DialogKind {
+        super::DialogKind::Modal(560.0)
+    }
+
+    fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
+        let palette = Palette::for_ui(ui);
+        ui.label(trf("Reset to {0}  {1}", &[&self.id.to_short_string(), &self.subject]));
+        ui.add_space(4.0);
+        let names: Vec<String> = self.branches.iter().map(|(n, ..)| n.clone()).collect();
+        ui.horizontal(|ui| {
+            ui.label(tr("Reset local branch:"));
+            super::branch_combo(ui, "reset_another_branch", &mut self.branch, &names, 300.0);
+        });
+        let selected = self.branches.iter().find(|(n, ..)| *n == self.branch.trim()).cloned();
+        let fast_forward = match (&selected, cx.module) {
+            (Some((name, _, at)), Some(m)) => {
+                let (m, id, at) = (m.clone(), self.id, *at);
+                self.fast_forward.request(cx.ctx, name.clone(), move || m.is_ancestor(at, id)).copied()
+            }
+            _ => None,
+        };
+        ui.checkbox(&mut self.force, tr("Force reset for a non-fast-forward reset"));
+        ui.label(
+            RichText::new(tr("You can only reset a branch safely if there is a direct path from it to the selected revision.\nForcing a branch to reset if it has not been merged might leave some commits unreachable."))
+                .small()
+                .color(palette.muted),
+        );
+        if selected.is_none() && !self.branch.trim().is_empty() {
+            ui.label(RichText::new(trf("'{0}' is not the name of an existing local branch.", &[&self.branch.trim()])).color(palette.error));
+        } else if fast_forward == Some(false) && !self.force {
+            ui.label(RichText::new(tr("This is not a fast-forward: check \"Force\" to reset anyway.")).color(palette.warning));
+        }
+        ui.checkbox(&mut cx.settings.checkout_other_branch_after_reset, tr("Checkout branch after reset"));
+        let enabled = selected.is_some() && (self.force || fast_forward == Some(true));
+        let (ok, cancel) = ok_cancel(ui, tr("Reset"), enabled);
+        if ok {
+            let Some((name, complete, _)) = selected else { return true };
+            let mut run = GitRun::new(trf("Reset {0}", &[&name]), commands::update_ref(&complete, self.id));
+            if cx.settings.checkout_other_branch_after_reset {
+                if let Some(d) = cx.data {
+                    run = run.then(Action::OpenDialog(Box::new(super::checkout::CheckoutBranchDialog::new(d, Some(name), false))));
+                }
+            }
+            cx.push(Action::SaveSettings);
+            cx.run(run);
             return false;
         }
         !cancel

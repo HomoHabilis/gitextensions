@@ -4,6 +4,7 @@ use egui::Ui;
 use gitext_core::GitModule;
 
 use super::{ok_cancel, Action, Cx, Dialog};
+use crate::i18n::tr;
 
 pub struct InitDialog {
     directory: String,
@@ -20,11 +21,11 @@ impl InitDialog {
 
 impl Dialog for InitDialog {
     fn title(&self) -> String {
-        "Create new repository".into()
+        tr("Create new repository").into()
     }
 
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
-        ui.label("Directory");
+        ui.label(tr("Directory"));
         ui.horizontal(|ui| {
             ui.add(egui::TextEdit::singleline(&mut self.directory).desired_width(330.0));
             if ui.button("…").clicked() {
@@ -33,13 +34,13 @@ impl Dialog for InitDialog {
                 }
             }
         });
-        ui.radio_value(&mut self.bare, false, "Personal repository (with working directory)");
-        ui.radio_value(&mut self.bare, true, "Central repository, no working directory (--bare)");
-        ui.checkbox(&mut self.shared, "Shared (group writable)");
+        ui.radio_value(&mut self.bare, false, tr("Personal repository (with working directory)"));
+        ui.radio_value(&mut self.bare, true, tr("Central repository, no working directory (--bare)"));
+        ui.checkbox(&mut self.shared, tr("Shared (group writable)"));
         if let Some(e) = &self.error {
             ui.colored_label(egui::Color32::RED, e);
         }
-        let (ok, cancel) = ok_cancel(ui, "Create", !self.directory.trim().is_empty());
+        let (ok, cancel) = ok_cancel(ui, tr("Create"), !self.directory.trim().is_empty());
         if ok {
             match GitModule::init(self.directory.trim(), self.bare, self.shared) {
                 Ok(_) => {

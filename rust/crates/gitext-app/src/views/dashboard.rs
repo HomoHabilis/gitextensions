@@ -7,6 +7,7 @@ use egui::{RichText, Ui, Vec2};
 use gitext_core::repo_history::{RepositoryAnchor, RepositoryHistory};
 
 use crate::theme::Palette;
+use crate::i18n::{tr, trf};
 
 pub enum DashboardCommand {
     Open(PathBuf),
@@ -33,24 +34,24 @@ impl Dashboard {
         egui::SidePanel::left("dashboard_actions").resizable(false).exact_width(270.0).show_inside(ui, |ui| {
             ui.add_space(14.0);
             ui.label(RichText::new("Git Extensions").size(26.0).strong());
-            ui.label(RichText::new(format!("version {}", env!("CARGO_PKG_VERSION"))).color(palette.muted));
+            ui.label(RichText::new(trf("version {0}", &[&env!("CARGO_PKG_VERSION")])).color(palette.muted));
             ui.add_space(24.0);
             let big = |ui: &mut Ui, icon: &str, text: &str, hint: &str| {
                 ui.add_sized(Vec2::new(240.0, 44.0), egui::Button::new(RichText::new(format!("{icon}  {text}")).size(16.0))).on_hover_text(hint).clicked()
             };
-            if big(ui, "🗁", "Open repository", "Open an existing repository") {
+            if big(ui, "🗁", tr("Open repository"), tr("Open an existing repository")) {
                 cmd = Some(DashboardCommand::OpenDialog);
             }
             ui.add_space(6.0);
-            if big(ui, "⬇", "Clone repository", "Clone a remote repository") {
+            if big(ui, "⬇", tr("Clone repository"), tr("Clone a remote repository")) {
                 cmd = Some(DashboardCommand::Clone);
             }
             ui.add_space(6.0);
-            if big(ui, "✚", "Create new repository", "Initialise a new repository") {
+            if big(ui, "✚", tr("Create new repository"), tr("Initialise a new repository")) {
                 cmd = Some(DashboardCommand::Init);
             }
             ui.add_space(24.0);
-            if ui.link("⚙ Settings").clicked() {
+            if ui.link(format!("⚙ {}", tr("Settings"))).clicked() {
                 cmd = Some(DashboardCommand::Settings);
             }
         });
@@ -58,9 +59,9 @@ impl Dashboard {
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.add_space(10.0);
             ui.horizontal(|ui| {
-                ui.heading("Recent repositories");
+                ui.heading(tr("Recent repositories"));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("🔍 Filter").desired_width(220.0));
+                    ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text(format!("🔍 {}", tr("Filter"))).desired_width(220.0));
                 });
             });
             ui.separator();
@@ -87,16 +88,16 @@ impl Dashboard {
                         }
                         let path = r.path.clone();
                         resp.context_menu(|ui| {
-                            if ui.button("Open").clicked() {
+                            if ui.button(tr("Open")).clicked() {
                                 *cmd = Some(DashboardCommand::Open(PathBuf::from(&path)));
                                 ui.close_kind(egui::UiKind::Menu);
                             }
                             let pinned = r.anchor == RepositoryAnchor::AnchoredInTop;
-                            if ui.button(if pinned { "Unpin" } else { "Pin to top" }).clicked() {
+                            if ui.button(if pinned { tr("Unpin") } else { tr("Pin to top") }).clicked() {
                                 *cmd = Some(DashboardCommand::Pin(path.clone(), !pinned));
                                 ui.close_kind(egui::UiKind::Menu);
                             }
-                            ui.menu_button("Move to category", |ui| {
+                            ui.menu_button(tr("Move to category"), |ui| {
                                 for c in history.categories() {
                                     if ui.button(&c).clicked() {
                                         *cmd = Some(DashboardCommand::SetCategory(path.clone(), Some(c.clone())));
@@ -104,19 +105,19 @@ impl Dashboard {
                                     }
                                 }
                                 ui.horizontal(|ui| {
-                                    ui.add(egui::TextEdit::singleline(&mut self.new_category).hint_text("New category").desired_width(120.0));
-                                    if ui.button("Add").clicked() && !self.new_category.trim().is_empty() {
+                                    ui.add(egui::TextEdit::singleline(&mut self.new_category).hint_text(tr("New category")).desired_width(120.0));
+                                    if ui.button(tr("Add")).clicked() && !self.new_category.trim().is_empty() {
                                         *cmd = Some(DashboardCommand::SetCategory(path.clone(), Some(self.new_category.trim().to_string())));
                                         self.new_category.clear();
                                         ui.close_kind(egui::UiKind::Menu);
                                     }
                                 });
                             });
-                            if ui.button("Show in folder").clicked() {
+                            if ui.button(tr("Show in folder")).clicked() {
                                 *cmd = Some(DashboardCommand::ShowInFolder(path.clone()));
                                 ui.close_kind(egui::UiKind::Menu);
                             }
-                            if ui.button("Remove from list").clicked() {
+                            if ui.button(tr("Remove from list")).clicked() {
                                 *cmd = Some(DashboardCommand::RemoveRecent(path.clone()));
                                 ui.close_kind(egui::UiKind::Menu);
                             }
@@ -128,7 +129,7 @@ impl Dashboard {
                 show(ui, rest, &mut cmd);
                 if history.recent.is_empty() {
                     ui.add_space(20.0);
-                    ui.label(RichText::new("No recent repositories yet. Open, clone or create a repository to get started.").italics().color(palette.muted));
+                    ui.label(RichText::new(tr("No recent repositories yet. Open, clone or create a repository to get started.")).italics().color(palette.muted));
                 }
                 for category in history.categories() {
                     ui.add_space(12.0);
@@ -145,7 +146,7 @@ impl Dashboard {
                         }
                         let path = r.path.clone();
                         resp.inner.context_menu(|ui| {
-                            if ui.button("Remove from category").clicked() {
+                            if ui.button(tr("Remove from category")).clicked() {
                                 cmd = Some(DashboardCommand::SetCategory(path.clone(), None));
                                 ui.close_kind(egui::UiKind::Menu);
                             }

@@ -7,6 +7,7 @@ use egui::{RichText, Ui, Vec2};
 use gitext_core::GitArgs;
 
 use super::{ok_cancel, Action, Cx, Dialog, DialogKind, GitRun};
+use crate::i18n::tr;
 
 pub struct FileEditorDialog {
     title: String,
@@ -47,10 +48,10 @@ impl Dialog for FileEditorDialog {
         egui::ScrollArea::vertical().max_height(h).show(ui, |ui| {
             ui.add_sized(Vec2::new(ui.available_width(), h), egui::TextEdit::multiline(text).font(egui::TextStyle::Monospace).code_editor());
         });
-        let (ok, cancel) = ok_cancel(ui, "Save", true);
+        let (ok, cancel) = ok_cancel(ui, tr("Save"), true);
         if ok {
             if let Err(e) = std::fs::write(&path, text.as_bytes()) {
-                cx.error("Save", e.to_string());
+                cx.error(tr("Save"), e.to_string());
                 return true;
             }
             cx.push(Action::RefreshStatus);
@@ -68,7 +69,7 @@ pub struct SparseCheckoutDialog {
 
 impl Dialog for SparseCheckoutDialog {
     fn title(&self) -> String {
-        "Sparse working copy".into()
+        tr("Sparse working copy").into()
     }
 
     fn kind(&self) -> DialogKind {
@@ -83,20 +84,20 @@ impl Dialog for SparseCheckoutDialog {
             self.patterns = p.unwrap_or_else(|| "/*\n".into());
         }
         let enabled = self.enabled.as_mut().unwrap();
-        ui.checkbox(enabled, "Enable sparse working copy");
-        ui.label("Patterns (one per line, like .gitignore):");
+        ui.checkbox(enabled, tr("Enable sparse working copy"));
+        ui.label(tr("Patterns (one per line, like .gitignore):"));
         ui.add_enabled(*enabled, egui::TextEdit::multiline(&mut self.patterns).font(egui::TextStyle::Monospace).desired_rows(14).desired_width(f32::INFINITY));
-        let (ok, cancel) = ok_cancel(ui, "Save and refresh", true);
+        let (ok, cancel) = ok_cancel(ui, tr("Save and refresh"), true);
         if ok {
             if *enabled {
                 let _ = std::fs::create_dir_all(m.git_dir().join("info"));
                 let _ = std::fs::write(m.git_dir().join("info").join("sparse-checkout"), &self.patterns);
                 cx.run(GitRun::many(
-                    "Sparse checkout",
+                    tr("Sparse checkout"),
                     vec![GitArgs::new("config").arg("core.sparseCheckout").arg("true"), GitArgs::new("read-tree").arg("-mu").arg("HEAD")],
                 ));
             } else {
-                cx.run(GitRun::new("Sparse checkout", GitArgs::new("sparse-checkout").arg("disable")));
+                cx.run(GitRun::new(tr("Sparse checkout"), GitArgs::new("sparse-checkout").arg("disable")));
             }
             return false;
         }
