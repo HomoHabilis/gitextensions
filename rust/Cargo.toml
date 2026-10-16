@@ -31,6 +31,28 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 # button as a plain square with no cross).
 winit = { version = "0.30", default-features = false, features = ["wayland-csd-adwaita"] }
 
+# Guardrails checked by CI (`cargo clippy --workspace --all-targets -- -D warnings`) and by
+# agents before they push, see CLAUDE.md at the repository root. Do not weaken them; a local
+# exception is an `#[allow(lint, reason = "...")]` on the smallest item that needs it.
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+# a panic closes the whole window: state the invariant with `expect("...")` or handle the error
+# (tests may unwrap and panic, see clippy.toml)
+unwrap_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+# every exception says why
+allow_attributes_without_reason = "deny"
+undocumented_unsafe_blocks = "deny"
+# needless copies of strings and shared pointers
+implicit_clone = "deny"
+inefficient_to_string = "deny"
+rc_mutex = "deny"
+
 [profile.release]
 lto = "thin"
 

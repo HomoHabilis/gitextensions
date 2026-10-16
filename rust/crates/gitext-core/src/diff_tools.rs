@@ -486,10 +486,7 @@ impl ToolConfigStore {
         if let Some(cache) = &self.cache {
             return cache.get(&config_key(key)).map(|v| v.trim().to_string()).unwrap_or_default();
         }
-        self.git
-            .run(&GitArgs::new("config").arg("--get").arg(key))
-            .map(|r| r.stdout_str().trim().to_string())
-            .unwrap_or_default()
+        self.git.run(&GitArgs::new("config").arg("--get").arg(key)).map(|r| r.stdout_str().trim().to_string()).unwrap_or_default()
     }
 
     fn set_global(&self, key: &str, value: &str) -> crate::exec::GitResult<()> {
@@ -646,7 +643,6 @@ pub fn install_hint() -> &'static str {
         "Install Meld (Ubuntu/Debian: sudo apt install meld, Fedora: sudo dnf install meld), then select it in Settings > Git > Diff and merge tools."
     }
 }
-
 
 /// The tools of `git difftool --tool-help` usable now, the configured one first
 /// (`CustomDiffMergeToolCache.ParseCustomDiffMergeTool`). Tools that need a terminal are left out.
@@ -942,7 +938,11 @@ mod tests {
             let started = std::time::Instant::now();
             let detected: Vec<_> = detect(t).into_iter().map(|(tool, p)| (tool.name, p)).collect();
             let parallel = started.elapsed();
-            eprintln!("detect {}: {parallel:?} (one by one: {sequential:?}), {} PATH folders", t.label(), std::env::var_os("PATH").map(|p| std::env::split_paths(&p).count()).unwrap_or(0));
+            eprintln!(
+                "detect {}: {parallel:?} (one by one: {sequential:?}), {} PATH folders",
+                t.label(),
+                std::env::var_os("PATH").map(|p| std::env::split_paths(&p).count()).unwrap_or(0)
+            );
             assert_eq!(detected, one_by_one);
             // the settings dialog waits for it; under WSL looking the tools up one by one took 0.4 s
             assert!(parallel < std::time::Duration::from_secs(2), "{parallel:?}");
@@ -1062,7 +1062,10 @@ mod tests {
         assert_eq!(run(FileDiffKind::SecondToLocal, Some(a), ObjectId::INDEX, true), format!("{base} -- f.txt"));
         assert_eq!(run(FileDiffKind::FirstToSecond, Some(ObjectId::WORK_TREE), a, true), format!("{base} -R {a} -- f.txt"));
         assert_eq!(run(FileDiffKind::FirstToSecond, Some(ObjectId::INDEX), ObjectId::WORK_TREE, false), format!("{base} --no-index -- /dev/null f.txt"));
-        assert_eq!(file_difftool_args(FileDiffKind::FirstToSecond, Some(a), b, "new.txt", Some("old.txt"), true).to_string(), format!("{base} {a} {b} -- new.txt old.txt"));
+        assert_eq!(
+            file_difftool_args(FileDiffKind::FirstToSecond, Some(a), b, "new.txt", Some("old.txt"), true).to_string(),
+            format!("{base} {a} {b} -- new.txt old.txt")
+        );
         let custom = custom_tool_args("winmerge", &file_difftool_args(FileDiffKind::FirstToSecond, Some(a), b, "f.txt", None, true));
         assert_eq!(custom.to_string(), format!("difftool --tool=winmerge --no-prompt --find-renames --find-copies {a} {b} -- f.txt"));
     }

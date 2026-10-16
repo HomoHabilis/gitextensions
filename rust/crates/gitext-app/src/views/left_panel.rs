@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use egui::{CollapsingHeader, RichText, Ui};
 use gitext_core::{GitRef, ObjectId};
 
-use crate::repo::RepoData;
 use crate::i18n::{tr, trf};
+use crate::repo::RepoData;
 use crate::theme::Palette;
 
 #[derive(Debug, Clone)]
@@ -210,42 +210,46 @@ impl LeftPanel {
         let scroll = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             // Branches
             let locals: Vec<&GitRef> = data.local_branches().filter(|r| matches(&r.name)).collect();
-            let header = CollapsingHeader::new(RichText::new(format!("🔀 {}", trf("Branches ({0})", &[&locals.len()]))).strong()).default_open(true).show(ui, |ui| {
-                let mut tree = PathTree::default();
-                for r in &locals {
-                    tree.insert(&r.name, r);
-                }
-                self.branch_tree(ui, &tree, "local", data, selected, &palette, &mut cmd, false);
-            });
+            let header =
+                CollapsingHeader::new(RichText::new(format!("🔀 {}", trf("Branches ({0})", &[&locals.len()]))).strong()).default_open(true).show(ui, |ui| {
+                    let mut tree = PathTree::default();
+                    for r in &locals {
+                        tree.insert(&r.name, r);
+                    }
+                    self.branch_tree(ui, &tree, "local", data, selected, &palette, &mut cmd, false);
+                });
             header.header_response.context_menu(|ui| {
                 item(ui, tr("Create branch…"), &mut cmd, LeftCommand::CreateBranch(data.head));
             });
 
             // Remotes
-            let header = CollapsingHeader::new(RichText::new(format!("☁ {}", trf("Remotes ({0})", &[&data.remotes.len()]))).strong()).default_open(true).show(ui, |ui| {
-                for remote in &data.remotes {
-                    let branches: Vec<&GitRef> = data.remote_branches().filter(|r| r.remote == remote.name && matches(&r.name)).collect();
-                    let resp = CollapsingHeader::new(format!("🖧 {}", remote.name)).id_salt(("remote", &remote.name)).default_open(true).show(ui, |ui| {
-                        let mut tree = PathTree::default();
-                        for r in &branches {
-                            let local = r.name.strip_prefix(&format!("{}/", remote.name)).unwrap_or(&r.name);
-                            tree.insert(local, r);
-                        }
-                        self.branch_tree(ui, &tree, &remote.name, data, selected, &palette, &mut cmd, true);
-                    });
-                    resp.header_response.on_hover_text(&remote.fetch_url).context_menu(|ui| {
-                        item(ui, tr("Fetch"), &mut cmd, LeftCommand::FetchRemote(remote.name.clone()));
-                        item(ui, tr("Fetch and prune"), &mut cmd, LeftCommand::FetchPruneRemote(remote.name.clone()));
-                        item(ui, tr("Prune"), &mut cmd, LeftCommand::PruneRemote(remote.name.clone()));
-                        if is_http_url(&remote.fetch_url) {
-                            item(ui, tr("Open remote URL"), &mut cmd, LeftCommand::OpenUrl(remote.fetch_url.trim().to_string()));
-                        }
-                        item(ui, tr("Copy URL"), &mut cmd, LeftCommand::Copy(remote.fetch_url.clone()));
-                        ui.separator();
-                        item(ui, tr("Manage remotes…"), &mut cmd, LeftCommand::ManageRemotes);
-                    });
-                }
-            });
+            let header = CollapsingHeader::new(RichText::new(format!("☁ {}", trf("Remotes ({0})", &[&data.remotes.len()]))).strong()).default_open(true).show(
+                ui,
+                |ui| {
+                    for remote in &data.remotes {
+                        let branches: Vec<&GitRef> = data.remote_branches().filter(|r| r.remote == remote.name && matches(&r.name)).collect();
+                        let resp = CollapsingHeader::new(format!("🖧 {}", remote.name)).id_salt(("remote", &remote.name)).default_open(true).show(ui, |ui| {
+                            let mut tree = PathTree::default();
+                            for r in &branches {
+                                let local = r.name.strip_prefix(&format!("{}/", remote.name)).unwrap_or(&r.name);
+                                tree.insert(local, r);
+                            }
+                            self.branch_tree(ui, &tree, &remote.name, data, selected, &palette, &mut cmd, true);
+                        });
+                        resp.header_response.on_hover_text(&remote.fetch_url).context_menu(|ui| {
+                            item(ui, tr("Fetch"), &mut cmd, LeftCommand::FetchRemote(remote.name.clone()));
+                            item(ui, tr("Fetch and prune"), &mut cmd, LeftCommand::FetchPruneRemote(remote.name.clone()));
+                            item(ui, tr("Prune"), &mut cmd, LeftCommand::PruneRemote(remote.name.clone()));
+                            if is_http_url(&remote.fetch_url) {
+                                item(ui, tr("Open remote URL"), &mut cmd, LeftCommand::OpenUrl(remote.fetch_url.trim().to_string()));
+                            }
+                            item(ui, tr("Copy URL"), &mut cmd, LeftCommand::Copy(remote.fetch_url.clone()));
+                            ui.separator();
+                            item(ui, tr("Manage remotes…"), &mut cmd, LeftCommand::ManageRemotes);
+                        });
+                    }
+                },
+            );
             header.header_response.context_menu(|ui| {
                 item(ui, tr("Fetch all remotes"), &mut cmd, LeftCommand::FetchAllRemotes);
                 item(ui, tr("Fetch and prune all remotes"), &mut cmd, LeftCommand::FetchPruneAllRemotes);
@@ -277,20 +281,24 @@ impl LeftPanel {
             });
 
             // Stashes
-            let header = CollapsingHeader::new(RichText::new(format!("☰ {}", trf("Stashes ({0})", &[&data.stashes.len()]))).strong()).default_open(false).show(ui, |ui| {
-                for s in &data.stashes {
-                    let name = s.reflog_selector.clone().unwrap_or_default().trim_start_matches("refs/").to_string();
-                    let r = self.node_label(ui, Node::Stash(name.clone()), Some(s.object_id), selected == Some(s.object_id), format!("{name}: {}", s.subject));
-                    if r.clicked() {
-                        cmd = Some(LeftCommand::Select(s.object_id));
+            let header = CollapsingHeader::new(RichText::new(format!("☰ {}", trf("Stashes ({0})", &[&data.stashes.len()]))).strong()).default_open(false).show(
+                ui,
+                |ui| {
+                    for s in &data.stashes {
+                        let name = s.reflog_selector.clone().unwrap_or_default().trim_start_matches("refs/").to_string();
+                        let r =
+                            self.node_label(ui, Node::Stash(name.clone()), Some(s.object_id), selected == Some(s.object_id), format!("{name}: {}", s.subject));
+                        if r.clicked() {
+                            cmd = Some(LeftCommand::Select(s.object_id));
+                        }
+                        r.context_menu(|ui| {
+                            item(ui, tr("Apply"), &mut cmd, LeftCommand::ApplyStash(name.clone()));
+                            item(ui, tr("Pop"), &mut cmd, LeftCommand::PopStash(name.clone()));
+                            item(ui, &format!("{}  (Del)", tr("Drop…")), &mut cmd, LeftCommand::DropStash(name.clone()));
+                        });
                     }
-                    r.context_menu(|ui| {
-                        item(ui, tr("Apply"), &mut cmd, LeftCommand::ApplyStash(name.clone()));
-                        item(ui, tr("Pop"), &mut cmd, LeftCommand::PopStash(name.clone()));
-                        item(ui, &format!("{}  (Del)", tr("Drop…")), &mut cmd, LeftCommand::DropStash(name.clone()));
-                    });
-                }
-            });
+                },
+            );
             header.header_response.context_menu(|ui| {
                 item(ui, tr("Stash changes"), &mut cmd, LeftCommand::CreateStash);
                 item(ui, tr("Stash staged changes"), &mut cmd, LeftCommand::CreateStashStaged);
@@ -299,26 +307,32 @@ impl LeftPanel {
 
             // Submodules
             if !data.submodules.is_empty() {
-                let header = CollapsingHeader::new(RichText::new(format!("⊞ {}", trf("Submodules ({0})", &[&data.submodules.len()]))).strong()).default_open(false).show(ui, |ui| {
-                    for s in &data.submodules {
-                        let status = match s.status {
-                            '-' => tr("(not initialized)"),
-                            '+' => tr("(modified)"),
-                            'U' => tr("(conflicts)"),
-                            _ => "",
-                        };
-                        let status = if status.is_empty() { String::new() } else { format!(" {status}") };
-                        let r = ui.selectable_label(false, format!("{}{status}", s.path)).on_hover_text(format!("{} {}", s.commit.to_short_string(), s.describe));
-                        if r.double_clicked() {
-                            cmd = Some(LeftCommand::OpenSubmodule(s.path.clone()));
+                let header = CollapsingHeader::new(RichText::new(format!("⊞ {}", trf("Submodules ({0})", &[&data.submodules.len()]))).strong())
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        for s in &data.submodules {
+                            let status = match s.status {
+                                '-' => tr("(not initialized)"),
+                                '+' => tr("(modified)"),
+                                'U' => tr("(conflicts)"),
+                                _ => "",
+                            };
+                            let status = if status.is_empty() { String::new() } else { format!(" {status}") };
+                            let r = ui.selectable_label(false, format!("{}{status}", s.path)).on_hover_text(format!(
+                                "{} {}",
+                                s.commit.to_short_string(),
+                                s.describe
+                            ));
+                            if r.double_clicked() {
+                                cmd = Some(LeftCommand::OpenSubmodule(s.path.clone()));
+                            }
+                            r.context_menu(|ui| {
+                                item(ui, tr("Open"), &mut cmd, LeftCommand::OpenSubmodule(s.path.clone()));
+                                item(ui, tr("Update"), &mut cmd, LeftCommand::UpdateSubmodule(s.path.clone()));
+                                item(ui, tr("Synchronize"), &mut cmd, LeftCommand::SyncSubmodule(s.path.clone()));
+                            });
                         }
-                        r.context_menu(|ui| {
-                            item(ui, tr("Open"), &mut cmd, LeftCommand::OpenSubmodule(s.path.clone()));
-                            item(ui, tr("Update"), &mut cmd, LeftCommand::UpdateSubmodule(s.path.clone()));
-                            item(ui, tr("Synchronize"), &mut cmd, LeftCommand::SyncSubmodule(s.path.clone()));
-                        });
-                    }
-                });
+                    });
                 header.header_response.context_menu(|ui| {
                     item(ui, tr("Manage submodules…"), &mut cmd, LeftCommand::ManageSubmodules);
                 });
@@ -326,29 +340,31 @@ impl LeftPanel {
 
             // Worktrees (always shown, as upstream: the root node creates and prunes them)
             if !data.is_bare || data.worktrees.len() > 1 {
-                let header = CollapsingHeader::new(RichText::new(format!("🗐 {}", trf("Worktrees ({0})", &[&data.worktrees.len()]))).strong()).default_open(false).show(ui, |ui| {
-                    for w in &data.worktrees {
-                        let label = format!(
-                            "{}{}{}",
-                            w.path,
-                            w.branch.as_ref().map(|b| format!(" [{b}]")).unwrap_or_default(),
-                            if w.is_main { format!(" {}", tr("(main)")) } else { String::new() }
-                        );
-                        let text = RichText::new(label).color(if w.is_deleted { palette.error } else { ui.visuals().text_color() });
-                        let r = self.node_label(ui, Node::Worktree(w.path.clone(), w.is_main), None, false, text);
-                        if r.double_clicked() {
-                            cmd = Some(LeftCommand::OpenWorktree(w.path.clone()));
-                        }
-                        r.context_menu(|ui| {
-                            ui.add_enabled_ui(!w.is_deleted, |ui| item(ui, tr("Open"), &mut cmd, LeftCommand::OpenWorktree(w.path.clone())));
-                            if !w.is_main {
-                                item(ui, &format!("{}  (Del)", tr("Remove…")), &mut cmd, LeftCommand::RemoveWorktree(w.path.clone()));
+                let header = CollapsingHeader::new(RichText::new(format!("🗐 {}", trf("Worktrees ({0})", &[&data.worktrees.len()]))).strong())
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        for w in &data.worktrees {
+                            let label = format!(
+                                "{}{}{}",
+                                w.path,
+                                w.branch.as_ref().map(|b| format!(" [{b}]")).unwrap_or_default(),
+                                if w.is_main { format!(" {}", tr("(main)")) } else { String::new() }
+                            );
+                            let text = RichText::new(label).color(if w.is_deleted { palette.error } else { ui.visuals().text_color() });
+                            let r = self.node_label(ui, Node::Worktree(w.path.clone(), w.is_main), None, false, text);
+                            if r.double_clicked() {
+                                cmd = Some(LeftCommand::OpenWorktree(w.path.clone()));
                             }
-                            item(ui, tr("Copy path"), &mut cmd, LeftCommand::Copy(w.path.clone()));
-                            ui.add_enabled_ui(!w.is_deleted, |ui| item(ui, tr("Show in folder"), &mut cmd, LeftCommand::ShowInFolder(w.path.clone())));
-                        });
-                    }
-                });
+                            r.context_menu(|ui| {
+                                ui.add_enabled_ui(!w.is_deleted, |ui| item(ui, tr("Open"), &mut cmd, LeftCommand::OpenWorktree(w.path.clone())));
+                                if !w.is_main {
+                                    item(ui, &format!("{}  (Del)", tr("Remove…")), &mut cmd, LeftCommand::RemoveWorktree(w.path.clone()));
+                                }
+                                item(ui, tr("Copy path"), &mut cmd, LeftCommand::Copy(w.path.clone()));
+                                ui.add_enabled_ui(!w.is_deleted, |ui| item(ui, tr("Show in folder"), &mut cmd, LeftCommand::ShowInFolder(w.path.clone())));
+                            });
+                        }
+                    });
                 header.header_response.context_menu(|ui| {
                     item(ui, tr("Create worktree…"), &mut cmd, LeftCommand::CreateWorktree);
                     item(ui, tr("Prune worktrees"), &mut cmd, LeftCommand::PruneWorktrees);
@@ -363,12 +379,25 @@ impl LeftPanel {
         cmd
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn branch_tree(&mut self, ui: &mut Ui, tree: &PathTree, salt: &str, data: &RepoData, selected: Option<ObjectId>, palette: &Palette, cmd: &mut Option<LeftCommand>, remote: bool) {
+    #[allow(clippy::too_many_arguments, reason = "the state the view reads and updates")]
+    fn branch_tree(
+        &mut self,
+        ui: &mut Ui,
+        tree: &PathTree,
+        salt: &str,
+        data: &RepoData,
+        selected: Option<ObjectId>,
+        palette: &Palette,
+        cmd: &mut Option<LeftCommand>,
+        remote: bool,
+    ) {
         for (folder, sub) in &tree.children {
-            CollapsingHeader::new(RichText::new(format!("🗀 {folder}")).color(palette.muted)).id_salt((salt, folder, sub.leaves.len())).default_open(true).show(ui, |ui| {
-                self.branch_tree(ui, sub, &format!("{salt}/{folder}"), data, selected, palette, cmd, remote);
-            });
+            CollapsingHeader::new(RichText::new(format!("🗀 {folder}")).color(palette.muted)).id_salt((salt, folder, sub.leaves.len())).default_open(true).show(
+                ui,
+                |ui| {
+                    self.branch_tree(ui, sub, &format!("{salt}/{folder}"), data, selected, palette, cmd, remote);
+                },
+            );
         }
         for (label, r) in &tree.leaves {
             let is_current = !remote && data.current_branch.as_deref() == Some(r.name.as_str());
@@ -416,7 +445,9 @@ impl LeftPanel {
                 if remote {
                     item(ui, tr("Checkout as local branch…"), cmd, LeftCommand::CheckoutRemote(name.clone()));
                     ui.menu_button(tr("Fetch & …"), |ui| {
-                        let fetch = |ui: &mut Ui, label: &str, then: FetchThen, cmd: &mut Option<LeftCommand>| item(ui, label, cmd, LeftCommand::FetchRemoteBranch(name.clone(), then));
+                        let fetch = |ui: &mut Ui, label: &str, then: FetchThen, cmd: &mut Option<LeftCommand>| {
+                            item(ui, label, cmd, LeftCommand::FetchRemoteBranch(name.clone(), then))
+                        };
                         fetch(ui, tr("Fetch"), FetchThen::Nothing, cmd);
                         fetch(ui, tr("Fetch & Checkout…"), FetchThen::Checkout, cmd);
                         if !current.is_empty() {

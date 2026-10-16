@@ -19,7 +19,7 @@ impl GitBranchNameOptions {
 }
 
 fn re(cell: &'static OnceLock<Regex>, pattern: &str) -> &'static Regex {
-    cell.get_or_init(|| Regex::new(pattern).unwrap())
+    cell.get_or_init(|| Regex::new(pattern).expect("valid regex"))
 }
 
 /// Port of `PathUtil.IsValidPathChar`: whether `c` can be used in a branch name and a file path
@@ -117,7 +117,11 @@ pub fn rule08(branch_name: &str, o: &GitBranchNameOptions) -> String {
 
 /// Cannot be '@'.
 pub fn rule09(branch_name: &str, o: &GitBranchNameOptions) -> String {
-    if branch_name == "@" { o.replacement_token.clone() } else { branch_name.to_string() }
+    if branch_name == "@" {
+        o.replacement_token.clone()
+    } else {
+        branch_name.to_string()
+    }
 }
 
 /// Cannot contain '\'.
@@ -160,73 +164,85 @@ mod tests {
 
     #[test]
     fn rule01_test() {
-        check(rule01, &[
-            (".test", "_test"),
-            ("hierarchy/.test", "hierarchy/_test"),
-            ("hierarchy/.test/foo", "hierarchy/_test/foo"),
-            (".lock", "_lock"),
-            ("pad.lock", "pad_lock"),
-            ("pad.lock.lock", "pad.lock_lock"),
-            ("hierarchy/sher.lock", "hierarchy/sher_lock"),
-            ("hierarchy/sher.lok", "hierarchy/sher.lok"),
-            ("hierarchy/sher.lock/foo", "hierarchy/sher_lock/foo"),
-            ("hierarchy/sher.lok/foo", "hierarchy/sher.lok/foo"),
-        ]);
+        check(
+            rule01,
+            &[
+                (".test", "_test"),
+                ("hierarchy/.test", "hierarchy/_test"),
+                ("hierarchy/.test/foo", "hierarchy/_test/foo"),
+                (".lock", "_lock"),
+                ("pad.lock", "pad_lock"),
+                ("pad.lock.lock", "pad.lock_lock"),
+                ("hierarchy/sher.lock", "hierarchy/sher_lock"),
+                ("hierarchy/sher.lok", "hierarchy/sher.lok"),
+                ("hierarchy/sher.lock/foo", "hierarchy/sher_lock/foo"),
+                ("hierarchy/sher.lok/foo", "hierarchy/sher.lok/foo"),
+            ],
+        );
     }
 
     #[test]
     fn rule03_test() {
-        check(rule03, &[
-            ("..test", "_test"),
-            ("...test", "_test"),
-            ("hierarchy/..test", "hierarchy/_test"),
-            ("hierarchy/...test", "hierarchy/_test"),
-            ("hierarchy/..test/foo", "hierarchy/_test/foo"),
-            ("hierarchy/...test/foo", "hierarchy/_test/foo"),
-            ("..lock", "_lock"),
-            ("pad..lock", "pad_lock"),
-            ("pad...lock", "pad_lock"),
-            ("hierarchy/sher..lock", "hierarchy/sher_lock"),
-            ("padlock...", "padlock_"),
-            ("hierarchy/sher...lock", "hierarchy/sher_lock"),
-            ("hierarchy/sher..lock/foo", "hierarchy/sher_lock/foo"),
-            ("hierarchy/sher...lock/foo", "hierarchy/sher_lock/foo"),
-            ("hierarchy/sher..lok/foo", "hierarchy/sher_lok/foo"),
-            ("hier.....archy/sher...lok/fo..o", "hier_archy/sher_lok/fo_o"),
-        ]);
+        check(
+            rule03,
+            &[
+                ("..test", "_test"),
+                ("...test", "_test"),
+                ("hierarchy/..test", "hierarchy/_test"),
+                ("hierarchy/...test", "hierarchy/_test"),
+                ("hierarchy/..test/foo", "hierarchy/_test/foo"),
+                ("hierarchy/...test/foo", "hierarchy/_test/foo"),
+                ("..lock", "_lock"),
+                ("pad..lock", "pad_lock"),
+                ("pad...lock", "pad_lock"),
+                ("hierarchy/sher..lock", "hierarchy/sher_lock"),
+                ("padlock...", "padlock_"),
+                ("hierarchy/sher...lock", "hierarchy/sher_lock"),
+                ("hierarchy/sher..lock/foo", "hierarchy/sher_lock/foo"),
+                ("hierarchy/sher...lock/foo", "hierarchy/sher_lock/foo"),
+                ("hierarchy/sher..lok/foo", "hierarchy/sher_lok/foo"),
+                ("hier.....archy/sher...lok/fo..o", "hier_archy/sher_lok/fo_o"),
+            ],
+        );
     }
 
     #[test]
     fn rule04_test() {
-        check(rule04, &[
-            ("test:test", "test_test"),
-            ("test test", "test_test"),
-            ("test^test", "test_test"),
-            ("test~test", "test_test"),
-            ("hier archy:sher~lok/fo^o", "hier_archy_sher_lok/fo_o"),
-            ("błąd", "błąd"),
-            ("привет, ё-маё!", "привет,_ё-маё!"),
-            ("Pokémon 195", "Pokémon_195"),
-            ("Anhörung`!@#$%", "Anhörung`!@#$%"),
-            ("test\"test", "test_test"),
-            ("test<test>test", "test_test_test"),
-            ("test|test", "test_test"),
-        ]);
+        check(
+            rule04,
+            &[
+                ("test:test", "test_test"),
+                ("test test", "test_test"),
+                ("test^test", "test_test"),
+                ("test~test", "test_test"),
+                ("hier archy:sher~lok/fo^o", "hier_archy_sher_lok/fo_o"),
+                ("błąd", "błąd"),
+                ("привет, ё-маё!", "привет,_ё-маё!"),
+                ("Pokémon 195", "Pokémon_195"),
+                ("Anhörung`!@#$%", "Anhörung`!@#$%"),
+                ("test\"test", "test_test"),
+                ("test<test>test", "test_test_test"),
+                ("test|test", "test_test"),
+            ],
+        );
     }
 
     #[test]
     fn rule05_test() {
-        check(rule05, &[
-            ("test?", "test_"),
-            ("?test", "_test"),
-            ("test???test", "test___test"),
-            ("test*", "test_"),
-            ("*test", "_test"),
-            ("test***test", "test___test"),
-            ("test[foo]", "test_foo]"),
-            ("[test]", "_test]"),
-            ("testing?[*]*test", "testing___]_test"),
-        ]);
+        check(
+            rule05,
+            &[
+                ("test?", "test_"),
+                ("?test", "_test"),
+                ("test???test", "test___test"),
+                ("test*", "test_"),
+                ("*test", "_test"),
+                ("test***test", "test___test"),
+                ("test[foo]", "test_foo]"),
+                ("[test]", "_test]"),
+                ("testing?[*]*test", "testing___]_test"),
+            ],
+        );
     }
 
     #[test]

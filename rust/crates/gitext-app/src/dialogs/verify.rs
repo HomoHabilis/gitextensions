@@ -30,7 +30,11 @@ impl Dialog for VerifyDialog {
                 m.lost_objects()
                     .into_iter()
                     .map(|(id, kind)| {
-                        let subject = if kind == "commit" { m.get_revision(&id.to_string(), false).ok().flatten().map(|r| format!("{} ({})", r.subject, r.author)).unwrap_or_default() } else { String::new() };
+                        let subject = if kind == "commit" {
+                            m.get_revision(&id.to_string(), false).ok().flatten().map(|r| format!("{} ({})", r.subject, r.author)).unwrap_or_default()
+                        } else {
+                            String::new()
+                        };
                         (id, kind, subject)
                     })
                     .collect()

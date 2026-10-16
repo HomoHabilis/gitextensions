@@ -204,23 +204,13 @@ impl GitRef {
     /// Whether this local branch tracks the given remote branch.
     pub fn is_tracking_remote(&self, remote: Option<&GitRef>) -> bool {
         match remote {
-            Some(remote) => {
-                self.is_head()
-                    && remote.is_remote()
-                    && self.merge_with == remote.local_name()
-                    && self.tracking_remote == remote.remote
-            }
+            Some(remote) => self.is_head() && remote.is_remote() && self.merge_with == remote.local_name() && self.tracking_remote == remote.remote,
             None => false,
         }
     }
 
     pub fn compute_local_name(is_remote: bool, remote: &str, name: &str) -> String {
-        if !is_remote
-            || remote.is_empty()
-            || name.len() <= remote.len()
-            || name.as_bytes()[remote.len()] != b'/'
-            || !name.starts_with(remote)
-        {
+        if !is_remote || remote.is_empty() || name.len() <= remote.len() || name.as_bytes()[remote.len()] != b'/' || !name.starts_with(remote) {
             return name.to_string();
         }
         name[remote.len() + 1..].to_string()
@@ -243,7 +233,11 @@ impl GitRef {
             }
             _ => complete_name.find("refs/").map(|i| &complete_name[i + 5..]).unwrap_or(complete_name),
         };
-        if name.is_empty() { complete_name.to_string() } else { name.to_string() }
+        if name.is_empty() {
+            complete_name.to_string()
+        } else {
+            name.to_string()
+        }
     }
 
     /// Names which occur for several refs (e.g. a branch and a tag with the same name).
@@ -272,8 +266,7 @@ mod tests {
     use super::*;
 
     fn local_tracking(remote_branch: &str, remote: &str) -> GitRef {
-        GitRef::new(ObjectId::random(), "refs/heads/local_branch", "")
-            .with_tracking(remote, format!("refs/heads/{remote_branch}"))
+        GitRef::new(ObjectId::random(), "refs/heads/local_branch", "").with_tracking(remote, format!("refs/heads/{remote_branch}"))
     }
 
     fn remote_ref(branch: &str, remote: &str) -> GitRef {

@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use egui::{RichText, Ui, Vec2};
 use gitext_core::repo_history::{RepositoryAnchor, RepositoryHistory};
 
-use crate::theme::Palette;
 use crate::i18n::{tr, trf};
+use crate::theme::Palette;
 
 pub enum DashboardCommand {
     Open(PathBuf),
@@ -129,7 +129,9 @@ impl Dashboard {
                 show(ui, rest, &mut cmd);
                 if history.recent.is_empty() {
                     ui.add_space(20.0);
-                    ui.label(RichText::new(tr("No recent repositories yet. Open, clone or create a repository to get started.")).italics().color(palette.muted));
+                    ui.label(
+                        RichText::new(tr("No recent repositories yet. Open, clone or create a repository to get started.")).italics().color(palette.muted),
+                    );
                 }
                 for category in history.categories() {
                     ui.add_space(12.0);

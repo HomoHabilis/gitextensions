@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use egui::{Ui, Vec2};
-use gitext_core::settings::AppSettings;
 use gitext_core::repo_history::RepositoryHistory;
+use gitext_core::settings::AppSettings;
 use gitext_core::{GitArgs, GitModule, ObjectId};
 
 use crate::i18n::tr;
@@ -30,18 +30,18 @@ pub mod goto_commit;
 pub mod init;
 pub mod language;
 pub mod merge;
-pub mod open_repo;
 pub mod message;
+pub mod open_repo;
 pub mod patch;
 pub mod process;
 pub mod pull;
 pub mod push;
 pub mod rebase;
-pub mod reword;
-pub mod revision_filter;
 pub mod reflog;
 pub mod remotes;
 pub mod reset;
+pub mod revision_filter;
+pub mod reword;
 pub mod settings;
 pub mod stash;
 pub mod submodules;
@@ -63,14 +63,28 @@ pub enum Action {
     RunGit(GitRun),
     /// Starts the diff or merge tool (`git difftool` / `git mergetool` + `args` without the
     /// command), in the background; failures are reported.
-    RunTool { tool_type: gitext_core::diff_tools::ToolType, args: GitArgs },
+    RunTool {
+        tool_type: gitext_core::diff_tools::ToolType,
+        args: GitArgs,
+    },
     /// Starts `git difftool --tool=<tool>` + `args` without the command (a tool picked in a menu).
-    RunDiffToolNamed { tool: String, args: GitArgs },
+    RunDiffToolNamed {
+        tool: String,
+        args: GitArgs,
+    },
     /// Opens the diff tool on a commit and the real working directory.
     DifftoolWithWorkTree(gitext_core::ObjectId),
     /// Runs git without a process dialog; failures are reported, success refreshes.
-    RunInBackground { title: String, program: Option<String>, args: GitArgs },
-    Message { title: String, text: String, error: bool },
+    RunInBackground {
+        title: String,
+        program: Option<String>,
+        args: GitArgs,
+    },
+    Message {
+        title: String,
+        text: String,
+        error: bool,
+    },
     SelectRevision(ObjectId),
     SaveSettings,
     ApplyTheme,
@@ -108,7 +122,16 @@ pub struct GitRun {
 
 impl GitRun {
     pub fn new(title: impl Into<String>, args: GitArgs) -> Self {
-        GitRun { title: title.into(), commands: vec![args], working_dir: None, refresh: true, then: Vec::new(), check_conflicts: false, keep_open: false, env: Vec::new() }
+        GitRun {
+            title: title.into(),
+            commands: vec![args],
+            working_dir: None,
+            refresh: true,
+            then: Vec::new(),
+            check_conflicts: false,
+            keep_open: false,
+            env: Vec::new(),
+        }
     }
 
     pub fn many(title: impl Into<String>, commands: Vec<GitArgs>) -> Self {
@@ -146,13 +169,16 @@ impl GitRun {
     }
 }
 
+/// What a confirmation does when accepted.
+pub type OnYes = Box<dyn FnOnce(&mut Cx)>;
+
 /// Context passed to dialogs.
 pub struct Cx<'a> {
     pub ctx: &'a egui::Context,
     pub module: Option<&'a GitModule>,
     pub data: Option<&'a RepoData>,
     pub settings: &'a mut AppSettings,
-    #[allow(dead_code)] // kept for dialogs that manage the recent repository list
+    #[allow(dead_code, reason = "kept for dialogs that manage the recent repository list")]
     pub history: &'a mut RepositoryHistory,
     pub actions: &'a mut Vec<Action>,
     /// Selected revisions of the browse window.
@@ -273,7 +299,7 @@ pub struct Confirm {
     /// Names listed under the text (e.g. the files the action changes), in a scrolling box.
     pub list: Vec<String>,
     pub yes: String,
-    pub on_yes: Option<Box<dyn FnOnce(&mut Cx)>>,
+    pub on_yes: Option<OnYes>,
 }
 
 impl Confirm {

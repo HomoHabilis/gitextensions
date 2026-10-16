@@ -34,7 +34,15 @@ impl CheckoutBranchDialog {
             locals,
             remotes,
             local_changes: LocalChangesAction::DontChange,
-            new_branch_mode: if remote { if exists { CheckoutNewBranchMode::Reset } else { CheckoutNewBranchMode::Create } } else { CheckoutNewBranchMode::DontCreate },
+            new_branch_mode: if remote {
+                if exists {
+                    CheckoutNewBranchMode::Reset
+                } else {
+                    CheckoutNewBranchMode::Create
+                }
+            } else {
+                CheckoutNewBranchMode::DontCreate
+            },
             new_branch_name: new_name,
             has_changes: data.status.iter().any(|s| s.is_tracked),
             initialized: false,
@@ -93,7 +101,10 @@ impl Dialog for CheckoutBranchDialog {
         if self.remote {
             ui.add_space(4.0);
             ui.radio_value(&mut self.new_branch_mode, CheckoutNewBranchMode::Create, tr("Create local branch with the name:"));
-            ui.add_enabled(self.new_branch_mode != CheckoutNewBranchMode::DontCreate, egui::TextEdit::singleline(&mut self.new_branch_name).desired_width(380.0));
+            ui.add_enabled(
+                self.new_branch_mode != CheckoutNewBranchMode::DontCreate,
+                egui::TextEdit::singleline(&mut self.new_branch_name).desired_width(380.0),
+            );
             ui.radio_value(&mut self.new_branch_mode, CheckoutNewBranchMode::Reset, tr("Reset local branch with the same name (-B)"));
             ui.radio_value(&mut self.new_branch_mode, CheckoutNewBranchMode::DontCreate, tr("Checkout remote branch (detached HEAD)"));
         }

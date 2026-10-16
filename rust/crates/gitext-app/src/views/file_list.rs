@@ -81,7 +81,13 @@ pub struct FileListResponse {
 
 pub fn status_badge(ui: &mut Ui, s: &GitItemStatus, palette: &Palette) {
     // `git ls-files -v` tags: h = assumed unchanged, S = skip-worktree
-    let c = if s.is_assume_unchanged { 'h' } else if s.is_skip_worktree { 'S' } else { s.status_char() };
+    let c = if s.is_assume_unchanged {
+        'h'
+    } else if s.is_skip_worktree {
+        'S'
+    } else {
+        s.status_char()
+    };
     let color = match c {
         'A' => palette.status_added,
         'D' => palette.status_deleted,
@@ -234,7 +240,13 @@ impl FileList {
         let has_focus = self.has_focus && !ui.ctx().wants_keyboard_input();
         if has_focus && !order.is_empty() {
             let (up, down, home, end, shift) = ui.input(|i| {
-                (i.key_pressed(egui::Key::ArrowUp), i.key_pressed(egui::Key::ArrowDown), i.key_pressed(egui::Key::Home), i.key_pressed(egui::Key::End), i.modifiers.shift)
+                (
+                    i.key_pressed(egui::Key::ArrowUp),
+                    i.key_pressed(egui::Key::ArrowDown),
+                    i.key_pressed(egui::Key::Home),
+                    i.key_pressed(egui::Key::End),
+                    i.modifiers.shift,
+                )
             });
             let shown = Self::shown(&layout);
             if (up || down || home || end) && !shown.is_empty() {
@@ -332,7 +344,7 @@ impl FileList {
         resp
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the state the view reads and updates")]
     fn show_item(
         &mut self,
         ui: &mut Ui,
@@ -415,7 +427,12 @@ mod tests {
 
     fn run_frame(ctx: &egui::Context, list: &mut FileList, items: &[GitItemStatus], events: Vec<egui::Event>) {
         let modifiers = events.iter().find_map(|e| if let egui::Event::Key { modifiers, .. } = e { Some(*modifiers) } else { None }).unwrap_or_default();
-        let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0))), events, modifiers, ..Default::default() };
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0))),
+            events,
+            modifiers,
+            ..Default::default()
+        };
         let _ = ctx.run(input, |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 list.ui(ui, "test", items, |_, _| {});
@@ -477,7 +494,7 @@ mod tests {
     /// are), and the selected row is scrolled into view.
     #[test]
     fn arrow_keys_move_over_all_rows() {
-        let items: Vec<GitItemStatus> = (0..300).map(|i| GitItemStatus::from_status_character(StagedStatus::None, &format!("f{i:03}.txt"), 'M')).collect();
+        let items: Vec<GitItemStatus> = (0..300).map(|i| GitItemStatus::from_status_character(StagedStatus::None, format!("f{i:03}.txt"), 'M')).collect();
         let ctx = egui::Context::default();
         let mut list = FileList { has_focus: true, ..Default::default() };
         let area_id = std::cell::Cell::new(None);
@@ -485,7 +502,12 @@ mod tests {
         let frame = |list: &mut FileList, events: Vec<egui::Event>| {
             // a second per frame, so that scroll animations end
             time.set(time.get() + 1.0);
-            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0))), events, time: Some(time.get()), ..Default::default() };
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0))),
+                events,
+                time: Some(time.get()),
+                ..Default::default()
+            };
             let _ = ctx.run(input, |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     area_id.set(Some(ui.make_persistent_id(egui::Id::new("test"))));

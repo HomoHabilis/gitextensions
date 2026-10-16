@@ -10,15 +10,15 @@ use std::time::Instant;
 use egui::{Color32, FontId, Pos2, Rect, Sense, Stroke, Ui, Vec2};
 use egui_extras::{Column, TableBuilder};
 use gitext_core::revision::{index_revision, work_tree_revision};
-use gitext_core::revision_reader::{read_log, read_autostash, LogOptions};
+use gitext_core::revision_reader::{read_autostash, read_log, LogOptions};
 use gitext_core::settings::{AppSettings, BranchFilterMode, GraphDrawStyle};
 use gitext_core::{GitModule, GitRef, GitRevision, ObjectId};
 use gitext_graph::hover::{HoverHighlight, VisibleRowRange};
 use gitext_graph::render::{draw_row, Brush, Metrics, Primitive, RevisionGraphDrawStyle};
 use gitext_graph::{RevisionGraph, RevisionGraphConfig, MAX_LANES};
 
-use crate::repo::RepoData;
 use crate::i18n::{tr, trf};
+use crate::repo::RepoData;
 use crate::theme::Palette;
 use crate::util::{format_date, short_date};
 
@@ -35,14 +35,8 @@ pub enum TextFilterKind {
 }
 
 impl TextFilterKind {
-    pub const ALL: [TextFilterKind; 6] = [
-        TextFilterKind::Message,
-        TextFilterKind::Author,
-        TextFilterKind::Committer,
-        TextFilterKind::Hash,
-        TextFilterKind::DiffContains,
-        TextFilterKind::Path,
-    ];
+    pub const ALL: [TextFilterKind; 6] =
+        [TextFilterKind::Message, TextFilterKind::Author, TextFilterKind::Committer, TextFilterKind::Hash, TextFilterKind::DiffContains, TextFilterKind::Path];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -81,7 +75,9 @@ pub struct RevisionFilter {
 
 impl RevisionFilter {
     pub fn is_active(&self) -> bool {
-        [&self.text, &self.since, &self.until, &self.path, &self.author, &self.committer, &self.message, &self.diff_contains].iter().any(|s| !s.trim().is_empty())
+        [&self.text, &self.since, &self.until, &self.path, &self.author, &self.committer, &self.message, &self.diff_contains]
+            .iter()
+            .any(|s| !s.trim().is_empty())
             || self.limit.is_some()
             || self.simplify_by_decoration
     }
@@ -306,7 +302,10 @@ pub fn log_options(settings: &AppSettings, filter: &RevisionFilter, current_bran
     if !message.is_empty() {
         rev.push(format!("--grep={message}"));
     }
-    let matches_text = !author.is_empty() || !committer.is_empty() || !message.is_empty() || !diff.is_empty()
+    let matches_text = !author.is_empty()
+        || !committer.is_empty()
+        || !message.is_empty()
+        || !diff.is_empty()
         || (!text.is_empty() && matches!(filter.kind, TextFilterKind::Message | TextFilterKind::Author | TextFilterKind::Committer));
     if matches_text {
         rev.extend(ignore_case);
@@ -715,7 +714,8 @@ impl RevisionGrid {
         }
 
         let row_height = settings.row_height.max(16.0);
-        let metrics = Metrics { lane_width: settings.lane_width, lane_line_width: 2.0, node_dimension: (row_height * 0.45).round().clamp(8.0, 12.0), row_height };
+        let metrics =
+            Metrics { lane_width: settings.lane_width, lane_line_width: 2.0, node_dimension: (row_height * 0.45).round().clamp(8.0, 12.0), row_height };
 
         // Ensure rows for the visible range (+ margin) have graph lanes.
         let last_needed = self.visible.from_index + self.visible.count + 10;
@@ -837,7 +837,8 @@ impl RevisionGrid {
                         }
                     });
 
-                    let highlight = settings.highlight_author_commits && !author_email.is_empty() && rev.author_email == author_email && !selected.contains(&id);
+                    let highlight =
+                        settings.highlight_author_commits && !author_email.is_empty() && rev.author_email == author_email && !selected.contains(&id);
                     let paint_highlight = |ui: &mut Ui| {
                         if highlight {
                             ui.painter().rect_filled(ui.max_rect().expand2(Vec2::new(4.0, 0.0)), 0.0, palette.author_highlight_bg);
@@ -883,7 +884,15 @@ impl RevisionGrid {
                         row.col(|ui| {
                             paint_highlight(ui);
                             if !rev.is_artificial() {
-                                ui.add(egui::Label::new(egui::RichText::new(&rev.author).color(if is_relative { ui.visuals().text_color() } else { palette.muted })).truncate().selectable(false));
+                                ui.add(
+                                    egui::Label::new(egui::RichText::new(&rev.author).color(if is_relative {
+                                        ui.visuals().text_color()
+                                    } else {
+                                        palette.muted
+                                    }))
+                                    .truncate()
+                                    .selectable(false),
+                                );
                             }
                         });
                     }
@@ -893,7 +902,8 @@ impl RevisionGrid {
                             if !rev.is_artificial() {
                                 let t = if settings.show_author_date { rev.author_unix_time } else { rev.commit_unix_time };
                                 let label = if settings.show_relative_date { short_date(t) } else { format_date(t) };
-                                ui.add(egui::Label::new(egui::RichText::new(label).color(palette.muted)).truncate().selectable(false)).on_hover_text(format_date(t));
+                                ui.add(egui::Label::new(egui::RichText::new(label).color(palette.muted)).truncate().selectable(false))
+                                    .on_hover_text(format_date(t));
                             }
                         });
                     }
@@ -1137,7 +1147,8 @@ pub fn revision_context_menu(ui: &mut Ui, rev: &GitRevision, data: &RepoData, se
         return cmd;
     }
     let branches: Vec<&GitRef> = rev.refs.iter().filter(|r| r.is_head()).collect();
-    let remote_branches: Vec<&GitRef> = rev.refs.iter().filter(|r| r.is_remote() && !gitext_core::git_ref::ref_name::is_remote_head(&r.complete_name)).collect();
+    let remote_branches: Vec<&GitRef> =
+        rev.refs.iter().filter(|r| r.is_remote() && !gitext_core::git_ref::ref_name::is_remote_head(&r.complete_name)).collect();
     let tags: Vec<&GitRef> = rev.refs.iter().filter(|r| r.is_tag() && !r.is_dereference).collect();
 
     if let Some(sel) = &rev.reflog_selector {
@@ -1359,7 +1370,16 @@ mod tests {
     #[test]
     fn log_options_of_the_advanced_filter() {
         let s = AppSettings::default();
-        let f = RevisionFilter { author: "ann".into(), message: "fix".into(), diff_contains: "foo".into(), limit: Some(10), simplify_by_decoration: true, full_history: true, simplify_merges: true, ..Default::default() };
+        let f = RevisionFilter {
+            author: "ann".into(),
+            message: "fix".into(),
+            diff_contains: "foo".into(),
+            limit: Some(10),
+            simplify_by_decoration: true,
+            full_history: true,
+            simplify_merges: true,
+            ..Default::default()
+        };
         assert!(f.is_active());
         let o = log_options(&s, &f, None);
         for a in ["--author=ann", "--grep=fix", "-Gfoo", "--regexp-ignore-case", "--simplify-by-decoration"] {

@@ -50,7 +50,11 @@ impl CommitMessageManager {
     }
 
     fn merge_or_commit_message_path(&self) -> &Path {
-        if self.is_merge_commit() { &self.merge_message_path } else { &self.commit_message_path }
+        if self.is_merge_commit() {
+            &self.merge_message_path
+        } else {
+            &self.commit_message_path
+        }
     }
 
     pub fn merge_or_commit_message(&self) -> String {
@@ -77,7 +81,13 @@ impl CommitMessageManager {
         }
     }
 
-    pub fn write_commit_message_to_file(&self, message: &str, kind: CommitMessageType, using_commit_template: bool, ensure_second_line_empty: bool) -> std::io::Result<PathBuf> {
+    pub fn write_commit_message_to_file(
+        &self,
+        message: &str,
+        kind: CommitMessageType,
+        using_commit_template: bool,
+        ensure_second_line_empty: bool,
+    ) -> std::io::Result<PathBuf> {
         let formatted = format_commit_message(message, using_commit_template, ensure_second_line_empty);
         let path = if kind == CommitMessageType::Normal { &self.commit_message_path } else { &self.merge_message_path };
         std::fs::write(path, formatted)?;

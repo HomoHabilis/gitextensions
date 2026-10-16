@@ -73,7 +73,9 @@ impl Dialog for RewordCommitDialog {
         if self.message.is_none() {
             let task = self.load.get_or_insert_with(|| {
                 let id = self.id;
-                Task::spawn(cx.ctx, move || m.get_revision(&id.to_string(), false).ok().flatten().map(|r| r.body().unwrap_or(&r.subject).trim_end().to_string()))
+                Task::spawn(cx.ctx, move || {
+                    m.get_revision(&id.to_string(), false).ok().flatten().map(|r| r.body().unwrap_or(&r.subject).trim_end().to_string())
+                })
             });
             if let Some(msg) = task.try_take() {
                 self.message = Some(msg.unwrap_or_else(|| self.subject.clone()));

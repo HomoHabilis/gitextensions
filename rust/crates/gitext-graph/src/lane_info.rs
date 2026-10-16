@@ -30,10 +30,7 @@ pub fn find_prev_node(graph: &RevisionGraph, row_index: i64, lane: i32) -> PrevN
     match segments.first() {
         Some(&first) => {
             let seg = &graph.store.segments[first];
-            debug_assert!(
-                segments.iter().all(|&s| graph.store.segments[s].parent == seg.parent),
-                "All segments for a lane should have the same parent."
-            );
+            debug_assert!(segments.iter().all(|&s| graph.store.segments[s].parent == seg.parent), "All segments for a lane should have the same parent.");
             (Some(seg.parent), false, Some(seg.child))
         }
         None => NOT_FOUND,
@@ -57,11 +54,7 @@ pub fn lane_info_text(store: &Store, node: Option<NodeIdx>, is_at_node: bool, si
     let mut text = String::new();
     if let Some(child) = single_child {
         let c = &store.nodes[child];
-        text.push_str(&format!(
-            "{}: {}\n|\n",
-            c.object_id.to_short_string(),
-            c.revision.as_ref().map(|r| r.subject.as_str()).unwrap_or_default()
-        ));
+        text.push_str(&format!("{}: {}\n|\n", c.object_id.to_short_string(), c.revision.as_ref().map(|r| r.subject.as_str()).unwrap_or_default()));
     }
     if !revision.is_artificial() {
         if is_at_node {
@@ -95,7 +88,8 @@ pub fn lane_info_text(store: &Store, node: Option<NodeIdx>, is_at_node: bool, si
 fn merge_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?i)^merged? (pull request (?<pr>.*) from )?(.*branch |tag )?'?(?<with>[^ ']*[^ '.])'?( of [^ ]*[^ .])?( into (?<into>.*[^.]))?\.?$").unwrap()
+        Regex::new(r"(?i)^merged? (pull request (?<pr>.*) from )?(.*branch |tag )?'?(?<with>[^ ']*[^ '.])'?( of [^ ]*[^ .])?( into (?<into>.*[^.]))?\.?$")
+            .expect("valid regex")
     })
 }
 

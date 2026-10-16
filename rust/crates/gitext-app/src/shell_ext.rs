@@ -10,7 +10,7 @@
 //! background of a folder window. Items can be hidden in *Settings → General*.
 
 // The registry code is only used on Windows (the menu building is tested everywhere).
-#![cfg_attr(not(windows), allow(dead_code))]
+#![cfg_attr(not(windows), allow(dead_code, reason = "the registry code is only used on Windows"))]
 
 /// Where an item is shown.
 const FILE: u8 = 1;
@@ -250,10 +250,7 @@ mod tests {
         let keys = registry_keys(exe, &[]);
         assert_eq!(value(&keys, r"*\shell\GitExtensions", "SubCommands"), Some(&RegValue::Str(String::new())));
         assert_eq!(value(&keys, r"*\shell\GitExtensions", "Icon"), Some(&RegValue::Str(format!("{exe},-1"))));
-        assert_eq!(
-            value(&keys, r"*\shell\GitExtensions\shell\01browse\command", ""),
-            Some(&RegValue::Str(format!("\"{exe}\" -C \"%1\" browse")))
-        );
+        assert_eq!(value(&keys, r"*\shell\GitExtensions\shell\01browse\command", ""), Some(&RegValue::Str(format!("\"{exe}\" -C \"%1\" browse"))));
         assert_eq!(
             value(&keys, r"Directory\Background\shell\GitExtensions\shell\01browse\command", ""),
             Some(&RegValue::Str(format!("\"{exe}\" -C \"%V\" browse")))

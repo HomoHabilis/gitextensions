@@ -44,9 +44,10 @@ impl PullDialog {
         let m = cx.module?;
         let remote = if self.remote.starts_with("[ All") { "" } else { self.remote.trim() };
         Some(match self.action {
-            PullAction::Merge | PullAction::Rebase => {
-                (trf("Pull {0}", &[&remote]), m.pull_args(remote, self.remote_branch.trim(), self.action == PullAction::Rebase, self.tags, self.auto_stash, self.prune))
-            }
+            PullAction::Merge | PullAction::Rebase => (
+                trf("Pull {0}", &[&remote]),
+                m.pull_args(remote, self.remote_branch.trim(), self.action == PullAction::Rebase, self.tags, self.auto_stash, self.prune),
+            ),
             PullAction::Fetch => (trf("Fetch {0}", &[&remote]), m.fetch_args(remote, self.remote_branch.trim(), "", self.tags, self.prune, self.unshallow)),
             PullAction::FetchAll => (tr("Fetch all").into(), m.fetch_args("", "", "", self.tags, self.prune, self.unshallow)),
             PullAction::FetchPruneAll => (tr("Fetch and prune all").into(), m.fetch_args("", "", "", self.tags, true, self.unshallow)),
@@ -82,10 +83,8 @@ impl Dialog for PullDialog {
             branch_combo(ui, "pull_remote", &mut self.remote, &self.remotes, 340.0);
             ui.end_row();
             ui.label(tr("Remote branch"));
-            let branches: Vec<String> = cx
-                .data
-                .map(|d| d.remote_branches().filter(|r| r.remote == self.remote).map(|r| r.local_name()).collect())
-                .unwrap_or_default();
+            let branches: Vec<String> =
+                cx.data.map(|d| d.remote_branches().filter(|r| r.remote == self.remote).map(|r| r.local_name()).collect()).unwrap_or_default();
             branch_combo(ui, "pull_branch", &mut self.remote_branch, &branches, 340.0);
             ui.end_row();
         });

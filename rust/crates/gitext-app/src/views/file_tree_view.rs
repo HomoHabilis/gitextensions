@@ -115,7 +115,7 @@ impl FileTreeView {
             self.shown_files.clear();
             let out = egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
                 if self.find.trim().is_empty() {
-                    self.dir_ui(ui, module, tree_rev, "", &palette, &mut cmd, 0);
+                    self.dir_ui(ui, module, tree_rev, "", &mut cmd);
                 } else {
                     let m = module.clone();
                     let files = self.all_files.request(ui.ctx(), tree_rev, move || m.ls_tree_recursive(tree_rev).unwrap_or_default());
@@ -183,9 +183,8 @@ impl FileTreeView {
         if !self.has_focus || self.shown_files.is_empty() || ui.ctx().wants_keyboard_input() {
             return;
         }
-        let (up, down, home, end) = ui.input(|i| {
-            (i.key_pressed(egui::Key::ArrowUp), i.key_pressed(egui::Key::ArrowDown), i.key_pressed(egui::Key::Home), i.key_pressed(egui::Key::End))
-        });
+        let (up, down, home, end) = ui
+            .input(|i| (i.key_pressed(egui::Key::ArrowUp), i.key_pressed(egui::Key::ArrowDown), i.key_pressed(egui::Key::Home), i.key_pressed(egui::Key::End)));
         if !(up || down || home || end) {
             return;
         }
@@ -208,8 +207,7 @@ impl FileTreeView {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn dir_ui(&mut self, ui: &mut Ui, module: &GitModule, rev: ObjectId, path: &str, palette: &Palette, cmd: &mut Option<DiffCommand>, depth: usize) {
+    fn dir_ui(&mut self, ui: &mut Ui, module: &GitModule, rev: ObjectId, path: &str, cmd: &mut Option<DiffCommand>) {
         let items = match self.tree.value.as_ref().filter(|_| self.tree.key == Some(rev)) {
             Some(tree) => Some(tree.get(path).cloned().unwrap_or_default()),
             None => {
@@ -238,7 +236,7 @@ impl FileTreeView {
                     if let Some(true) = open {
                         header = header.open(Some(true));
                     }
-                    let r = header.show(ui, |ui| self.dir_ui(ui, module, rev, &full, palette, cmd, depth + 1));
+                    let r = header.show(ui, |ui| self.dir_ui(ui, module, rev, &full, cmd));
                     r.header_response.context_menu(|ui| {
                         if ui.button(tr("File history")).clicked() {
                             *cmd = Some(DiffCommand::FileHistory(full.clone()));

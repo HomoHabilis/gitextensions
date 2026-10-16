@@ -70,10 +70,7 @@ mod tests {
     fn should_do_ellipsis() {
         for name in ["Too_many_lines", "Too_long_lines"] {
             let content = read_test_data(&format!("core/{name}.txt"));
-            verify(
-                &format!("core/GitRevisionSummaryBuilderTests.Should_do_ellipsis_testName={name}.verified.txt"),
-                &build_summary(Some(&content)).unwrap(),
-            );
+            verify(&format!("core/GitRevisionSummaryBuilderTests.Should_do_ellipsis_testName={name}.verified.txt"), &build_summary(Some(&content)).unwrap());
         }
     }
 }

@@ -1,7 +1,7 @@
 //! Port of `RevisionDiffControl`: changed files between revisions and their diff.
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use egui::{RichText, Ui};
 use gitext_core::module::DiffOptions;
@@ -19,21 +19,39 @@ use crate::theme::Palette;
 /// File commands from the diff tab context menu.
 #[derive(Debug, Clone)]
 pub enum DiffCommand {
-    Blame { file: String, rev: ObjectId },
+    Blame {
+        file: String,
+        rev: ObjectId,
+    },
     FileHistory(String),
-    ShowInFileTree { rev: ObjectId, file: String },
+    ShowInFileTree {
+        rev: ObjectId,
+        file: String,
+    },
     FilterPath(String),
     OpenWorkFile(String),
-    OpenRevisionFile { rev: ObjectId, file: String },
-    SaveAs { rev: ObjectId, file: String },
-    ResetFileTo { rev: ObjectId, files: Vec<String> },
+    OpenRevisionFile {
+        rev: ObjectId,
+        file: String,
+    },
+    SaveAs {
+        rev: ObjectId,
+        file: String,
+    },
+    ResetFileTo {
+        rev: ObjectId,
+        files: Vec<String>,
+    },
     Stage(Vec<String>),
     Unstage(Vec<String>),
     ResetWorkFiles(Vec<String>),
     CopyPaths(Vec<String>),
     OpenContainingFolder(String),
     AddToGitIgnore(Vec<String>),
-    StagePatch { patch: String, reverse: bool },
+    StagePatch {
+        patch: String,
+        reverse: bool,
+    },
     ResetPatch(String),
     /// The viewer toolbar changed the diff options in the settings.
     SaveSettings,
@@ -123,7 +141,8 @@ fn load_files(m: &GitModule, first: Option<ObjectId>, second: ObjectId, combined
         let parts: Vec<&str> = out.split('\0').filter(|s| !s.is_empty()).collect();
         Ok(parts
             .chunks(2)
-            .filter_map(|c| (c.len() == 2).then(|| GitItemStatus::from_status_character(gitext_core::status::StagedStatus::None, c[1], c[0].chars().next().unwrap_or('M'))))
+            .filter(|c| c.len() == 2)
+            .map(|c| GitItemStatus::from_status_character(gitext_core::status::StagedStatus::None, c[1], c[0].chars().next().unwrap_or('M')))
             .collect())
     } else {
         m.get_diff_files(first, second).map_err(|e| e.to_string())
@@ -206,7 +225,11 @@ fn load_difftastic(m: &GitModule, first: Option<ObjectId>, second: ObjectId, f: 
     .into_iter()
     .map(|(k, v)| (k.to_string(), v))
     .collect();
-    let args = GitArgs::new("difftool").args(["--find-renames", "--find-copies", "-y", "--tool=difftastic"]).args(diff_revs(first, second)).arg("--").args(diff_paths(f));
+    let args = GitArgs::new("difftool")
+        .args(["--find-renames", "--find-copies", "-y", "--tool=difftastic"])
+        .args(diff_revs(first, second))
+        .arg("--")
+        .args(diff_paths(f));
     colored(exe.run(&args), tr("No differences"))
 }
 
@@ -318,7 +341,6 @@ fn diff_content(m: &GitModule, second: ObjectId, f: &GitItemStatus, result: Resu
     }
 }
 
-
 /// Loads the files of a commit and the diff of its first file (the one shown when the commit is
 /// selected) into the cache. Returns the files.
 fn load_into_cache(cache: &SharedCache, m: &GitModule, first: Option<ObjectId>, second: ObjectId, combined: bool, opts: &DiffOptions) -> Result<Files, String> {
@@ -326,13 +348,10 @@ fn load_into_cache(cache: &SharedCache, m: &GitModule, first: Option<ObjectId>, 
     // git is stopped once the first diff is read, rather than producing the diffs of all files.
     if let (false, Some(parent)) = (combined, first) {
         if let Ok((files, patches)) = m.get_diff_files_with_patches(parent, second, opts, 0) {
-            let contents: Vec<(String, Content)> = files
-                .iter()
-                .zip(patches)
-                .map(|(f, p)| (diff_key(first, second, f, opts, combined), Arc::new(diff_content(m, second, f, Ok(p)))))
-                .collect();
+            let contents: Vec<(String, Content)> =
+                files.iter().zip(patches).map(|(f, p)| (diff_key(first, second, f, opts, combined), Arc::new(diff_content(m, second, f, Ok(p))))).collect();
             let files = Arc::new(files);
-            let mut c = cache.lock().unwrap();
+            let mut c = cache.lock().unwrap_or_else(PoisonError::into_inner);
             for (key, content) in contents {
                 c.diffs.insert(key, content);
             }
@@ -343,12 +362,12 @@ fn load_into_cache(cache: &SharedCache, m: &GitModule, first: Option<ObjectId>, 
     let files = Arc::new(load_files(m, first, second, combined)?);
     if let Some(f) = files.first() {
         let key = diff_key(first, second, f, opts, combined);
-        if !cache.lock().unwrap().diffs.contains(&key) {
+        if !cache.lock().unwrap_or_else(PoisonError::into_inner).diffs.contains(&key) {
             let content = Arc::new(load_diff(m, first, second, combined, f, opts));
-            cache.lock().unwrap().diffs.insert(key, content);
+            cache.lock().unwrap_or_else(PoisonError::into_inner).diffs.insert(key, content);
         }
     }
-    cache.lock().unwrap().files.insert((first, second, combined), Arc::clone(&files));
+    cache.lock().unwrap_or_else(PoisonError::into_inner).files.insert((first, second, combined), Arc::clone(&files));
     Ok(files)
 }
 
@@ -364,7 +383,12 @@ struct ShownKey {
 
 impl ShownKey {
     fn matches(&self, files: &Files, index: usize, first: Option<ObjectId>, second: ObjectId, combined: bool, opts: &DiffOptions) -> bool {
-        Arc::ptr_eq(&self.files, files) && self.index == index && self.first == first && self.second == second && self.combined == combined && self.opts == *opts
+        Arc::ptr_eq(&self.files, files)
+            && self.index == index
+            && self.first == first
+            && self.second == second
+            && self.combined == combined
+            && self.opts == *opts
     }
 }
 
@@ -434,7 +458,8 @@ impl RevisionDiffView {
                 settings.grep_ignore_case = !settings.grep_ignore_case;
                 changed = true;
             }
-            let r = ui.add(egui::TextEdit::singleline(&mut self.grep.text).hint_text(tr("Find in commit files (git grep)")).desired_width(ui.available_width()));
+            let r =
+                ui.add(egui::TextEdit::singleline(&mut self.grep.text).hint_text(tr("Find in commit files (git grep)")).desired_width(ui.available_width()));
             if std::mem::take(&mut self.grep.focus) {
                 r.request_focus();
             }
@@ -466,7 +491,11 @@ impl RevisionDiffView {
                 ui.colored_label(palette.error, e);
             }
             Some(Ok(files)) => {
-                ui.label(RichText::new(if files.len() == 1 { trf("{0} file found", &[&files.len()]) } else { trf("{0} files found", &[&files.len()]) }).small().color(palette.muted));
+                ui.label(
+                    RichText::new(if files.len() == 1 { trf("{0} file found", &[&files.len()]) } else { trf("{0} files found", &[&files.len()]) })
+                        .small()
+                        .color(palette.muted),
+                );
                 egui::ScrollArea::vertical().id_salt("grep_files").max_height(ui.available_height() * 0.4).auto_shrink([false, true]).show(ui, |ui| {
                     for f in &files {
                         let selected = self.grep.selected.as_deref() == Some(f.as_str());
@@ -496,11 +525,13 @@ impl RevisionDiffView {
             self.prefetch = None;
         }
         // the selected commit first
-        if self.last_key.is_some_and(|(first, second)| cacheable(first, second) && !self.cache.lock().unwrap().files.contains(&(first, second, false))) {
+        if self.last_key.is_some_and(|(first, second)| {
+            cacheable(first, second) && !self.cache.lock().unwrap_or_else(PoisonError::into_inner).files.contains(&(first, second, false))
+        }) {
             return;
         }
         let missing: Vec<(Option<ObjectId>, ObjectId)> = {
-            let cache = self.cache.lock().unwrap();
+            let cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
             commits
                 .iter()
                 .filter(|(id, parents)| parents.len() == 1 && cacheable(Some(parents[0]), *id))
@@ -525,7 +556,7 @@ impl RevisionDiffView {
 
     /// What replaces the patch of the selected file: the range-diff of two commits, the matches
     /// of a git grep, or a word diff / difftastic view. Loaded like the diffs, by key.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the state the view reads and updates")]
     fn special_content(
         &mut self,
         ui: &Ui,
@@ -577,6 +608,7 @@ impl RevisionDiffView {
     }
 
     /// Shows the diff between `first` (older, `None` = parent) and `second`.
+    #[allow(clippy::too_many_arguments, reason = "the state the view reads and updates")]
     pub fn ui(
         &mut self,
         ui: &mut Ui,
@@ -602,16 +634,18 @@ impl RevisionDiffView {
         if first.is_none() && parents.len() > 1 {
             ui.horizontal(|ui| {
                 ui.label(tr("Compare with:"));
-                egui::ComboBox::from_id_salt((id, "parent")).selected_text(if self.parent_index < parents.len() {
-                    trf("Parent {0} ({1})", &[&(self.parent_index + 1), &parents[self.parent_index].to_short_string()])
-                } else {
-                    tr("Combined diff").to_string()
-                }).show_ui(ui, |ui| {
-                    for (i, p) in parents.iter().enumerate() {
-                        ui.selectable_value(&mut self.parent_index, i, trf("Parent {0} ({1})", &[&(i + 1), &p.to_short_string()]));
-                    }
-                    ui.selectable_value(&mut self.parent_index, parents.len(), tr("Combined diff"));
-                });
+                egui::ComboBox::from_id_salt((id, "parent"))
+                    .selected_text(if self.parent_index < parents.len() {
+                        trf("Parent {0} ({1})", &[&(self.parent_index + 1), &parents[self.parent_index].to_short_string()])
+                    } else {
+                        tr("Combined diff").to_string()
+                    })
+                    .show_ui(ui, |ui| {
+                        for (i, p) in parents.iter().enumerate() {
+                            ui.selectable_value(&mut self.parent_index, i, trf("Parent {0} ({1})", &[&(i + 1), &p.to_short_string()]));
+                        }
+                        ui.selectable_value(&mut self.parent_index, parents.len(), tr("Combined diff"));
+                    });
             });
             if self.parent_index < parents.len() {
                 first = Some(parents[self.parent_index]);
@@ -637,7 +671,7 @@ impl RevisionDiffView {
         let files_key = (first, second, combined);
         let use_cache = cacheable(first, second);
         let opts = diff_options(settings);
-        let cached = if use_cache { self.cache.lock().unwrap().files.get(&files_key) } else { None };
+        let cached = if use_cache { self.cache.lock().unwrap_or_else(PoisonError::into_inner).files.get(&files_key) } else { None };
         let files = match cached {
             Some(files) => Some(Ok(files)),
             None => {
@@ -682,10 +716,18 @@ impl RevisionDiffView {
         let is_index = second == ObjectId::INDEX;
         let mut list_focus = false;
         egui::SidePanel::left(format!("{id}_files")).resizable(true).default_width(300.0).width_range(150.0..=900.0).show_inside(ui, |ui| {
-            ui.label(RichText::new(if files.len() == 1 { trf("{0} changed file", &[&files.len()]) } else { trf("{0} changed files", &[&files.len()]) }).small().color(palette.muted));
+            ui.label(
+                RichText::new(if files.len() == 1 { trf("{0} changed file", &[&files.len()]) } else { trf("{0} changed files", &[&files.len()]) })
+                    .small()
+                    .color(palette.muted),
+            );
             self.list.toolbar(ui);
             ui.horizontal(|ui| {
-                if ui.selectable_label(self.grep.open, RichText::new(format!("🔍 {}", tr("Find in files"))).small()).on_hover_text(format!("{} (Ctrl+Shift+F)", tr("Find in commit files using git grep"))).clicked() {
+                if ui
+                    .selectable_label(self.grep.open, RichText::new(format!("🔍 {}", tr("Find in files"))).small())
+                    .on_hover_text(format!("{} (Ctrl+Shift+F)", tr("Find in commit files using git grep")))
+                    .clicked()
+                {
                     if self.grep.open {
                         self.grep.open = false;
                         self.grep.selected = None;
@@ -694,7 +736,8 @@ impl RevisionDiffView {
                     }
                 }
                 if let Some(f) = selected_first {
-                    let hover = format!("{}: git range-diff {}...{}", tr("Compare the commits of both branches"), f.to_short_string(), second.to_short_string());
+                    let hover =
+                        format!("{}: git range-diff {}...{}", tr("Compare the commits of both branches"), f.to_short_string(), second.to_short_string());
                     if ui.selectable_label(self.range_diff, RichText::new(tr("Range diff")).small()).on_hover_text(hover).clicked() {
                         self.range_diff = !self.range_diff;
                         self.grep.selected = None;
@@ -807,8 +850,20 @@ impl RevisionDiffView {
                     } else if plain_key(&ctx, Key::B) {
                         cmd = Some(DiffCommand::Blame { file: first_name, rev: second });
                     } else if plain_key(&ctx, Key::F3) && first != Some(ObjectId::COMBINED_DIFF) {
-                        let files = self.list.selected_items(&files).iter().filter(|f| !f.is_submodule).map(|f| file_actions::DiffFile { name: f.name.clone(), old_name: f.old_name.clone(), is_tracked: f.is_tracked }).collect();
-                        cmd = Some(DiffCommand::File(file_actions::FileAction::Difftool { kind: gitext_core::diff_tools::FileDiffKind::FirstToSecond, first, second, files, tool: None }));
+                        let files = self
+                            .list
+                            .selected_items(&files)
+                            .iter()
+                            .filter(|f| !f.is_submodule)
+                            .map(|f| file_actions::DiffFile { name: f.name.clone(), old_name: f.old_name.clone(), is_tracked: f.is_tracked })
+                            .collect();
+                        cmd = Some(DiffCommand::File(file_actions::FileAction::Difftool {
+                            kind: gitext_core::diff_tools::FileDiffKind::FirstToSecond,
+                            first,
+                            second,
+                            files,
+                            tool: None,
+                        }));
                     } else if plain_key(&ctx, Key::F4) {
                         cmd = Some(DiffCommand::OpenWorkFile(first_name));
                     } else if !second.is_artificial() && shortcut(&ctx, Modifiers::COMMAND, Key::F3) {
@@ -836,8 +891,8 @@ impl RevisionDiffView {
                 self.range_diff = false;
             }
             list_focus = resp.has_focus;
-            if resp.double_clicked.is_some() {
-                if let Some(f) = files.get(resp.double_clicked.unwrap()) {
+            if let Some(index) = resp.double_clicked {
+                if let Some(f) = files.get(index) {
                     cmd = Some(if is_work_tree { DiffCommand::OpenWorkFile(f.name.clone()) } else { DiffCommand::Blame { file: f.name.clone(), rev: second } });
                 }
             }
@@ -849,45 +904,47 @@ impl RevisionDiffView {
         let special = self.special_content(ui, module, selected_first.filter(|_| self.range_diff), second, selected_file, first, combined, &opts, settings);
         let content: Content = if let Some(content) = special {
             content
-        } else { match selected {
-            None => Arc::new(ViewerContent::Empty(if files.is_empty() { tr("No changes").into() } else { tr("Select a file").into() })),
-            Some(index) => match &self.shown {
-                Some((k, content)) if k.matches(&files, index, first, second, combined, &opts) => Arc::clone(content),
-                _ => {
-                    let f = &files[index];
-                    let dk = diff_key(first, second, f, &opts, combined);
-                    let cached = if use_cache { self.cache.lock().unwrap().diffs.get(&dk) } else { None };
-                    let content = match cached {
-                        Some(content) => Some(content),
-                        None => {
-                            let m = module.clone();
-                            let f2 = f.clone();
-                            let cache = Arc::clone(&self.cache);
-                            let key = dk.clone();
-                            let opts = opts.clone();
-                            self.diff
-                                .request(ui.ctx(), dk, move || {
-                                    let content = Arc::new(load_diff(&m, first, second, combined, &f2, &opts));
-                                    if use_cache {
-                                        cache.lock().unwrap().diffs.insert(key, Arc::clone(&content));
-                                    }
-                                    content
-                                })
-                                .cloned()
+        } else {
+            match selected {
+                None => Arc::new(ViewerContent::Empty(if files.is_empty() { tr("No changes").into() } else { tr("Select a file").into() })),
+                Some(index) => match &self.shown {
+                    Some((k, content)) if k.matches(&files, index, first, second, combined, &opts) => Arc::clone(content),
+                    _ => {
+                        let f = &files[index];
+                        let dk = diff_key(first, second, f, &opts, combined);
+                        let cached = if use_cache { self.cache.lock().unwrap_or_else(PoisonError::into_inner).diffs.get(&dk) } else { None };
+                        let content = match cached {
+                            Some(content) => Some(content),
+                            None => {
+                                let m = module.clone();
+                                let f2 = f.clone();
+                                let cache = Arc::clone(&self.cache);
+                                let key = dk.clone();
+                                let opts = opts.clone();
+                                self.diff
+                                    .request(ui.ctx(), dk, move || {
+                                        let content = Arc::new(load_diff(&m, first, second, combined, &f2, &opts));
+                                        if use_cache {
+                                            cache.lock().unwrap_or_else(PoisonError::into_inner).diffs.insert(key, Arc::clone(&content));
+                                        }
+                                        content
+                                    })
+                                    .cloned()
+                            }
+                        };
+                        match content {
+                            Some(content) => {
+                                let key = ShownKey { files: Arc::clone(&files), index, first, second, combined, opts: opts.clone() };
+                                gitext_core::exec::log_event(format!("diff tab: diff of {} shown", f.name));
+                                self.shown = Some((key, Arc::clone(&content)));
+                                content
+                            }
+                            None => Arc::new(ViewerContent::Empty(tr("Loading…").into())),
                         }
-                    };
-                    match content {
-                        Some(content) => {
-                            let key = ShownKey { files: Arc::clone(&files), index, first, second, combined, opts: opts.clone() };
-                            gitext_core::exec::log_event(format!("diff tab: diff of {} shown", f.name));
-                            self.shown = Some((key, Arc::clone(&content)));
-                            content
-                        }
-                        None => Arc::new(ViewerContent::Empty(tr("Loading…").into())),
                     }
-                }
-            },
-        } };
+                },
+            }
+        };
         ui.horizontal(|ui| {
             if let (true, Some(f)) = (self.range_diff, selected_first) {
                 ui.label(RichText::new(format!("{} {}...{}", tr("Range diff"), f.to_short_string(), second.to_short_string())).strong());
@@ -908,13 +965,15 @@ impl RevisionDiffView {
         } else {
             vec![ViewerCommand::CopyPatch]
         };
-        let shown_file = if self.range_diff && selected_first.is_some() { None } else { self.grep.selected.as_deref().or(selected_file.map(|f| f.name.as_str())) };
+        let shown_file =
+            if self.range_diff && selected_first.is_some() { None } else { self.grep.selected.as_deref().or(selected_file.map(|f| f.name.as_str())) };
         self.viewer.set_file_name(shown_file);
         self.viewer.appearance_menu = true;
         if self.viewer.toolbar(ui, &content, settings) {
             cmd = Some(DiffCommand::SaveSettings);
         }
-        if (list_focus || self.viewer.has_focus(ui.ctx())) && crate::views::shortcut(ui.ctx(), egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::F) {
+        if (list_focus || self.viewer.has_focus(ui.ctx())) && crate::views::shortcut(ui.ctx(), egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::F)
+        {
             self.open_grep();
         }
         if let Some(c) = self.viewer.ui(ui, &content, settings.show_line_numbers, &menu) {
@@ -965,7 +1024,8 @@ mod tests {
         let Some(repo) = std::env::var_os("GITEXT_BENCH_REPO") else { return };
         let module = GitModule::open(repo).unwrap();
         let opts = diff_options(&AppSettings::default());
-        let out = module.git().output(&gitext_core::GitArgs::new("rev-list").args(["--no-merges", "--max-count=8", "--skip=2000", "--parents", "HEAD"])).unwrap();
+        let out =
+            module.git().output(&gitext_core::GitArgs::new("rev-list").args(["--no-merges", "--max-count=8", "--skip=2000", "--parents", "HEAD"])).unwrap();
         let count = || gitext_core::exec::command_log_entries().len();
         for line in out.lines() {
             let ids: Vec<ObjectId> = line.split(' ').filter_map(ObjectId::try_parse).collect();
@@ -978,7 +1038,7 @@ mod tests {
             let (n, t) = (count(), Instant::now());
             let files = load_into_cache(&cache, &module, first, second, false, &opts).unwrap();
             let (after, after_n) = (t.elapsed(), count() - n);
-            let cached = cache.lock().unwrap().diffs.entries.len();
+            let cached = cache.lock().unwrap_or_else(PoisonError::into_inner).diffs.entries.len();
             eprintln!(
                 "{}: {} files | before {:.1} ms, {} git | after {:.1} ms, {} git, {} diffs cached",
                 second.to_short_string(),
@@ -1006,7 +1066,15 @@ mod tests {
     }
 
     /// Runs frames of the diff tab until the viewer shows content matching `done`.
-    fn show_until(view: &mut RevisionDiffView, module: &GitModule, first: Option<ObjectId>, second: ObjectId, parents: &[ObjectId], settings: &mut AppSettings, done: impl Fn(&ViewerContent) -> bool) -> ViewerContent {
+    fn show_until(
+        view: &mut RevisionDiffView,
+        module: &GitModule,
+        first: Option<ObjectId>,
+        second: ObjectId,
+        parents: &[ObjectId],
+        settings: &mut AppSettings,
+        done: impl Fn(&ViewerContent) -> bool,
+    ) -> ViewerContent {
         let ctx = egui::Context::default();
         let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 1000.0))), ..Default::default() };
         let start = Instant::now();

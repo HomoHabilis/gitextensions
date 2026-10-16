@@ -71,15 +71,13 @@ impl HoverHighlight {
         }
 
         let is_in_branch_group = |r: &GitRef| git_ref.is_tracking_remote(Some(r)) || r.is_tracking_remote(Some(git_ref));
-        let has_group_ref = |graph: &RevisionGraph, n: NodeIdx| {
-            graph.store.nodes[n].revision.as_ref().is_some_and(|rev| rev.refs.iter().any(&is_in_branch_group))
-        };
+        let has_group_ref =
+            |graph: &RevisionGraph, n: NodeIdx| graph.store.nodes[n].revision.as_ref().is_some_and(|rev| rev.refs.iter().any(&is_in_branch_group));
 
         if add_id_and_parents(graph, row_index, &mut visible_ids).is_none() {
             return false;
         }
-        let check_other_refs =
-            (git_ref.is_remote() || (git_ref.is_head() && !git_ref.merge_with.is_empty())) && !has_group_ref(graph, hovered);
+        let check_other_refs = (git_ref.is_remote() || (git_ref.is_head() && !git_ref.merge_with.is_empty())) && !has_group_ref(graph, hovered);
 
         let mut below_rev = None;
         let visible_to = (visible.from_index + visible.count) as i64 - 1;
@@ -164,7 +162,12 @@ mod tests {
     }
 
     fn row_for(graph: &mut RevisionGraph, rows: usize, i: &str) -> i64 {
-        (0..rows).find(|&r| { let n = graph.get_node_for_row(r); n.map(|n| graph.store.nodes[n].object_id) == Some(id(i)) }).unwrap() as i64
+        (0..rows)
+            .find(|&r| {
+                let n = graph.get_node_for_row(r);
+                n.map(|n| graph.store.nodes[n].object_id) == Some(id(i))
+            })
+            .unwrap() as i64
     }
 
     fn set(ids: &[&str]) -> HashSet<ObjectId> {

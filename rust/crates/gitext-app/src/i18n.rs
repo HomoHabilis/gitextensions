@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// A language the UI can be shown in. `name` is the value of the `translation` setting, as
@@ -99,38 +99,53 @@ pub fn language(name: &str) -> &'static Language {
     LANGUAGES.iter().find(|l| l.name.eq_ignore_ascii_case(name)).unwrap_or(&LANGUAGES[0])
 }
 
-type Catalog = HashMap<&'static str, &'static str>;
+type Catalog = HashMap<String, String>;
 
-/// The catalog in use; null for English. Catalogs are parsed once and kept for the life of the
-/// process, so `tr` hands out `&'static str` and needs no lock.
-static CURRENT: AtomicPtr<Catalog> = AtomicPtr::new(std::ptr::null_mut());
+/// Index in [`LANGUAGES`] of the language in use; `ENGLISH` when no translation is used.
+static CURRENT: AtomicUsize = AtomicUsize::new(ENGLISH);
+const ENGLISH: usize = usize::MAX;
+
+/// The catalogs, by index in [`LANGUAGES`]: each is parsed once, when its language is chosen,
+/// and kept for the life of the process, so `tr` needs no lock.
+fn catalogs() -> &'static [OnceLock<Catalog>] {
+    static CATALOGS: OnceLock<Vec<OnceLock<Catalog>>> = OnceLock::new();
+    CATALOGS.get_or_init(|| LANGUAGES.iter().map(|_| OnceLock::new()).collect())
+}
+
+fn language_index(lang: &'static Language) -> usize {
+    LANGUAGES.iter().position(|l| std::ptr::eq(l, lang)).unwrap_or(0)
+}
 
 fn catalog(lang: &'static Language) -> &'static Catalog {
-    static LOADED: OnceLock<Mutex<HashMap<&'static str, &'static Catalog>>> = OnceLock::new();
-    let mut loaded = LOADED.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
-    loaded.entry(lang.code).or_insert_with(|| {
-        let map: HashMap<String, String> = serde_json::from_str(lang.catalog).unwrap_or_default();
-        let map: Catalog = map.into_iter().map(|(k, v)| (&*k.leak(), &*v.leak())).collect();
-        Box::leak(Box::new(map))
-    })
+    catalogs()[language_index(lang)].get_or_init(|| serde_json::from_str(lang.catalog).unwrap_or_default())
 }
 
 /// Shows the UI in a language (by its setting name); takes effect on the next frame.
 pub fn set_language(name: &str) {
     let lang = language(name);
-    let ptr = if lang.code == "en" { std::ptr::null_mut() } else { catalog(lang) as *const Catalog as *mut Catalog };
-    CURRENT.store(ptr, Ordering::Release);
+    let index = if lang.code == "en" {
+        ENGLISH
+    } else {
+        catalog(lang);
+        language_index(lang)
+    };
+    CURRENT.store(index, Ordering::Release);
 }
 
 /// The translation of a UI string, or the string itself when it has none.
 pub fn tr(s: &str) -> &str {
-    let ptr = CURRENT.load(Ordering::Acquire);
-    if ptr.is_null() {
+    translate(CURRENT.load(Ordering::Acquire), s)
+}
+
+/// The translation of `s` in the language at `index` in [`LANGUAGES`] (`ENGLISH`: none).
+fn translate(index: usize, s: &str) -> &str {
+    if index == ENGLISH {
         return s;
     }
-    // SAFETY: CURRENT only ever holds null or a leaked `&'static Catalog`.
-    let catalog: &'static Catalog = unsafe { &*ptr };
-    catalog.get(s).copied().unwrap_or(s)
+    match catalogs().get(index).and_then(OnceLock::get) {
+        Some(catalog) => catalog.get(s).map_or(s, String::as_str),
+        None => s,
+    }
 }
 
 /// Translates a format string with `{0}`, `{1}`… placeholders (as upstream's
@@ -209,7 +224,9 @@ fn system_font(script: Script) -> Option<(Vec<u8>, u32)> {
         let paths: &[&str] = match script {
             Script::Japanese => &["/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc", "/System/Library/Fonts/Hiragino Sans GB.ttc"],
             Script::Korean => &["/System/Library/Fonts/AppleSDGothicNeo.ttc"],
-            Script::SimplifiedChinese | Script::TraditionalChinese => &["/System/Library/Fonts/Hiragino Sans GB.ttc", "/System/Library/Fonts/STHeiti Light.ttc"],
+            Script::SimplifiedChinese | Script::TraditionalChinese => {
+                &["/System/Library/Fonts/Hiragino Sans GB.ttc", "/System/Library/Fonts/STHeiti Light.ttc"]
+            }
             Script::Thai => &["/System/Library/Fonts/Supplemental/Thonburi.ttc", "/System/Library/Fonts/Thonburi.ttc"],
             Script::Vietnamese => &["/System/Library/Fonts/Helvetica.ttc"],
         };
@@ -248,12 +265,17 @@ mod tests {
 
     #[test]
     fn looks_up_catalogs_and_falls_back_to_english() {
-        assert_eq!(catalog(language("German")).get("Cancel"), Some(&"Abbrechen"));
-        assert_eq!(catalog(language("french")).get("Cancel"), Some(&"Annuler"));
+        assert_eq!(catalog(language("German")).get("Cancel").map(String::as_str), Some("Abbrechen"));
+        assert_eq!(catalog(language("french")).get("Cancel").map(String::as_str), Some("Annuler"));
         assert_eq!(language("Klingon").code, "en");
         assert_eq!(language("").code, "en");
         // English: nothing is translated
         assert_eq!(tr("Cancel"), "Cancel");
+        // what `tr` returns once a language is chosen; untranslated strings stay English
+        let german = language_index(language("German"));
+        assert_eq!(translate(german, "Cancel"), "Abbrechen");
+        assert_eq!(translate(german, "not a UI string"), "not a UI string");
+        assert_eq!(translate(ENGLISH, "Cancel"), "Cancel");
         assert_eq!(trf("{0} of {1}", &[&1, &3]), "1 of 3");
     }
 
