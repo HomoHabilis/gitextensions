@@ -103,7 +103,11 @@ pub fn convert_args(args: &[String], wsl_distro: &str) -> Vec<String> {
         .map(|arg| {
             let keep = is_message || arg.starts_with("--message=");
             is_message = arg == "-m" || arg == "--message";
-            if keep { arg.clone() } else { convert_arg(arg, wsl_distro) }
+            if keep {
+                arg.clone()
+            } else {
+                convert_arg(arg, wsl_distro)
+            }
         })
         .collect()
 }
@@ -240,7 +244,31 @@ mod tests {
     /// Paths printed by git or typed by the user can be anything: no conversion may panic.
     #[test]
     fn conversions_never_panic() {
-        let pieces = ["", "/", "\\", "//", r"\\", "mnt", "/mnt/", "/mnt/c", "c:", "C:\\", "é", "日本", "wsl$", r"\\wsl$\", r"\\wsl.localhost\", "//wsl$/", "Ubuntu", "-", "--x=", "-m", "a b", "€", "\u{1F600}"];
+        let pieces = [
+            "",
+            "/",
+            "\\",
+            "//",
+            r"\\",
+            "mnt",
+            "/mnt/",
+            "/mnt/c",
+            "c:",
+            "C:\\",
+            "é",
+            "日本",
+            "wsl$",
+            r"\\wsl$\",
+            r"\\wsl.localhost\",
+            "//wsl$/",
+            "Ubuntu",
+            "-",
+            "--x=",
+            "-m",
+            "a b",
+            "€",
+            "\u{1F600}",
+        ];
         let mut n = 0;
         for a in pieces {
             for b in pieces {
@@ -260,10 +288,11 @@ mod tests {
     /// prints comes back through them: they must stay cheap.
     #[test]
     fn conversion_throughput() {
-        let args: Vec<String> = ["log", "-z", "--format=%H", "-m", r"C:\message", "--output=D:/out.txt", r"\\wsl$\Ubuntu\home\jack\repo\src\main.rs", "src/lib.rs"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let args: Vec<String> =
+            ["log", "-z", "--format=%H", "-m", r"C:\message", "--output=D:/out.txt", r"\\wsl$\Ubuntu\home\jack\repo\src\main.rs", "src/lib.rs"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
         let paths = ["/home/jack/repo/.git", "/mnt/c/Users/jack/repo", "/mnt/wslg/x", "/home/jérémie/dépôt"];
         let rounds = 20_000;
         let started = std::time::Instant::now();

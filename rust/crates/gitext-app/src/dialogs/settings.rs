@@ -63,14 +63,7 @@ impl GitPageData {
         for t in &mut tools {
             t.detected();
         }
-        GitPageData {
-            git_command,
-            version,
-            name: global_get("user.name"),
-            email: global_get("user.email"),
-            editor: global_get("core.editor"),
-            tools,
-        }
+        GitPageData { git_command, version, name: global_get("user.name"), email: global_get("user.email"), editor: global_get("core.editor"), tools }
     }
 }
 
@@ -521,7 +514,14 @@ fn shell_ext_ui(ui: &mut Ui, s: &mut AppSettings, result: &mut Option<Result<Str
     use crate::shell_ext;
     ui.strong(tr("Windows Explorer context menu"));
     let registered = shell_ext::is_registered();
-    ui.label(RichText::new(if registered { tr("The Git Extensions menu is shown when right-clicking files and folders.") } else { tr("The Git Extensions menu is not installed.") }).small());
+    ui.label(
+        RichText::new(if registered {
+            tr("The Git Extensions menu is shown when right-clicking files and folders.")
+        } else {
+            tr("The Git Extensions menu is not installed.")
+        })
+        .small(),
+    );
     ui.label(tr("Items in the menu:"));
     egui::Grid::new("shell_ext_items").num_columns(3).show(ui, |ui| {
         for (n, item) in shell_ext::ITEMS.iter().enumerate() {

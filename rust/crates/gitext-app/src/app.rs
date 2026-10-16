@@ -191,7 +191,8 @@ impl GitExtApp {
         let Some(m) = self.module() else { return };
         let exe = m.git();
         // the git of a WSL distro uses the tools configured in the distro
-        let launch = if exe.wsl_distro.is_empty() { diff_tools::resolve_launch(&ToolConfigStore::new(exe.clone()), tool_type) } else { Some(ToolLaunch::Configured) };
+        let launch =
+            if exe.wsl_distro.is_empty() { diff_tools::resolve_launch(&ToolConfigStore::new(exe.clone()), tool_type) } else { Some(ToolLaunch::Configured) };
         let Some(launch) = launch else {
             self.open_dialog(Box::new(dialogs::tools::NoToolDialog { tool_type }));
             return;
@@ -216,7 +217,11 @@ impl GitExtApp {
             self.open_dialog(Box::new(dialogs::tools::NoToolDialog { tool_type: ToolType::Diff }));
             return;
         };
-        self.tool_runs.push((tr("Diff tool").into(), false, crate::tasks::Task::spawn(ctx, move || diff_tools::difftool_commit_with_work_tree(&exe, &launch, id))));
+        self.tool_runs.push((
+            tr("Diff tool").into(),
+            false,
+            crate::tasks::Task::spawn(ctx, move || diff_tools::difftool_commit_with_work_tree(&exe, &launch, id)),
+        ));
     }
 
     /// Runs git, or `program`, without a process dialog (user scripts set to run in the
@@ -269,27 +274,27 @@ impl GitExtApp {
         let data = self.browse.as_ref().map(|b| b.data.clone()).unwrap_or_default();
         let d: Option<Box<dyn Dialog>> = match start {
             StartCommand::Browse => None,
-            StartCommand::Commit => Some(Box::new(commit::CommitDialog::default())),
+            StartCommand::Commit => Some(Box::<commit::CommitDialog>::default()),
             StartCommand::Clone(url) => Some(Box::new(clone::CloneDialog::new(url, &self.settings))),
             StartCommand::Init(path) => Some(Box::new(init::InitDialog::new(path))),
             StartCommand::Blame(file, line) => Some(Box::new(blame::BlameDialog::with_line(file, ObjectId::ZERO, line.and_then(|l| l.parse().ok())))),
             StartCommand::FileHistory(file) => Some(Box::new(file_history::FileHistoryDialog::new(file))),
-            StartCommand::Settings => Some(Box::new(settings::SettingsDialog::default())),
+            StartCommand::Settings => Some(Box::<settings::SettingsDialog>::default()),
             StartCommand::About => Some(Box::new(about::AboutDialog)),
             StartCommand::Pull => Some(Box::new(pull::PullDialog::new(&data, None))),
             StartCommand::Push => Some(Box::new(push::PushDialog::new(&data, &self.settings, None))),
-            StartCommand::Stash => Some(Box::new(stash::StashDialog::default())),
+            StartCommand::Stash => Some(Box::<stash::StashDialog>::default()),
             StartCommand::Merge(b) => Some(Box::new(merge::MergeDialog::new(&data, b.as_deref().unwrap_or("")))),
             StartCommand::Rebase(b) => Some(Box::new(rebase::RebaseDialog::new(&data, b.as_deref().unwrap_or("")))),
             StartCommand::Checkout => Some(Box::new(checkout::CheckoutBranchDialog::new(&data, None, false))),
             StartCommand::Branch => Some(Box::new(branch::CreateBranchDialog::new(data.head))),
             StartCommand::Tag => Some(Box::new(tag::CreateTagDialog::new(data.head))),
-            StartCommand::Remotes => Some(Box::new(remotes::RemotesDialog::default())),
-            StartCommand::Reflog => Some(Box::new(reflog::ReflogDialog::default())),
+            StartCommand::Remotes => Some(Box::<remotes::RemotesDialog>::default()),
+            StartCommand::Reflog => Some(Box::<reflog::ReflogDialog>::default()),
             StartCommand::Archive => Some(Box::new(archive::ArchiveDialog::new(data.head))),
             StartCommand::ApplyPatch(p) => Some(Box::new(patch::ApplyPatchDialog::new(p))),
-            StartCommand::Cleanup => Some(Box::new(cleanup::CleanupDialog::default())),
-            StartCommand::MergeConflicts => Some(Box::new(conflicts::ConflictsDialog::default())),
+            StartCommand::Cleanup => Some(Box::<cleanup::CleanupDialog>::default()),
+            StartCommand::MergeConflicts => Some(Box::<conflicts::ConflictsDialog>::default()),
             StartCommand::Search => {
                 // the file search of the original is the "Find file" box of the file tree tab
                 self.actions.push(Action::ShowTab(2));
@@ -363,7 +368,7 @@ impl GitExtApp {
                     }
                     Action::SaveSettings => self.save_settings(),
                     Action::ApplyTheme => self.theme_applied = false,
-                    Action::OpenCommit => self.open_dialog(Box::new(dialogs::commit::CommitDialog::default())),
+                    Action::OpenCommit => self.open_dialog(Box::<dialogs::commit::CommitDialog>::default()),
                     Action::ShowTab(t) => {
                         if let Some(b) = &mut self.browse {
                             b.tab = t;
@@ -506,11 +511,11 @@ impl GitExtApp {
                     }
                     ui.separator();
                     if ui.button(tr("Manage remotes…")).clicked() {
-                        open.push(Box::new(remotes::RemotesDialog::default()));
+                        open.push(Box::<remotes::RemotesDialog>::default());
                         ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.button(tr("Manage submodules…")).clicked() {
-                        open.push(Box::new(submodules::SubmodulesDialog::default()));
+                        open.push(Box::<submodules::SubmodulesDialog>::default());
                         ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.add_enabled(!data.is_bare, egui::Button::new(tr("Update all submodules"))).clicked() {
@@ -522,7 +527,7 @@ impl GitExtApp {
                         ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.button(format!("{}  (Ctrl+Alt+W)", tr("Manage worktrees…"))).clicked() {
-                        open.push(Box::new(worktrees::WorktreesDialog::default()));
+                        open.push(Box::new(worktrees::WorktreesDialog));
                         ui.close_kind(egui::UiKind::Menu);
                     }
                     ui.separator();
@@ -548,7 +553,7 @@ impl GitExtApp {
                             ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button(tr("Recover lost objects…")).clicked() {
-                            open.push(Box::new(verify::VerifyDialog::default()));
+                            open.push(Box::<verify::VerifyDialog>::default());
                             ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button(tr("Delete index.lock")).clicked() {
@@ -574,11 +579,11 @@ impl GitExtApp {
                         }
                     });
                     if ui.button(tr("Sparse working copy…")).clicked() {
-                        open.push(Box::new(editor::SparseCheckoutDialog::default()));
+                        open.push(Box::<editor::SparseCheckoutDialog>::default());
                         ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.button(tr("Repository settings (git config)…")).clicked() {
-                        open.push(Box::new(settings::GitConfigDialog::default()));
+                        open.push(Box::<settings::GitConfigDialog>::default());
                         ui.close_kind(egui::UiKind::Menu);
                     }
                 });
@@ -589,12 +594,12 @@ impl GitExtApp {
                             ui.close_kind(egui::UiKind::Menu);
                         }
                     };
-                    item(ui, &format!("{}  (Ctrl+Space)", tr("Commit…")), &mut || Box::new(commit::CommitDialog::default()));
+                    item(ui, &format!("{}  (Ctrl+Space)", tr("Commit…")), &mut || Box::<commit::CommitDialog>::default());
                     item(ui, &format!("{}  (Ctrl+Down)", tr("Pull/Fetch…")), &mut || Box::new(pull::PullDialog::new(&data, None)));
                     item(ui, &format!("{}  (Ctrl+Up)", tr("Push…")), &mut || Box::new(push::PushDialog::new(&data, &self.settings, None)));
-                    item(ui, tr("Manage stashes…"), &mut || Box::new(stash::StashDialog::default()));
+                    item(ui, tr("Manage stashes…"), &mut || Box::<stash::StashDialog>::default());
                     item(ui, tr("Reset changes…"), &mut || Box::new(reset::ResetChangesDialog::all()));
-                    item(ui, tr("Clean working directory…"), &mut || Box::new(cleanup::CleanupDialog::default()));
+                    item(ui, tr("Clean working directory…"), &mut || Box::<cleanup::CleanupDialog>::default());
                     ui.add_enabled_ui(!data.is_bare && !head.is_zero(), |ui| {
                         item(ui, tr("Undo last commit…"), &mut || {
                             Box::new(Confirm::new(
@@ -620,13 +625,13 @@ impl GitExtApp {
                     item(ui, tr("Archive revision…"), &mut || Box::new(archive::ArchiveDialog::new(head)));
                     item(ui, tr("Format patch…"), &mut || Box::new(patch::FormatPatchDialog::new(&[], head)));
                     item(ui, tr("Apply patch…"), &mut || Box::new(patch::ApplyPatchDialog::new(None)));
-                    item(ui, tr("View patch file…"), &mut || Box::new(patch::ViewPatchDialog::default()));
+                    item(ui, tr("View patch file…"), &mut || Box::<patch::ViewPatchDialog>::default());
                     ui.separator();
                     item(ui, tr("Compare branches (diff)…"), &mut || Box::new(compare::CompareDialog::new(&data)));
                     item(ui, tr("Bisect…"), &mut || Box::new(bisect::BisectDialog));
-                    item(ui, tr("Solve merge conflicts…"), &mut || Box::new(conflicts::ConflictsDialog::default()));
-                    item(ui, tr("View reflog…"), &mut || Box::new(reflog::ReflogDialog::default()));
-                    item(ui, &format!("{}  (Ctrl+Shift+G)", tr("Go to commit…")), &mut || Box::new(goto_commit::GoToCommitDialog::default()));
+                    item(ui, tr("Solve merge conflicts…"), &mut || Box::<conflicts::ConflictsDialog>::default());
+                    item(ui, tr("View reflog…"), &mut || Box::<reflog::ReflogDialog>::default());
+                    item(ui, &format!("{}  (Ctrl+Shift+G)", tr("Go to commit…")), &mut || Box::<goto_commit::GoToCommitDialog>::default());
                 });
             });
             ui.menu_button(tr("View"), |ui| {
@@ -644,7 +649,8 @@ impl GitExtApp {
                 ui.menu_button(tr("Graph"), |ui| {
                     let mut reload = false;
                     reload |= ui.radio_value(&mut self.settings.graph_draw_style, GraphDrawStyle::Normal, tr("Color all branches")).changed();
-                    reload |= ui.radio_value(&mut self.settings.graph_draw_style, GraphDrawStyle::DrawNonRelativesGray, tr("Draw non relatives gray")).changed();
+                    reload |=
+                        ui.radio_value(&mut self.settings.graph_draw_style, GraphDrawStyle::DrawNonRelativesGray, tr("Draw non relatives gray")).changed();
                     reload |= ui.radio_value(&mut self.settings.graph_draw_style, GraphDrawStyle::HighlightSelected, tr("Highlight selected branch")).changed();
                     ui.separator();
                     reload |= ui.checkbox(&mut self.settings.merge_graph_lanes_having_common_parent, tr("Merge lanes having a common parent")).changed();
@@ -685,7 +691,7 @@ impl GitExtApp {
                     ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button(format!("{}  (Ctrl+,)", tr("Settings…"))).clicked() {
-                    open.push(Box::new(settings::SettingsDialog::default()));
+                    open.push(Box::<settings::SettingsDialog>::default());
                     ui.close_kind(egui::UiKind::Menu);
                 }
             });
@@ -830,7 +836,7 @@ impl eframe::App for GitExtApp {
                             self.save_history();
                         }
                         DashboardCommand::ShowInFolder(p) => crate::util::open_folder(&p, &self.settings.file_manager),
-                        DashboardCommand::Settings => self.open_dialog(Box::new(dialogs::settings::SettingsDialog::default())),
+                        DashboardCommand::Settings => self.open_dialog(Box::<dialogs::settings::SettingsDialog>::default()),
                     }
                 }
             });
@@ -854,7 +860,6 @@ impl eframe::App for GitExtApp {
         self.save_history();
     }
 }
-
 
 /// The `safe.directory` value git suggests in a "detected dubious ownership" error, if any
 /// (`BugReportInvoker.DubiousOwnershipSecurityConfigString`).

@@ -1,0 +1,3 @@
+# The code is written with long lines: format to 160 columns, filling them.
+max_width = 160
+use_small_heuristics = "Max"

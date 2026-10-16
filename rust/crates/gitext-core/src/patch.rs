@@ -36,24 +36,25 @@ const ESC: &str = r"\x1b\[[^m]*m";
 
 fn strip_wrapping_escapes() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(&format!(r"^(?:{ESC})?(?<line>.*?)(?:{ESC})?\s*$")).unwrap())
+    RE.get_or_init(|| Regex::new(&format!(r"^(?:{ESC})?(?<line>.*?)(?:{ESC})?\s*$")).expect("valid regex"))
 }
 
 fn patch_header_file_name() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"^diff --(?<type>git|cc|combined)\s["]?(?:[^/\s]+/)?(?<filenamea>.*?)["]?(?: ["]?[^/\s]+/(?<filenameb>.*?)["]?)?\s*$"#).unwrap()
+        Regex::new(r#"^diff --(?<type>git|cc|combined)\s["]?(?:[^/\s]+/)?(?<filenamea>.*?)["]?(?: ["]?[^/\s]+/(?<filenameb>.*?)["]?)?\s*$"#)
+            .expect("valid regex")
     })
 }
 
 fn patch_header() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(&format!(r"^(?:{ESC})?diff --(?:git|cc|combined)\s")).unwrap())
+    RE.get_or_init(|| Regex::new(&format!(r"^(?:{ESC})?diff --(?:git|cc|combined)\s")).expect("valid regex"))
 }
 
 fn file_name_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r#"(?:---|\+\+\+) ["]?[^/\s]+/(?<filename>.*)["]?"#).unwrap())
+    RE.get_or_init(|| Regex::new(r#"(?:---|\+\+\+) ["]?[^/\s]+/(?<filename>.*)["]?"#).expect("valid regex"))
 }
 
 fn strip(line: &str) -> String {
@@ -63,14 +64,14 @@ fn strip(line: &str) -> String {
 /// Removes ANSI escape sequences from a line.
 pub fn strip_ansi(line: &str) -> String {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(ESC).unwrap()).replace_all(line, "").into_owned()
+    RE.get_or_init(|| Regex::new(ESC).expect("valid regex")).replace_all(line, "").into_owned()
 }
 
 /// Unescapes git's octal escaped file names (`\303\244.txt` > `ä.txt`). A run of escapes with
 /// a value above `\377` is kept unchanged (port of `GitModule.UnescapeOctalCodePoints`).
 pub fn unescape_octal_code_points(s: &str) -> String {
     static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| Regex::new(r"(?:\\[0-7]{3})+").unwrap());
+    let re = RE.get_or_init(|| Regex::new(r"(?:\\[0-7]{3})+").expect("valid regex"));
     re.replace_all(s, |c: &regex::Captures| {
         let run = &c[0];
         let mut bytes = Vec::with_capacity(run.len() / 4);
@@ -213,7 +214,7 @@ pub struct DiffLine {
 
 fn parse_hunk_header(line: &str) -> Option<(u32, u32, u32, u32)> {
     static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| Regex::new(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@").unwrap());
+    let re = RE.get_or_init(|| Regex::new(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@").expect("valid regex"));
     let c = re.captures(line)?;
     let n = |i: usize, d: u32| c.get(i).map(|m| m.as_str().parse().unwrap_or(d)).unwrap_or(d);
     Some((n(1, 0), n(2, 1), n(3, 0), n(4, 1)))
@@ -342,22 +343,17 @@ pub fn create_partial_patch(diff: &str, selected: &[usize], reverse: bool) -> Op
                         last_kept_was_dropped_add = true;
                     }
                 }
-                DiffLineKind::NoNewline
-                    if !last_kept_was_dropped_add => {
-                        hunk_text.push_str(&l.text);
-                        hunk_text.push('\n');
-                    }
+                DiffLineKind::NoNewline if !last_kept_was_dropped_add => {
+                    hunk_text.push_str(&l.text);
+                    hunk_text.push('\n');
+                }
                 _ => {}
             }
             i += 1;
         }
         if hunk_has_change {
             any = true;
-            let (os, ns) = if reverse {
-                (new_start as i64 - offset, new_start as i64)
-            } else {
-                (old_start as i64, old_start as i64 + offset)
-            };
+            let (os, ns) = if reverse { (new_start as i64 - offset, new_start as i64) } else { (old_start as i64, old_start as i64 + offset) };
             body.push_str(&format!("@@ -{},{} +{},{} @@\n", os.max(0), old_count, ns.max(0), new_count));
             body.push_str(&hunk_text);
             offset += new_count - old_count;
@@ -390,8 +386,7 @@ mod tests {
     }
 
     fn small_patch(reverse: bool) -> (String, Patch) {
-        let header =
-            if reverse { "diff --git a/thisisatestb.txt b/thisisatesta.txt" } else { "diff --git b/thisisatesta.txt a/thisisatestb.txt" };
+        let header = if reverse { "diff --git a/thisisatestb.txt b/thisisatesta.txt" } else { "diff --git b/thisisatesta.txt a/thisisatestb.txt" };
         let index = "index 5e4dce2..5eb1e6f 100644";
         let mut text = format!("{header}\n{index}\n");
         if reverse {

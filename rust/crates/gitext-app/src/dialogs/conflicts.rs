@@ -147,11 +147,8 @@ impl ConflictsDialog {
         use gitext_core::diff_tools::{self, ToolConfigStore, ToolLaunch, ToolType};
         // the git of a WSL distro uses the tools configured in the distro
         let exe = m.git();
-        let launch = if exe.wsl_distro.is_empty() {
-            diff_tools::resolve_launch(&ToolConfigStore::new(exe), ToolType::Merge)
-        } else {
-            Some(ToolLaunch::Configured)
-        };
+        let launch =
+            if exe.wsl_distro.is_empty() { diff_tools::resolve_launch(&ToolConfigStore::new(exe), ToolType::Merge) } else { Some(ToolLaunch::Configured) };
         let Some(launch) = launch else {
             cx.open(super::tools::NoToolDialog { tool_type: ToolType::Merge });
             return;
@@ -269,30 +266,25 @@ impl Dialog for ConflictsDialog {
             let list_width = (ui.available_width() - 420.0).max(300.0);
             ui.vertical(|ui| {
                 ui.set_width(list_width);
-                egui::ScrollArea::vertical()
-                    .id_salt("conflict_files")
-                    .auto_shrink([false, true])
-                    .min_scrolled_height(320.0)
-                    .max_height(360.0)
-                    .show(ui, |ui| {
-                        ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
-                            for c in &files {
-                                let is_sel = self.selected.as_deref() == Some(c.file_name.as_str());
-                                let text = format!("{}  ({})", c.file_name, Self::short_state(c));
-                                let r = ui.selectable_label(is_sel, text);
-                                if r.clicked() {
-                                    self.selected = Some(c.file_name.clone());
-                                }
-                                if r.double_clicked() && !busy && !c.is_special() && c.local.is_some() && c.remote.is_some() {
-                                    self.selected = Some(c.file_name.clone());
-                                    chosen = Some(Choice::Merge);
-                                }
+                egui::ScrollArea::vertical().id_salt("conflict_files").auto_shrink([false, true]).min_scrolled_height(320.0).max_height(360.0).show(ui, |ui| {
+                    ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
+                        for c in &files {
+                            let is_sel = self.selected.as_deref() == Some(c.file_name.as_str());
+                            let text = format!("{}  ({})", c.file_name, Self::short_state(c));
+                            let r = ui.selectable_label(is_sel, text);
+                            if r.clicked() {
+                                self.selected = Some(c.file_name.clone());
                             }
-                            if files.is_empty() && loaded {
-                                ui.label(RichText::new(tr("All conflicts are resolved.")).color(palette.success));
+                            if r.double_clicked() && !busy && !c.is_special() && c.local.is_some() && c.remote.is_some() {
+                                self.selected = Some(c.file_name.clone());
+                                chosen = Some(Choice::Merge);
                             }
-                        });
+                        }
+                        if files.is_empty() && loaded {
+                            ui.label(RichText::new(tr("All conflicts are resolved.")).color(palette.success));
+                        }
                     });
+                });
             });
             ui.add_space(12.0);
             ui.vertical(|ui| {
@@ -323,12 +315,12 @@ impl Dialog for ConflictsDialog {
                         ui.label(trf("Waiting for the merge tool to close ({0})…", &[&run.file]));
                     });
                 }
-                if let Some(a) = self.ask_solved.as_ref().map(|a| AskSolved {
-                    file: a.file.clone(),
-                    output: a.output.clone(),
-                }) {
+                if let Some(a) = self.ask_solved.as_ref().map(|a| AskSolved { file: a.file.clone(), output: a.output.clone() }) {
                     ui.add_space(6.0);
-                    ui.label(RichText::new(trf("The merge tool closed but '{0}' is still in conflict. Is the merge conflict solved?", &[&a.file])).color(palette.warning));
+                    ui.label(
+                        RichText::new(trf("The merge tool closed but '{0}' is still in conflict. Is the merge conflict solved?", &[&a.file]))
+                            .color(palette.warning),
+                    );
                     if !a.output.trim().is_empty() {
                         egui::ScrollArea::vertical().id_salt("merge_tool_output").max_height(80.0).show(ui, |ui| {
                             ui.label(RichText::new(a.output.trim()).monospace().small());

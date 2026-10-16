@@ -242,5 +242,4 @@ mod tests {
         assert_eq!(to_mount_path("/home/me/a.txt", "/mnt/"), "/home/me/a.txt");
         assert_eq!(to_mount_path(r"\\server\share", "/mnt/"), "//server/share");
     }
-
 }

@@ -162,21 +162,19 @@ impl Dialog for ProcessDialog {
             }
         }
 
-        ui.horizontal(|ui| {
-            match self.state {
-                State::Running => {
-                    ui.spinner();
-                    ui.label(RichText::new(self.progress.clone().unwrap_or_else(|| tr("Running…").into())).monospace());
-                }
-                State::Succeeded => {
-                    ui.label(RichText::new(format!("✔ {}", tr("Done"))).color(palette.success).strong());
-                }
-                State::Failed => {
-                    ui.label(RichText::new(format!("✖ {}", tr("Failed"))).color(palette.error).strong());
-                }
-                State::Cancelled => {
-                    ui.label(RichText::new(tr("Aborted")).color(palette.warning).strong());
-                }
+        ui.horizontal(|ui| match self.state {
+            State::Running => {
+                ui.spinner();
+                ui.label(RichText::new(self.progress.clone().unwrap_or_else(|| tr("Running…").into())).monospace());
+            }
+            State::Succeeded => {
+                ui.label(RichText::new(format!("✔ {}", tr("Done"))).color(palette.success).strong());
+            }
+            State::Failed => {
+                ui.label(RichText::new(format!("✖ {}", tr("Failed"))).color(palette.error).strong());
+            }
+            State::Cancelled => {
+                ui.label(RichText::new(tr("Aborted")).color(palette.warning).strong());
             }
         });
         ui.separator();

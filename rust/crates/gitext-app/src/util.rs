@@ -242,7 +242,7 @@ fn helper_dialog(_mode: DialogMode, _start: Option<&str>) -> Option<Option<Strin
 }
 
 #[derive(Clone, Copy)]
-#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
+#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code, reason = "only the Linux file dialogs use every mode"))]
 enum DialogMode<'a> {
     Folder,
     Open,

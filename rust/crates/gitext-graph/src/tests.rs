@@ -14,11 +14,7 @@ const LOOK_AHEAD: usize = 20 * 2;
 
 /// Test defaults of the C# `[SetUp]`: no lane merging, no diagonal straightening.
 fn config(merge: bool, straighten_diagonals: bool) -> RevisionGraphConfig {
-    RevisionGraphConfig {
-        merge_graph_lanes_having_common_parent: merge,
-        straighten_graph_diagonals: straighten_diagonals,
-        ..RevisionGraphConfig::default()
-    }
+    RevisionGraphConfig { merge_graph_lanes_having_common_parent: merge, straighten_graph_diagonals: straighten_diagonals, ..RevisionGraphConfig::default() }
 }
 
 fn revisions() -> Vec<GitRevision> {
@@ -205,7 +201,10 @@ fn should_be_able_to_highlight_branch() {
         assert!(g.is_row_relative(0));
         assert!(g.is_row_relative(1));
         assert!(g.is_row_relative(4));
-        let id = { let n = g.get_node_for_row(1).unwrap(); g.store.nodes[n].object_id };
+        let id = {
+            let n = g.get_node_for_row(1).unwrap();
+            g.store.nodes[n].object_id
+        };
         g.highlight_branch(&id);
         assert!(!g.is_row_relative(0));
         assert!(g.is_row_relative(1));
@@ -240,7 +239,10 @@ fn should_reorder_in_topo_order() {
 
         let commit1 = ObjectId::random();
         let commit2 = ObjectId::random();
-        let row4 = { let n = g.get_node_for_row(4).unwrap(); g.store.nodes[n].object_id };
+        let row4 = {
+            let n = g.get_node_for_row(4).unwrap();
+            g.store.nodes[n].object_id
+        };
         g.add(GitRevision::new(commit2).with_parents(vec![row4])); // dangling
         let n = g.count();
         g.cache_to(n, n);
@@ -251,7 +253,10 @@ fn should_reorder_in_topo_order() {
         g.cache_to(n, n);
         assert!(g.validate_topo_order());
 
-        let top = { let n = g.get_node_for_row(0).unwrap(); g.store.nodes[n].object_id };
+        let top = {
+            let n = g.get_node_for_row(0).unwrap();
+            g.store.nodes[n].object_id
+        };
         g.add(GitRevision::new(ObjectId::random()).with_parents(vec![top])); // new head
         let n = g.count();
         g.cache_to(n, n);
@@ -289,7 +294,11 @@ fn detached_single_revision() {
 }
 
 fn cap(b: bool) -> &'static str {
-    if b { "True" } else { "False" }
+    if b {
+        "True"
+    } else {
+        "False"
+    }
 }
 
 fn verify_both(name: &str, specs: &str) {
@@ -355,19 +364,12 @@ fn segments_are_not_straightened_over_multi_lane_crossings_no_merge() {
 #[test]
 fn segments_are_not_straightened_over_multi_lane_crossings_no_merge_straighten_diagonals() {
     let mut g = create_graph_top_down(GRAPH_WITH_MULTI_LANE_CROSSINGS, config(false, true));
-    verify_graph(
-        &mut g,
-        "RevisionGraphTests.SegmentsAreNotStraightenedOverMultiLaneCrossings_NoMergeGraphLanesHavingCommonParent_StraightenGraphDiagonals",
-    );
+    verify_graph(&mut g, "RevisionGraphTests.SegmentsAreNotStraightenedOverMultiLaneCrossings_NoMergeGraphLanesHavingCommonParent_StraightenGraphDiagonals");
 }
 
 #[test]
 fn turn_multi_lane_crossings_into_diagonals() {
-    for specs in [
-        "R 5:R 4:R 3:R 2:R,5,4 1:2 0:1,3",
-        "R 7:R 6:R 5:R 4:R 3:R,7,6,5 2:3 1:2 0:1,4",
-        "R 8:R 7:R 6:R 5:R 4:R 3:R,8,7,6,5 2:3 1:2 0:1,4",
-    ] {
+    for specs in ["R 5:R 4:R 3:R 2:R,5,4 1:2 0:1,3", "R 7:R 6:R 5:R 4:R 3:R,7,6,5 2:3 1:2 0:1,4", "R 8:R 7:R 6:R 5:R 4:R 3:R,8,7,6,5 2:3 1:2 0:1,4"] {
         let mut g = create_graph(specs, config(false, true));
         let name = specs.replace(':', "-");
         verify_graph(&mut g, &format!("RevisionGraphTests.TurnMultiLaneCrossingsIntoDiagonals_commitSpecs={name}"));
@@ -557,7 +559,10 @@ fn render_emits_nodes_and_segments_for_every_row() {
     use crate::render::*;
     let mut g = create_graph(" 1  2:1  3:1  4:1,3  5:4  6:5  7:5,6  8:7,2 ", RevisionGraphConfig::default());
     let n = g.count() as i64;
-    let head = { let n = g.get_node_for_row(0).unwrap(); g.store.nodes[n].object_id };
+    let head = {
+        let n = g.get_node_for_row(0).unwrap();
+        g.store.nodes[n].object_id
+    };
     for row in 0..n {
         let prims = draw_row(&g, row, &Metrics::default(), RevisionGraphDrawStyle::Normal, head, None);
         let nodes: Vec<_> = prims.iter().filter(|p| matches!(p, Primitive::Node { .. })).collect();

@@ -29,7 +29,17 @@ impl FileHistoryDialog {
         let mut grid = RevisionGrid::default();
         grid.filter.path = file.clone();
         grid.filter.follow = true;
-        FileHistoryDialog { file, grid, avatars: Default::default(), started: false, tab: 0, diff: Loader::default(), viewer: DiffViewer::default(), follow: true, follow_initialized: false }
+        FileHistoryDialog {
+            file,
+            grid,
+            avatars: Default::default(),
+            started: false,
+            tab: 0,
+            diff: Loader::default(),
+            viewer: DiffViewer::default(),
+            follow: true,
+            follow_initialized: false,
+        }
     }
 }
 
@@ -99,16 +109,37 @@ impl Dialog for FileHistoryDialog {
                 .request(cx.ctx, key, move || {
                     // name of the file in this commit (it may have been renamed)
                     let name = mm
-                        .run(&GitArgs::new("log").arg("-1").arg_if(follow, "--follow").arg("--name-only").arg("--format=").arg(id.to_string()).arg("--").arg(&file))
+                        .run(
+                            &GitArgs::new("log")
+                                .arg("-1")
+                                .arg_if(follow, "--follow")
+                                .arg("--name-only")
+                                .arg("--format=")
+                                .arg(id.to_string())
+                                .arg("--")
+                                .arg(&file),
+                        )
                         .map(|r| r.stdout_str().lines().next().unwrap_or_default().trim().to_string())
                         .unwrap_or_default();
                     let name = if name.is_empty() { file.clone() } else { name };
                     if tab == 0 {
                         let out = mm
-                            .run(&GitArgs::with_config(&gitext_core::commands::DIFF_CONFIGS, "log").args(["-1", "-p", "-M", "--format="]).args(opts.extra_args()).arg_if(follow, "--follow").arg(id.to_string()).arg("--").arg(&file))
+                            .run(
+                                &GitArgs::with_config(&gitext_core::commands::DIFF_CONFIGS, "log")
+                                    .args(["-1", "-p", "-M", "--format="])
+                                    .args(opts.extra_args())
+                                    .arg_if(follow, "--follow")
+                                    .arg(id.to_string())
+                                    .arg("--")
+                                    .arg(&file),
+                            )
                             .map(|r| r.stdout_str())
                             .unwrap_or_default();
-                        if out.trim().is_empty() { ViewerContent::Empty(tr("No changes to this file").into()) } else { ViewerContent::Diff(out) }
+                        if out.trim().is_empty() {
+                            ViewerContent::Empty(tr("No changes to this file").into())
+                        } else {
+                            ViewerContent::Diff(out)
+                        }
                     } else {
                         match mm.get_file_bytes(id, &name) {
                             Ok(b) => content_from_bytes(&b),

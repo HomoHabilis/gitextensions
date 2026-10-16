@@ -54,11 +54,7 @@ fn suggested_name(data: &RepoData, id: ObjectId) -> Option<String> {
     let id = if id.is_zero() { data.head } else { id };
     let refs = data.refs_by_commit.get(&id)?;
     let remote = |r: &&gitext_core::GitRef| r.is_remote() && !gitext_core::git_ref::ref_name::is_remote_head(&r.complete_name);
-    refs.iter()
-        .find(|r| r.is_head())
-        .or_else(|| refs.iter().find(remote))
-        .or_else(|| refs.iter().find(|r| r.is_tag()))
-        .map(|r| r.local_name())
+    refs.iter().find(|r| r.is_head()).or_else(|| refs.iter().find(remote)).or_else(|| refs.iter().find(|r| r.is_tag())).map(|r| r.local_name())
 }
 
 impl Dialog for CreateBranchDialog {
@@ -229,7 +225,8 @@ impl Dialog for DeleteRemoteBranchDialog {
     fn ui(&mut self, ui: &mut Ui, cx: &mut Cx) -> bool {
         ui.label(trf("Delete branch '{0}' on remote '{1}'?", &[&self.branch, &self.remote]));
         ui.label(egui::RichText::new(tr("This deletes the branch on the server.")).small());
-        let local_tracking = cx.data.and_then(|d| d.local_branches().find(|r| r.tracking_remote == self.remote && r.merge_with == self.branch).map(|r| r.name.clone()));
+        let local_tracking =
+            cx.data.and_then(|d| d.local_branches().find(|r| r.tracking_remote == self.remote && r.merge_with == self.branch).map(|r| r.name.clone()));
         if let Some(l) = &local_tracking {
             ui.checkbox(&mut self.delete_tracking_local, trf("Also delete local branch '{0}'", &[l]));
         }
@@ -256,7 +253,8 @@ pub struct SetUpstreamDialog {
 
 impl SetUpstreamDialog {
     pub fn new(data: &RepoData, branch: &str) -> Self {
-        let current = data.local_branches().find(|r| r.name == branch).filter(|r| !r.merge_with.is_empty()).map(|r| format!("{}/{}", r.tracking_remote, r.merge_with));
+        let current =
+            data.local_branches().find(|r| r.name == branch).filter(|r| !r.merge_with.is_empty()).map(|r| format!("{}/{}", r.tracking_remote, r.merge_with));
         SetUpstreamDialog { branch: branch.to_string(), upstream: current.unwrap_or_default(), items: data.remote_branches().map(|r| r.name.clone()).collect() }
     }
 }

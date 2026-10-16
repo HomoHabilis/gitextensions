@@ -56,7 +56,11 @@ pub struct RepositoryHistory {
 
 fn same_path(a: &str, b: &str) -> bool {
     let n = |s: &str| s.trim_end_matches(['/', '\\']).replace('\\', "/");
-    if cfg!(windows) { n(a).eq_ignore_ascii_case(&n(b)) } else { n(a) == n(b) }
+    if cfg!(windows) {
+        n(a).eq_ignore_ascii_case(&n(b))
+    } else {
+        n(a) == n(b)
+    }
 }
 
 impl RepositoryHistory {

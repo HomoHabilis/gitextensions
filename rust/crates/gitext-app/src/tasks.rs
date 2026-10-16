@@ -1,7 +1,7 @@
 //! Background work: replaces the `JoinableTaskFactory` / `AsyncLoader` patterns of the C# UI.
 //! Work runs on a thread and the UI polls the result each frame.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 /// The result of a computation running on a background thread.
 pub struct Task<T> {
@@ -22,8 +22,8 @@ impl<T: Send + 'static> Task<T> {
         let started = std::time::Instant::now();
         std::thread::spawn(move || {
             let r = f();
-            *w.lock().unwrap() = Some(started.elapsed());
-            *s.lock().unwrap() = Some(r);
+            *w.lock().unwrap_or_else(PoisonError::into_inner) = Some(started.elapsed());
+            *s.lock().unwrap_or_else(PoisonError::into_inner) = Some(r);
             ctx.request_repaint();
         });
         Task { slot, started, worked }
@@ -31,7 +31,7 @@ impl<T: Send + 'static> Task<T> {
 
     /// Takes the result if it is ready.
     pub fn try_take(&mut self) -> Option<T> {
-        self.slot.lock().unwrap().take()
+        self.slot.lock().unwrap_or_else(PoisonError::into_inner).take()
     }
 }
 
@@ -96,8 +96,13 @@ impl<K: PartialEq + Clone, T: Send + 'static> Loader<K, T> {
         if let Some((k, t)) = self.task.as_mut() {
             if let Some(v) = t.try_take() {
                 if crate::prof::enabled() {
-                    let worked = t.worked.lock().unwrap().unwrap_or_default();
-                    eprintln!("load {}: work {:.1} ms, shown after {:.1} ms", std::any::type_name::<T>(), worked.as_secs_f64() * 1000.0, t.started.elapsed().as_secs_f64() * 1000.0);
+                    let worked = t.worked.lock().unwrap_or_else(PoisonError::into_inner).unwrap_or_default();
+                    eprintln!(
+                        "load {}: work {:.1} ms, shown after {:.1} ms",
+                        std::any::type_name::<T>(),
+                        worked.as_secs_f64() * 1000.0,
+                        t.started.elapsed().as_secs_f64() * 1000.0
+                    );
                 }
                 self.key = Some(k.clone());
                 self.value = Some(v);

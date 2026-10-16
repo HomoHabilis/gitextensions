@@ -333,25 +333,25 @@ impl Row {
 
     pub fn get_current_revision_lane(&self, store: &Store) -> i32 {
         self.build_segment_lanes(store);
-        self.lanes.borrow().as_ref().unwrap().revision_lane.max(0)
+        self.lanes.borrow().as_ref().expect("lanes are built above").revision_lane.max(0)
     }
 
     pub fn get_lane_count(&self, store: &Store) -> i32 {
         self.build_segment_lanes(store);
-        self.lanes.borrow().as_ref().unwrap().lane_count
+        self.lanes.borrow().as_ref().expect("lanes are built above").lane_count
     }
 
     pub fn get_segments_for_index(&self, store: &Store, index: i32) -> Vec<SegIdx> {
         self.build_segment_lanes(store);
         let lanes = self.lanes.borrow();
-        let lanes = lanes.as_ref().unwrap();
+        let lanes = lanes.as_ref().expect("lanes are built above");
         self.segments.iter().zip(&lanes.lanes).filter(|(_, l)| l.index == index).map(|(&s, _)| s).collect()
     }
 
     pub fn get_lane_for_segment(&self, store: &Store, segment: SegIdx) -> Lane {
         self.build_segment_lanes(store);
         let lanes = self.lanes.borrow();
-        let lanes = lanes.as_ref().unwrap();
+        let lanes = lanes.as_ref().expect("lanes are built above");
         lanes.position.get(&segment).map(|&i| lanes.lanes[i]).unwrap_or(Lane::NONE)
     }
 
@@ -366,13 +366,12 @@ impl Row {
     pub fn move_lanes_right(&self, store: &Store, from_lane: i32) {
         self.build_segment_lanes(store);
         let mut guard = self.lanes.borrow_mut();
-        let l = guard.as_mut().unwrap();
+        let l = guard.as_mut().expect("lanes are built above");
         let next_gap = l.gaps.iter().copied().filter(|&g| g > from_lane).min().unwrap_or(i32::MAX);
         if l.revision_lane >= from_lane && l.revision_lane < next_gap {
             l.revision_lane += 1;
         }
-        let to_move: Vec<usize> =
-            (0..l.lanes.len()).filter(|&i| l.lanes[i].index >= from_lane && l.lanes[i].index < next_gap).collect();
+        let to_move: Vec<usize> = (0..l.lanes.len()).filter(|&i| l.lanes[i].index >= from_lane && l.lanes[i].index < next_gap).collect();
         if to_move.is_empty() {
             return;
         }
@@ -392,9 +391,7 @@ impl Row {
     /// The segment leading to this row's first parent if this row is the parent row of
     /// `segment`; otherwise `segment`.
     pub fn first_parent_or_self(&self, store: &Store, segment: SegIdx) -> SegIdx {
-        if store.segments[segment].parent != self.revision
-            || self.get_lane_for_segment(store, segment).sharing != LaneSharing::ExclusiveOrPrimary
-        {
+        if store.segments[segment].parent != self.revision || self.get_lane_for_segment(store, segment).sharing != LaneSharing::ExclusiveOrPrimary {
             return segment;
         }
         self.segments.iter().copied().find(|&s| store.segments[s].child == self.revision).unwrap_or(segment)

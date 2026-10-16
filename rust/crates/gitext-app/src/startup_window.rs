@@ -139,6 +139,7 @@ mod dwm {
     pub fn set_cloaked(hwnd: isize, cloaked: bool) {
         let value: i32 = cloaked.into();
         // SAFETY: valid window handle of this process; `value` outlives the call.
+        #[allow(unsafe_code, reason = "Win32 call, no safe wrapper in the dependencies")]
         unsafe {
             DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, (&value as *const i32).cast(), std::mem::size_of::<i32>() as u32);
         }

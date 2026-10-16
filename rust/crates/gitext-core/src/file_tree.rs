@@ -179,7 +179,7 @@ fn get_or_create_parent(root: &mut TreeNode, previous: &[usize], current_path: &
             split_candidate
         } else {
             // Split: insert a common folder node in place of split_candidate
-            let (idx, parent_path) = split_candidate.split_last().unwrap();
+            let (idx, parent_path) = split_candidate.split_last().expect("a split candidate is never the root");
             let parent_node = node_at_mut(root, parent_path);
             let sub = parent_node.nodes.remove(*idx);
             let mut common = TreeNode::folder(&common_path);
@@ -243,7 +243,11 @@ mod tests {
     }
 
     fn cap(b: bool) -> &'static str {
-        if b { "True" } else { "False" }
+        if b {
+            "True"
+        } else {
+            "False"
+        }
     }
 
     #[test]
@@ -258,9 +262,24 @@ mod tests {
     fn sort_should_first_add_folders_then_files() {
         let old_folder = "oldfolder/of/renamed/file/";
         let mut statuses = items(&[
-            "root_file", ".hidden_root_file", "ext/submodule/", "ext/subfolder/filees", "ext/s/", "ext/file", "ext2/file", "1/file1",
-            "1/submodule_sorted_as_file/", "1/subfolder/file1s", "1/2/file12", "1/3/file13", "1/3/4/file134", "5/file1", "5/6/file56b",
-            "5/6/file56a", "5/7/file57b", "5/7/file57a",
+            "root_file",
+            ".hidden_root_file",
+            "ext/submodule/",
+            "ext/subfolder/filees",
+            "ext/s/",
+            "ext/file",
+            "ext2/file",
+            "1/file1",
+            "1/submodule_sorted_as_file/",
+            "1/subfolder/file1s",
+            "1/2/file12",
+            "1/3/file13",
+            "1/3/4/file134",
+            "5/file1",
+            "5/6/file56b",
+            "5/6/file56a",
+            "5/7/file57b",
+            "5/7/file57a",
         ]);
         let mut renamed = GitItemStatus::new(format!("{old_folder}5/7/8/file578"));
         renamed.old_name = Some(renamed.name.clone());
@@ -284,7 +303,11 @@ mod tests {
     fn sort_should_not_merge_single_file_with_root_node() {
         let statuses = items(&["root_file"]);
         for flat in [false, true] {
-            verify(&format!("Sort_should_not_merge_single_file_with_root_node_flat={}", cap(flat)), &create_tree_sorted_by_path(&statuses, flat, true), &statuses);
+            verify(
+                &format!("Sort_should_not_merge_single_file_with_root_node_flat={}", cap(flat)),
+                &create_tree_sorted_by_path(&statuses, flat, true),
+                &statuses,
+            );
         }
     }
 

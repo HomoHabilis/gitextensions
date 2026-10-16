@@ -67,12 +67,7 @@ struct MoveLaneBy {
 
 impl RevisionGraph {
     pub fn new(config: RevisionGraphConfig) -> Self {
-        RevisionGraph {
-            config,
-            ordered_nodes_cache_invalid: true,
-            ordered_row_cache_invalid_from_score: i32::MAX,
-            ..Default::default()
-        }
+        RevisionGraph { config, ordered_nodes_cache_invalid: true, ordered_row_cache_invalid_from_score: i32::MAX, ..Default::default() }
     }
 
     pub fn config(&self) -> RevisionGraphConfig {
@@ -80,7 +75,11 @@ impl RevisionGraph {
     }
 
     fn straighten_diagonals_look_ahead(&self) -> i32 {
-        if self.config.straighten_graph_diagonals { STRAIGHTEN_LANES_LOOK_AHEAD / 2 } else { 0 }
+        if self.config.straighten_graph_diagonals {
+            STRAIGHTEN_LANES_LOOK_AHEAD / 2
+        } else {
+            0
+        }
     }
 
     fn straighten_look_ahead(&self) -> i32 {
@@ -207,7 +206,11 @@ impl RevisionGraph {
     /// Rows currently cached and valid.
     pub fn valid_row_count(&mut self) -> usize {
         self.build_ordered_nodes_cache(usize::MAX);
-        if self.is_row_cache_dirty() { 0 } else { self.ordered_row_cache.len() }
+        if self.is_row_cache_dirty() {
+            0
+        } else {
+            self.ordered_row_cache.len()
+        }
     }
 
     pub fn highlight_branch(&mut self, id: &ObjectId) {
@@ -309,9 +312,7 @@ impl RevisionGraph {
             self.ordered_row_cache_invalid_from_score = i32::MAX;
             return false;
         };
-        if self.ordered_row_cache_invalid_from_score <= self.store.nodes[last.revision].score
-            || self.ordered_row_cache.len() > self.ordered_nodes_cache.len()
-        {
+        if self.ordered_row_cache_invalid_from_score <= self.store.nodes[last.revision].score || self.ordered_row_cache.len() > self.ordered_nodes_cache.len() {
             return true;
         }
         let index_to_compare = self.ordered_row_cache.len() - 1;
@@ -329,8 +330,7 @@ impl RevisionGraph {
             self.ordered_row_cache.clear();
         }
 
-        let max_last = last_ordered_node_index
-            - if loading_completed || !order_segments { 0 } else { ORDER_SEGMENTS_LOOK_AHEAD as i64 };
+        let max_last = last_ordered_node_index - if loading_completed || !order_segments { 0 } else { ORDER_SEGMENTS_LOOK_AHEAD as i64 };
         if last_to_cache_row_index > max_last {
             last_to_cache_row_index = max_last;
             loading_completed = false;
@@ -443,8 +443,7 @@ impl RevisionGraph {
 
     fn build_ordered_nodes_cache(&mut self, current_row_index: usize) {
         let count = self.count();
-        if !self.ordered_nodes_cache_invalid
-            && self.ordered_nodes_cache.len() as i64 > (count as i64 - 1).min(current_row_index.min(i64::MAX as usize) as i64)
+        if !self.ordered_nodes_cache_invalid && self.ordered_nodes_cache.len() as i64 > (count as i64 - 1).min(current_row_index.min(i64::MAX as usize) as i64)
         {
             return;
         }
@@ -485,14 +484,8 @@ impl RevisionGraph {
 /// Port of the local `Order` function: orders the start segments of a revision to reduce crossings.
 fn order(store: &Store, segments: &[SegIdx], ordered_nodes: &[NodeIdx], next_index: usize) -> Vec<SegIdx> {
     let end_index = (next_index + ORDER_SEGMENTS_LOOK_AHEAD).min(ordered_nodes.len());
-    let get_row_index = |revision: NodeIdx| -> i32 {
-        for index in next_index + 1..end_index {
-            if ordered_nodes[index] == revision {
-                return (index - next_index) as i32;
-            }
-        }
-        i32::MAX
-    };
+    let look_ahead = ordered_nodes.get(next_index + 1..end_index).unwrap_or_default();
+    let get_row_index = |revision: NodeIdx| -> i32 { look_ahead.iter().position(|&n| n == revision).map_or(i32::MAX, |i| (i + 1) as i32) };
 
     fn is_ancestor_of(store: &Store, ancestor: NodeIdx, child: NodeIdx, stop_row: i32, get_row_index: &dyn Fn(NodeIdx) -> i32) -> bool {
         if store.parents(child).any(|p| p == ancestor) {
@@ -574,14 +567,10 @@ fn straighten_lanes(store: &Store, rows: &[Row], start_index: i32, last_straight
             let mut look_ahead_lane = current_lane;
             let mut segment_or_ancestor = current_row.first_parent_or_self(store, segment);
             let mut look_ahead_index = current_index + 1;
-            while look_ahead_lane == current_lane
-                && look_ahead_index <= (current_index + STRAIGHTEN_LANES_LOOK_AHEAD).min(last_look_ahead_index)
-            {
+            while look_ahead_lane == current_lane && look_ahead_index <= (current_index + STRAIGHTEN_LANES_LOOK_AHEAD).min(last_look_ahead_index) {
                 let look_ahead_row = &rows[look_ahead_index as usize];
                 look_ahead_lane = look_ahead_row.get_lane_for_segment(store, segment_or_ancestor).index;
-                if look_ahead_lane == straightened_current_lane
-                    || (look_ahead_lane > straightened_current_lane && previous_lane == straightened_current_lane)
-                {
+                if look_ahead_lane == straightened_current_lane || (look_ahead_lane > straightened_current_lane && previous_lane == straightened_current_lane) {
                     for move_index in current_index..look_ahead_index {
                         rows[move_index as usize].move_lanes_right(store, current_lane);
                     }
@@ -599,15 +588,7 @@ fn straighten_lanes(store: &Store, rows: &[Row], start_index: i32, last_straight
     }
 }
 
-fn straighten_diagonals(
-    store: &Store,
-    rows: &[Row],
-    start_index: i32,
-    last_straighten_index: i32,
-    last_look_ahead_index: i32,
-    look_ahead: i32,
-    limit: i32,
-) {
+fn straighten_diagonals(store: &Store, rows: &[Row], start_index: i32, last_straighten_index: i32, last_look_ahead_index: i32, look_ahead: i32, limit: i32) {
     let lane_of = |row: i32, segment: SegIdx| -> Lane { rows[row as usize].get_lane_for_segment(store, segment) };
     let mut move_lane_by: Vec<MoveLaneBy> = Vec::with_capacity(look_ahead as usize);
     let mut go_back_limit = 1;

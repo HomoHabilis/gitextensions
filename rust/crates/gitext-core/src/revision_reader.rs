@@ -27,8 +27,7 @@ pub enum RevisionSortOrder {
 }
 
 /// Parses `git log -z --pretty=format:<log_format()>` output.
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct RevisionParser {
     pub has_reflog_selector: bool,
     pub has_notes: bool,
@@ -36,7 +35,6 @@ pub struct RevisionParser {
     pub oldest_body: i64,
     pub parse_errors: usize,
 }
-
 
 /// The `--pretty=format:` string.
 pub fn log_format(has_reflog_selector: bool, has_notes: bool) -> String {
@@ -134,8 +132,7 @@ impl RevisionParser {
         let author_email = next_line(&mut offset);
         let committer = next_line(&mut offset);
         let committer_email = next_line(&mut offset);
-        let (Some(author), Some(author_email), Some(committer), Some(committer_email)) = (author, author_email, committer, committer_email)
-        else {
+        let (Some(author), Some(author_email), Some(committer), Some(committer_email)) = (author, author_email, committer, committer_email) else {
             return self.error();
         };
 
@@ -257,12 +254,7 @@ pub fn build_log_arguments(options: &LogOptions) -> GitArgs {
 
 /// Streams the revisions of `git log` in batches to `on_batch` (on the calling thread).
 /// Returns early if `cancel` is set.
-pub fn read_log(
-    working_dir: &Path,
-    options: &LogOptions,
-    cancel: Arc<AtomicBool>,
-    mut on_batch: impl FnMut(Vec<GitRevision>),
-) -> GitResult<usize> {
+pub fn read_log(working_dir: &Path, options: &LogOptions, cancel: Arc<AtomicBool>, mut on_batch: impl FnMut(Vec<GitRevision>)) -> GitResult<usize> {
     let exe = Executable::git(working_dir);
     let args = build_log_arguments(options);
     let process = exe.spawn_raw(&args)?;

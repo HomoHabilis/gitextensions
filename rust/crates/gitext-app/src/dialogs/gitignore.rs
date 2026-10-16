@@ -21,7 +21,11 @@ impl GitIgnoreDialog {
 
 impl Dialog for GitIgnoreDialog {
     fn title(&self) -> String {
-        if self.local { tr("Edit .git/info/exclude").into() } else { tr("Edit .gitignore").into() }
+        if self.local {
+            tr("Edit .git/info/exclude").into()
+        } else {
+            tr("Edit .gitignore").into()
+        }
     }
 
     fn kind(&self) -> DialogKind {

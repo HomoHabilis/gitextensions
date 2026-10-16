@@ -360,9 +360,7 @@ impl GitModule {
     }
 
     pub fn tags_containing(&self, id: ObjectId) -> Vec<String> {
-        self.output(&GitArgs::new("tag").arg("--contains").arg(id.to_string()))
-            .map(|o| o.lines().map(str::to_string).collect())
-            .unwrap_or_default()
+        self.output(&GitArgs::new("tag").arg("--contains").arg(id.to_string())).map(|o| o.lines().map(str::to_string).collect()).unwrap_or_default()
     }
 
     /// `git describe` (port of `GitDescribeProvider`): (closest tag, commits since).
@@ -404,7 +402,13 @@ impl GitModule {
     /// Like [`Self::get_status`], optionally with the ignored, assumed-unchanged and
     /// skip-worktree files (port of `GetAllChangedFiles` with its `exclude*` flags; the last
     /// two cost one `git ls-files -v` call).
-    pub fn get_status_with(&self, untracked: commands::UntrackedFilesMode, ignored: bool, assume_unchanged: bool, skip_worktree: bool) -> GitResult<Vec<GitItemStatus>> {
+    pub fn get_status_with(
+        &self,
+        untracked: commands::UntrackedFilesMode,
+        ignored: bool,
+        assume_unchanged: bool,
+        skip_worktree: bool,
+    ) -> GitResult<Vec<GitItemStatus>> {
         let args = commands::get_all_changed_files(!ignored, untracked, commands::IgnoreSubmodulesMode::None, false);
         let out = self.run(&args)?;
         if !out.success() {
@@ -472,7 +476,13 @@ impl GitModule {
     /// `get_file_diff` gives them, in the order of the files; once the output passes
     /// `max_bytes`, git is stopped and only the diffs read completely are returned (at least
     /// the first one).
-    pub fn get_diff_files_with_patches(&self, first: ObjectId, second: ObjectId, options: &DiffOptions, max_bytes: usize) -> GitResult<(Vec<GitItemStatus>, Vec<String>)> {
+    pub fn get_diff_files_with_patches(
+        &self,
+        first: ObjectId,
+        second: ObjectId,
+        options: &DiffOptions,
+        max_bytes: usize,
+    ) -> GitResult<(Vec<GitItemStatus>, Vec<String>)> {
         if first.is_artificial() || second.is_artificial() {
             return Err(GitError::Invalid("artificial revision".into()));
         }
@@ -561,7 +571,13 @@ impl GitModule {
         let mut text = out.stdout_str();
         if text.is_empty() && second == ObjectId::WORK_TREE {
             // Untracked file: show it as added
-            let r = self.run(&GitArgs::with_config(&commands::DIFF_CONFIGS, "diff").args(["--no-ext-diff", "--no-index", "--"]).arg("/dev/null").arg(file).args(extra.iter().copied()))?;
+            let r = self.run(
+                &GitArgs::with_config(&commands::DIFF_CONFIGS, "diff")
+                    .args(["--no-ext-diff", "--no-index", "--"])
+                    .arg("/dev/null")
+                    .arg(file)
+                    .args(extra.iter().copied()),
+            )?;
             text = r.stdout_str();
         }
         Ok(text)
@@ -797,7 +813,9 @@ impl GitModule {
     }
 
     pub fn assume_unchanged(&self, files: &[&str], value: bool) -> GitResult<ExecResult> {
-        self.run_checked(&GitArgs::new("update-index").arg(if value { "--assume-unchanged" } else { "--no-assume-unchanged" }).arg("--").args(files.iter().copied()))
+        self.run_checked(
+            &GitArgs::new("update-index").arg(if value { "--assume-unchanged" } else { "--no-assume-unchanged" }).arg("--").args(files.iter().copied()),
+        )
     }
 
     pub fn skip_worktree(&self, files: &[&str], value: bool) -> GitResult<ExecResult> {
@@ -826,9 +844,9 @@ impl GitModule {
 
     /// Merge message prepared by git (`MERGE_MSG`), if any.
     pub fn merge_message(&self) -> Option<String> {
-        std::fs::read_to_string(self.git_dir.join("MERGE_MSG")).ok().map(|m| {
-            m.lines().filter(|l| !l.starts_with('#')).collect::<Vec<_>>().join("\n").trim().to_string()
-        })
+        std::fs::read_to_string(self.git_dir.join("MERGE_MSG"))
+            .ok()
+            .map(|m| m.lines().filter(|l| !l.starts_with('#')).collect::<Vec<_>>().join("\n").trim().to_string())
     }
 
     // ---------------------------------------------------------------- config
@@ -1238,14 +1256,8 @@ pub fn parse_worktrees(output: &str) -> Vec<GitWorktree> {
         if let Some(path) = item.strip_prefix("worktree ") {
             let native = normalize_path(Path::new(path)).display().to_string();
             let is_deleted = !Path::new(path).exists();
-            current = Some(GitWorktree {
-                path: native,
-                head_type: WorktreeHeadType::Detached,
-                sha1: None,
-                branch: None,
-                is_main: result.is_empty(),
-                is_deleted,
-            });
+            current =
+                Some(GitWorktree { path: native, head_type: WorktreeHeadType::Detached, sha1: None, branch: None, is_main: result.is_empty(), is_deleted });
         } else if let Some(w) = current.as_mut() {
             if let Some(h) = item.strip_prefix("HEAD ") {
                 w.sha1 = Some(h.to_string());
@@ -1307,7 +1319,7 @@ pub(crate) mod test_repo {
             std::fs::write(p, content).unwrap();
         }
 
-        #[allow(dead_code)]
+        #[allow(dead_code, reason = "helper for future tests")]
         pub fn git(&self, args: &[&str]) -> String {
             self.module.output(&GitArgs::empty().args(args.iter().copied())).unwrap()
         }
@@ -1381,7 +1393,7 @@ pub fn parse_conflicts(out: &str) -> Vec<ConflictData> {
         if list.last().is_none_or(|c| c.file_name != path) {
             list.push(ConflictData { file_name: path.to_string(), ..Default::default() });
         }
-        let c = list.last_mut().unwrap();
+        let Some(c) = list.last_mut() else { continue };
         let s = Some(ConflictStage { mode: mode.to_string(), id: id.to_string() });
         match stage {
             "1" => c.base = s,
@@ -1885,9 +1897,7 @@ mod tests {
     fn parse_refs_with_tracking() {
         let id = ObjectId::random();
         let tag_target = ObjectId::random();
-        let out = format!(
-            "{id}\0\0refs/heads/master\0origin\0refs/heads/main\n{id}\0{tag_target}\0refs/tags/v1\0\0\n{id}\0\0refs/remotes/origin/main\0\0\n"
-        );
+        let out = format!("{id}\0\0refs/heads/master\0origin\0refs/heads/main\n{id}\0{tag_target}\0refs/tags/v1\0\0\n{id}\0\0refs/remotes/origin/main\0\0\n");
         let refs = parse_refs(&out);
         assert_eq!(refs.len(), 3);
         assert_eq!(refs[0].tracking_remote, "origin");

@@ -30,16 +30,7 @@ impl ToolEdit {
         let name = store.configured_tool(tool_type);
         let path = store.tool_setting(&name, tool_type, "path");
         let command = store.tool_setting(&name, tool_type, "cmd");
-        ToolEdit {
-            tool_type,
-            loaded: (name.clone(), path.clone(), command.clone()),
-            name,
-            path,
-            command,
-            detected: None,
-            exists: None,
-            message: None,
-        }
+        ToolEdit { tool_type, loaded: (name.clone(), path.clone(), command.clone()), name, path, command, detected: None, exists: None, message: None }
     }
 
     pub fn is_changed(&self) -> bool {
@@ -136,7 +127,8 @@ impl ToolEdit {
                     }
                 }
                 ui.label(RichText::new(tr("name")).small().color(palette.muted));
-                ui.add(egui::TextEdit::singleline(&mut self.name).desired_width(110.0)).on_hover_text(tr("The git tool name (--tool=<name>); any name for a custom tool"));
+                ui.add(egui::TextEdit::singleline(&mut self.name).desired_width(110.0))
+                    .on_hover_text(tr("The git tool name (--tool=<name>); any name for a custom tool"));
             });
             ui.end_row();
 
@@ -177,7 +169,11 @@ impl ToolEdit {
                 if r.changed() {
                     self.exists = None;
                 }
-                if ui.add_enabled(diff_tools::get(&self.name).is_some(), egui::Button::new(tr("Suggest"))).on_hover_text(tr("The command line for this tool and path")).clicked() {
+                if ui
+                    .add_enabled(diff_tools::get(&self.name).is_some(), egui::Button::new(tr("Suggest")))
+                    .on_hover_text(tr("The command line for this tool and path"))
+                    .clicked()
+                {
                     self.suggest_command();
                 }
             });
@@ -199,7 +195,8 @@ impl ToolEdit {
             } else {
                 let names: Vec<&str> = detected.iter().filter_map(|(n, _)| diff_tools::get(n).map(|tool| tool.display_name)).collect();
                 ui.label(
-                    RichText::new(trf("No {0} tool is configured; {1} will be used. Installed: {2}.", &[&t.label(), &names[0], &names.join(", ")])).color(palette.muted),
+                    RichText::new(trf("No {0} tool is configured; {1} will be used. Installed: {2}.", &[&t.label(), &names[0], &names.join(", ")]))
+                        .color(palette.muted),
                 );
             }
         } else if ok {

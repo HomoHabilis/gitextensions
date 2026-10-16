@@ -1,6 +1,8 @@
 //! Test helpers shared by the crates of the workspace (snapshot verification
 //! compatible with the `*.verified.txt` files of the original C# test-suite).
 
+#![allow(clippy::unwrap_used, clippy::panic, reason = "only used by tests")]
+
 use std::path::PathBuf;
 
 /// Directory `rust/testdata`.
@@ -28,8 +30,5 @@ pub fn verify(relative: &str, actual: &str) {
     }
     let expected = read_test_data(relative);
     let actual = normalize(actual);
-    assert!(
-        expected.trim_end() == actual.trim_end(),
-        "snapshot mismatch for {relative}\n--- expected ---\n{expected}\n--- actual ---\n{actual}\n"
-    );
+    assert!(expected.trim_end() == actual.trim_end(), "snapshot mismatch for {relative}\n--- expected ---\n{expected}\n--- actual ---\n{actual}\n");
 }

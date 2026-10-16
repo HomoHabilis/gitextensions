@@ -62,7 +62,7 @@ impl Dialog for StashDialog {
         ui.set_max_height(ui.available_height());
         // Ctrl+Up / Ctrl+Down: previous / next stash (newest first, the working directory above them)
         if shortcut(ui.ctx(), egui::Modifiers::COMMAND, Key::ArrowDown) {
-            self.select(Some(self.selected.map_or(0, |i| (i + 1).min(stashes.len().saturating_sub(1)))).filter(|_| !stashes.is_empty()).or(self.selected));
+            self.select((!stashes.is_empty()).then(|| self.selected.map_or(0, |i| (i + 1).min(stashes.len() - 1))).or(self.selected));
         }
         if shortcut(ui.ctx(), egui::Modifiers::COMMAND, Key::ArrowUp) {
             self.select(self.selected.and_then(|i| i.checked_sub(1)));
@@ -87,26 +87,33 @@ impl Dialog for StashDialog {
             });
             ui.separator();
             let name = self.selected.and_then(|i| stashes.get(i)).map(stash_name);
+            let has_name = name.is_some();
+            // the buttons using the name are disabled without one
+            let name = name.unwrap_or_default();
             ui.horizontal_wrapped(|ui| {
-                ui.add_enabled_ui(name.is_some(), |ui| {
+                ui.add_enabled_ui(has_name, |ui| {
                     if ui.button(tr("Apply")).clicked() {
-                        cx.run(GitRun::new(tr("Apply stash"), GitArgs::new("stash").arg("apply").arg(name.clone().unwrap())).conflicts());
+                        cx.run(GitRun::new(tr("Apply stash"), GitArgs::new("stash").arg("apply").arg(&name)).conflicts());
                     }
                     if ui.button(tr("Pop")).clicked() {
-                        cx.run(GitRun::new(tr("Pop stash"), GitArgs::new("stash").arg("pop").arg(name.clone().unwrap())).conflicts());
+                        cx.run(GitRun::new(tr("Pop stash"), GitArgs::new("stash").arg("pop").arg(&name)).conflicts());
                         self.select(None);
                     }
                     if ui.button(tr("Drop selected stash…")).clicked() {
-                        let n = name.clone().unwrap();
-                        cx.open(Confirm::new(tr("Drop stash"), trf("Drop {0}? This cannot be undone.", &[&n]), tr("Drop"), move |cx| cx.run(GitRun::new(tr("Drop stash"), GitArgs::new("stash").arg("drop").arg(n)))));
+                        let n = name.clone();
+                        cx.open(Confirm::new(tr("Drop stash"), trf("Drop {0}? This cannot be undone.", &[&n]), tr("Drop"), move |cx| {
+                            cx.run(GitRun::new(tr("Drop stash"), GitArgs::new("stash").arg("drop").arg(n)))
+                        }));
                         self.select(None);
                     }
                     if ui.button(tr("Create branch…")).clicked() {
-                        cx.open(StashBranchDialog { stash: name.clone().unwrap(), branch: String::new() });
+                        cx.open(StashBranchDialog { stash: name.clone(), branch: String::new() });
                     }
                 });
                 if ui.add_enabled(!stashes.is_empty(), egui::Button::new(tr("Clear all…"))).clicked() {
-                    cx.open(Confirm::new(tr("Clear stashes"), tr("Drop ALL stashes? This cannot be undone."), tr("Clear"), |cx| cx.run(GitRun::new(tr("Clear stashes"), GitArgs::new("stash").arg("clear")))));
+                    cx.open(Confirm::new(tr("Clear stashes"), tr("Drop ALL stashes? This cannot be undone."), tr("Clear"), |cx| {
+                        cx.run(GitRun::new(tr("Clear stashes"), GitArgs::new("stash").arg("clear")))
+                    }));
                 }
             });
         });
@@ -229,7 +236,10 @@ impl StashDialog {
                     self.file_diff
                         .request(cx.ctx, key, move || {
                             if f.is_new && !f.is_tracked {
-                                return mm.get_file_bytes(ObjectId::WORK_TREE, &f.name).map(|b| content_from_bytes(&b)).unwrap_or(ViewerContent::Empty(tr("Cannot read file").into()));
+                                return mm
+                                    .get_file_bytes(ObjectId::WORK_TREE, &f.name)
+                                    .map(|b| content_from_bytes(&b))
+                                    .unwrap_or(ViewerContent::Empty(tr("Cannot read file").into()));
                             }
                             let (first, second) = if staged { (None, ObjectId::INDEX) } else { (Some(ObjectId::INDEX), ObjectId::WORK_TREE) };
                             match mm.get_file_diff(first, second, &f.name, f.old_name.as_deref(), &opts) {
