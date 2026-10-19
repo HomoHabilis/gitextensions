@@ -314,6 +314,7 @@ impl DiffViewer {
 
     /// The selected lines of one side of the diff, without the diff markers: the old version
     /// (context and removed lines) or the new one (context and added lines).
+    /// With characters selected, only those characters of these lines.
     pub fn selected_version(&self, new: bool) -> String {
         let lines: Vec<&str> = self
             .selected_lines()
@@ -326,7 +327,15 @@ impl DiffViewer {
                     DiffLineKind::Removed => !new,
                     _ => false,
                 };
-                keep.then(|| l.text.get(1..).unwrap_or_default())
+                if !keep {
+                    return None;
+                }
+                // only the selected characters of each line when some are selected
+                let (from, to) = match self.text_sel.filter(|s| !s.is_empty()) {
+                    Some(sel) => sel.columns(i, l.text.chars().count())?,
+                    None => (0, usize::MAX),
+                };
+                Some(char_slice(&l.text, from.max(1), to.max(1)))
             })
             .collect();
         lines.join("\n")
@@ -1131,6 +1140,9 @@ mod tests {
         assert!(viewer.has_change_selection());
         let (_, copied) = run_frame_copied(&ctx, &mut viewer, &content, &menu, vec![egui::Event::Copy]);
         assert_eq!(copied.as_deref(), Some("two\n-three"));
+        // the old and new versions keep only the selected characters
+        assert_eq!(viewer.selected_version(false), "two\nthree");
+        assert_eq!(viewer.selected_version(true), "two");
         // dragging backwards selects the same
         drag(&mut viewer, char_pos(&ctx, 11.0, 5, 6), char_pos(&ctx, 11.0, 4, 5));
         assert_eq!(viewer.selected_chars(false).as_deref(), Some("two\n-three"));
