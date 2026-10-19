@@ -1,5 +1,6 @@
 //! Port of `FileViewer`: shows diffs (with line numbers and colors) or file content, and
-//! supports selecting lines for staging, unstaging and resetting.
+//! supports selecting lines for staging, unstaging and resetting. Dragging over the text selects
+//! characters (copied by Ctrl+C), dragging over the line numbers selects whole lines.
 
 use egui::{Color32, FontId, Pos2, RichText, Sense, Ui, Vec2};
 use gitext_core::inline_diff::{inline_differences, LineMarks};
@@ -53,6 +54,10 @@ pub struct DiffViewer {
     find_match: Option<usize>,
     scroll_to: Option<usize>,
     drag_start: Option<usize>,
+    /// The characters selected by dragging over the text (the lines it covers are `selected`).
+    text_sel: Option<TextSelection>,
+    /// The text is being dragged over: the end of `text_sel` follows the pointer.
+    text_drag: bool,
     /// Whether the keys act on the viewer (it was clicked last), like the file lists.
     has_focus: bool,
     /// The "go to line" box is shown (`FormGoToLine`).
@@ -63,6 +68,41 @@ pub struct DiffViewer {
     show_large: bool,
     /// Draw spaces and tabs as visible characters (`ShowNonPrintingChars`).
     show_whitespace: bool,
+}
+
+/// A place in the text: the line index and the char index in the text of the line.
+type TextPos = (usize, usize);
+
+/// Characters selected from `anchor` (where the drag started) to `head` (where it is).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TextSelection {
+    anchor: TextPos,
+    head: TextPos,
+}
+
+impl TextSelection {
+    fn ordered(self) -> (TextPos, TextPos) {
+        if self.anchor <= self.head {
+            (self.anchor, self.head)
+        } else {
+            (self.head, self.anchor)
+        }
+    }
+
+    fn is_empty(self) -> bool {
+        self.anchor == self.head
+    }
+
+    /// The chars `start..end` of line `i` (of `len` chars) that are selected.
+    fn columns(self, i: usize, len: usize) -> Option<(usize, usize)> {
+        let (start, end) = self.ordered();
+        if i < start.0 || i > end.0 {
+            return None;
+        }
+        let from = if i == start.0 { start.1.min(len) } else { 0 };
+        let to = if i == end.0 { end.1.min(len) } else { len };
+        Some((from, to.max(from)))
+    }
 }
 
 /// Content larger than this is shown only on request, like upstream's 5 MB preview guard:
@@ -129,6 +169,8 @@ impl DiffViewer {
         self.styles_for = None;
         self.selected.clear();
         self.anchor = None;
+        self.text_sel = None;
+        self.text_drag = false;
         self.find_match = None;
         self.show_large = false;
         match c {
@@ -227,8 +269,11 @@ impl DiffViewer {
         self.has_focus = focus;
     }
 
-    /// The text of the selected lines, without the diff markers.
+    /// The selected characters, or the text of the selected lines, without the diff markers.
     pub fn selected_text(&self) -> String {
+        if let Some(t) = self.selected_chars(true) {
+            return t;
+        }
         let lines: Vec<&str> = self
             .selected_lines()
             .into_iter()
@@ -243,8 +288,33 @@ impl DiffViewer {
         lines.join("\n")
     }
 
+    /// The characters selected by dragging over the text, as shown, or without the `+`/`-`/space
+    /// marker of the diff lines with `strip_markers`; none when no characters are selected.
+    fn selected_chars(&self, strip_markers: bool) -> Option<String> {
+        let sel = self.text_sel.filter(|s| !s.is_empty())?;
+        let (start, end) = sel.ordered();
+        let lines: Vec<&str> = (start.0..=end.0.min(self.line_count().checked_sub(1)?))
+            .map(|i| {
+                let text = self.line_text(i);
+                let (from, to) = sel.columns(i, text.chars().count()).unwrap_or_default();
+                let marker = strip_markers && self.is_diff && matches!(self.lines[i].kind, DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context);
+                let from = if marker { from.max(1) } else { from };
+                char_slice(text, from, to.max(from))
+            })
+            .collect();
+        Some(lines.join("\n"))
+    }
+
+    /// Selects the characters `from..to` of line `i` (tests and double-click).
+    fn select_chars(&mut self, i: usize, from: usize, to: usize) {
+        self.text_sel = Some(TextSelection { anchor: (i, from), head: (i, to) });
+        self.selected = vec![i];
+        self.anchor = Some(i);
+    }
+
     /// The selected lines of one side of the diff, without the diff markers: the old version
     /// (context and removed lines) or the new one (context and added lines).
+    /// With characters selected, only those characters of these lines.
     pub fn selected_version(&self, new: bool) -> String {
         let lines: Vec<&str> = self
             .selected_lines()
@@ -257,7 +327,15 @@ impl DiffViewer {
                     DiffLineKind::Removed => !new,
                     _ => false,
                 };
-                keep.then(|| l.text.get(1..).unwrap_or_default())
+                if !keep {
+                    return None;
+                }
+                // only the selected characters of each line when some are selected
+                let (from, to) = match self.text_sel.filter(|s| !s.is_empty()) {
+                    Some(sel) => sel.columns(i, l.text.chars().count())?,
+                    None => (0, usize::MAX),
+                };
+                Some(char_slice(&l.text, from.max(1), to.max(1)))
             })
             .collect();
         lines.join("\n")
@@ -278,6 +356,7 @@ impl DiffViewer {
     /// Selects and shows line number `n` (`GoToLine`).
     pub fn go_to_line(&mut self, n: usize) {
         if let Some(i) = self.line_index(n) {
+            self.text_sel = None;
             self.selected = vec![i];
             self.anchor = Some(i);
             self.scroll_to = Some(i);
@@ -404,6 +483,7 @@ impl DiffViewer {
         if let Some(&start) = start {
             let end = (start..self.lines.len()).take_while(|&i| self.is_change(i)).last().unwrap_or(start);
             self.selected = (start..=end).collect();
+            self.text_sel = None;
             self.anchor = Some(start);
             self.scroll_to = Some(start);
         }
@@ -549,6 +629,15 @@ impl DiffViewer {
         let mut hovered_line = None;
         let mut secondary = None;
         let mut drag_line = None;
+        // where the pointer is in the text while dragging over it, the word double-clicked
+        let mut text_head: Option<TextPos> = None;
+        let mut double_clicked: Option<TextPos> = None;
+        // the line a drag started on, and the char when it started over the text
+        let mut drag_begin: Option<(usize, Option<usize>)> = None;
+        let pointer = ui.input(|inp| inp.pointer.interact_pos());
+        let primary_down = ui.input(|inp| inp.pointer.primary_down());
+        let char_sel = self.text_sel.filter(|s| !s.is_empty());
+        let selection_bg = ui.visuals().selection.bg_fill;
         // No vertical gap between rows: the backgrounds of adjacent changed lines must touch.
         // show_rows also adds item_spacing.y to its row stride, so zero it before the call.
         let item_spacing = ui.spacing().item_spacing;
@@ -557,6 +646,20 @@ impl DiffViewer {
             .show_rows(ui, row_h, count, |ui, range| {
                 let width = content_w.max(ui.available_width());
                 ui.set_min_width(width);
+                // a drag past the top or bottom selects up to the first or last line shown, and scrolls
+                let clip = ui.clip_rect();
+                let drag_pointer = pointer.map(|p| p.clamp(clip.min, clip.max - Vec2::splat(1.0)));
+                if primary_down && (self.text_drag || self.drag_start.is_some()) {
+                    let dy = match pointer {
+                        Some(p) if p.y < clip.top() => row_h,
+                        Some(p) if p.y > clip.bottom() => -row_h,
+                        _ => 0.0,
+                    };
+                    if dy != 0.0 {
+                        ui.scroll_with_delta(Vec2::new(0.0, dy));
+                        ui.ctx().request_repaint();
+                    }
+                }
                 for i in range {
                     let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, row_h), Sense::click_and_drag());
                     let painter = ui.painter_at(rect);
@@ -574,12 +677,21 @@ impl DiffViewer {
                         None => painter.layout_no_wrap(text.to_string(), font.clone(), fg),
                     };
                     let text_pos = Pos2::new(text_x, rect.center().y - galley.size().y / 2.0);
+                    let shown_col = |c: usize| if self.show_whitespace { whitespace_column(text, kind, c) } else { c };
+                    let x_of = |c: usize| text_pos.x + galley.pos_from_cursor(egui::text::CCursor::new(shown_col(c))).min.x;
+                    let col_at = |p: Pos2| {
+                        let shown = galley.cursor_from_pos(p - text_pos).index;
+                        if self.show_whitespace {
+                            text_column(text, kind, shown)
+                        } else {
+                            shown
+                        }
+                    };
+                    // the line numbers select whole lines, the text characters
+                    let over_text = |p: Pos2| !show_line_numbers || p.x >= x + gutter - 4.0;
                     if let Some(marks) = self.marks.get(i).and_then(Option::as_ref) {
                         let added = kind == Some(DiffLineKind::Added);
-                        let col = |c: usize| {
-                            let c = if self.show_whitespace { whitespace_column(text, c) } else { c };
-                            text_pos.x + galley.pos_from_cursor(egui::text::CCursor::new(c)).min.x
-                        };
+                        let col = x_of;
                         let word_bg = if added { palette.diff_added_word_bg } else { palette.diff_removed_word_bg };
                         for r in &marks.changed {
                             let span = egui::Rect::from_x_y_ranges(col(r.start)..=col(r.end), rect.y_range());
@@ -592,7 +704,15 @@ impl DiffViewer {
                             painter.line_segment([Pos2::new(ax, rect.top()), Pos2::new(ax, rect.bottom())], egui::Stroke::new(2.0_f32, anchor));
                         }
                     }
-                    if self.selected.contains(&i) {
+                    if let Some(sel) = char_sel {
+                        let len = text.chars().count();
+                        if let Some((from, to)) = sel.columns(i, len) {
+                            // a selected line end shows as a little more than the text
+                            let newline = if i < sel.ordered().1 .0 { char_w * 0.6 } else { 0.0 };
+                            let span = egui::Rect::from_x_y_ranges(x_of(from)..=x_of(to) + newline, rect.y_range());
+                            painter.rect_filled(span, 0.0, selection_bg);
+                        }
+                    } else if self.selected.contains(&i) {
                         painter.rect_filled(rect, 0.0, palette.diff_selected_bg);
                     }
                     if self.find_match == Some(i) {
@@ -611,24 +731,35 @@ impl DiffViewer {
                             egui::Stroke::new(1.0_f32, palette.line_number.gamma_multiply(0.3)),
                         );
                     }
-                    painter.galley(text_pos, galley, fg);
+                    painter.galley(text_pos, galley.clone(), fg);
                     if resp.clicked() {
                         let m = ui.input(|inp| inp.modifiers);
                         clicked_line = Some((i, m.shift, m.command || m.ctrl));
                     }
                     if resp.drag_started() {
-                        self.drag_start = Some(i);
+                        let origin = ui.input(|inp| inp.pointer.press_origin()).unwrap_or(rect.left_center());
+                        drag_begin = Some((i, over_text(origin).then(|| col_at(origin))));
+                    }
+                    if (self.text_drag || matches!(drag_begin, Some((_, Some(_))))) && primary_down {
+                        if let Some(p) = drag_pointer.filter(|p| rect.y_range().contains(p.y)) {
+                            text_head = Some((i, col_at(p)));
+                        }
+                    }
+                    if resp.double_clicked() {
+                        if let Some(p) = pointer.filter(|&p| over_text(p)) {
+                            double_clicked = Some((i, col_at(p)));
+                        }
                     }
                     if resp.hovered() {
                         hovered_line = Some(i);
+                        if pointer.is_some_and(over_text) {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
+                        }
                     }
                     if resp.secondary_clicked() {
                         secondary = Some(i);
                     }
-                    if ui.input(|inp| inp.pointer.primary_down())
-                        && self.drag_start.is_some()
-                        && rect.contains(ui.input(|inp| inp.pointer.interact_pos().unwrap_or_default()))
-                    {
+                    if ui.input(|inp| inp.pointer.primary_down()) && self.drag_start.is_some() && drag_pointer.is_some_and(|p| rect.contains(p)) {
                         drag_line = Some(i);
                     }
                     resp.context_menu(|ui| {
@@ -690,16 +821,39 @@ impl DiffViewer {
                 self.find_next(false);
             }
         }
+        match drag_begin {
+            Some((i, Some(c))) => {
+                self.text_sel = Some(TextSelection { anchor: (i, c), head: (i, c) });
+                self.text_drag = true;
+                self.drag_start = None;
+                self.selected = vec![i];
+                self.anchor = Some(i);
+            }
+            Some((i, None)) => {
+                self.text_sel = None;
+                self.text_drag = false;
+                self.drag_start = Some(i);
+            }
+            None => {}
+        }
         if let Some(l) = drag_line {
             if let Some(s) = self.drag_start {
                 let (a, b) = if s <= l { (s, l) } else { (l, s) };
                 self.selected = (a..=b).collect();
             }
         }
-        if !ui.input(|i| i.pointer.primary_down()) {
+        if let (Some(head), Some(sel)) = (text_head, self.text_sel.as_mut()) {
+            sel.head = head;
+            let (start, end) = sel.ordered();
+            self.selected = (start.0..=end.0).collect();
+            self.anchor = Some(sel.anchor.0);
+        }
+        if !primary_down {
             self.drag_start = None;
+            self.text_drag = false;
         }
         if let Some((i, shift, ctrl)) = clicked_line {
+            self.text_sel = None;
             if shift {
                 if let Some(a) = self.anchor {
                     let (lo, hi) = if a <= i { (a, i) } else { (i, a) };
@@ -717,16 +871,24 @@ impl DiffViewer {
                 self.anchor = Some(i);
             }
         }
+        if let Some((i, c)) = double_clicked {
+            let (from, to) = word_at(self.line_text(i), c);
+            self.select_chars(i, from, to);
+        }
         if let Some(i) = secondary {
             if !self.selected.contains(&i) {
+                self.text_sel = None;
                 self.selected = vec![i];
                 self.anchor = Some(i);
             }
         }
         match command {
             Some(ViewerCommand::CopyPatch) => {
-                let text: Vec<&str> = self.selected_lines().iter().map(|&i| self.line_text(i)).collect();
-                crate::util::copy_to_clipboard(ui.ctx(), text.join("\n"));
+                let text = self.selected_chars(false).unwrap_or_else(|| {
+                    let lines: Vec<&str> = self.selected_lines().iter().map(|&i| self.line_text(i)).collect();
+                    lines.join("\n")
+                });
+                crate::util::copy_to_clipboard(ui.ctx(), text);
                 command = None;
             }
             Some(c @ (ViewerCommand::CopyOldVersion | ViewerCommand::CopyNewVersion)) => {
@@ -825,9 +987,47 @@ fn styled_line(text: &str, kind: Option<DiffLineKind>, spans: &[Span], show_whit
     job
 }
 
-/// The column of char `c` of a diff line once [`visible_whitespace`] made tabs 4 chars wide.
-fn whitespace_column(text: &str, c: usize) -> usize {
-    c + 3 * text.chars().take(c).skip(1).filter(|&ch| ch == '\t').count()
+/// The column of char `c` of a line of `kind` once [`visible_whitespace`] made tabs 4 chars wide.
+fn whitespace_column(text: &str, kind: Option<DiffLineKind>, c: usize) -> usize {
+    let Some(from) = whitespace_from(text, kind) else { return c };
+    let skip = text[..from].chars().count();
+    c + 3 * text.chars().take(c).skip(skip).filter(|&ch| ch == '\t').count()
+}
+
+/// The char of a line of `kind` at column `col` of the line shown with visible whitespace (the
+/// reverse of [`whitespace_column`]); a column inside a tab goes to its closer side.
+fn text_column(text: &str, kind: Option<DiffLineKind>, col: usize) -> usize {
+    let mut shown = 0;
+    for (c, _) in text.char_indices().enumerate() {
+        let width = whitespace_column(text, kind, c + 1) - whitespace_column(text, kind, c);
+        if col < shown + width {
+            return if col - shown > width / 2 { c + 1 } else { c };
+        }
+        shown += width;
+    }
+    text.chars().count()
+}
+
+/// The chars `from..to` of `text`.
+fn char_slice(text: &str, from: usize, to: usize) -> &str {
+    let byte = |c: usize| text.char_indices().nth(c).map_or(text.len(), |(b, _)| b);
+    let (start, end) = (byte(from), byte(to));
+    text.get(start..end.max(start)).unwrap_or_default()
+}
+
+/// The word around char `c` of `text` (letters, digits and `_`), or the char itself.
+fn word_at(text: &str, c: usize) -> (usize, usize) {
+    let chars: Vec<char> = text.chars().collect();
+    let is_word = |ch: &char| ch.is_alphanumeric() || *ch == '_';
+    match chars.get(c) {
+        Some(ch) if is_word(ch) => {
+            let from = chars[..c].iter().rposition(|ch| !is_word(ch)).map_or(0, |p| p + 1);
+            let to = chars[c..].iter().position(|ch| !is_word(ch)).map_or(chars.len(), |p| c + p);
+            (from, to)
+        }
+        Some(_) => (c, c + 1),
+        None => (c, c),
+    }
 }
 
 #[cfg(test)]
@@ -867,6 +1067,17 @@ mod tests {
         menu: &[ViewerCommand],
         events: Vec<egui::Event>,
     ) -> Option<ViewerCommand> {
+        run_frame_copied(ctx, viewer, content, menu, events).0
+    }
+
+    /// Runs a frame; also returns the text copied to the clipboard.
+    fn run_frame_copied(
+        ctx: &egui::Context,
+        viewer: &mut DiffViewer,
+        content: &ViewerContent,
+        menu: &[ViewerCommand],
+        events: Vec<egui::Event>,
+    ) -> (Option<ViewerCommand>, Option<String>) {
         let modifiers = events.iter().find_map(|e| if let egui::Event::Key { modifiers, .. } = e { Some(*modifiers) } else { None }).unwrap_or_default();
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600.0, 400.0))),
@@ -875,12 +1086,134 @@ mod tests {
             ..Default::default()
         };
         let mut out = None;
-        let _ = ctx.run(input, |ctx| {
+        let output = ctx.run(input, |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 out = viewer.ui(ui, content, true, menu);
             });
         });
-        out
+        let copied = output.platform_output.commands.into_iter().find_map(|c| if let egui::OutputCommand::CopyText(t) = c { Some(t) } else { None });
+        (out, copied)
+    }
+
+    /// Where char `c` of line `i` starts on screen (the central panel has a margin of 8, the
+    /// rows have no gap, the text starts after the `gutter` chars of line numbers).
+    fn char_pos(ctx: &egui::Context, gutter: f32, i: usize, c: usize) -> egui::Pos2 {
+        let base = egui::TextStyle::Monospace.resolve(&ctx.style());
+        let (row_h, char_w) = ctx.fonts(|f| {
+            // like the viewer: a font as large as a row of the monospace style
+            let font = FontId::monospace(f.row_height(&base));
+            (f.row_height(&font) + 2.0, f.glyph_width(&font, 'M'))
+        });
+        egui::pos2(8.0 + 4.0 + char_w * gutter + 4.0 + c as f32 * char_w + 0.5, 8.0 + (i as f32 + 0.5) * row_h)
+    }
+
+    fn pointer(pos: egui::Pos2, pressed: Option<bool>) -> Vec<egui::Event> {
+        let mut events = vec![egui::Event::PointerMoved(pos)];
+        if let Some(pressed) = pressed {
+            events.push(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+        }
+        events
+    }
+
+    /// Dragging over the text selects characters, shown and copied by Ctrl+C and "Copy";
+    /// the lines they cover are the ones staged. Dragging over the line numbers still selects
+    /// whole lines, and a click selects one line.
+    #[test]
+    fn drag_over_text_selects_characters() {
+        let diff = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,3 +1,3 @@\n one two\n-three four\n+3 four\n";
+        let content = ViewerContent::Diff(diff.into());
+        let menu = [ViewerCommand::StageSelectedLines, ViewerCommand::CopyPatch];
+        let ctx = egui::Context::default();
+        let mut viewer = DiffViewer::default();
+        run_frame(&ctx, &mut viewer, &content, &menu, vec![]);
+        // from "two" on line 4 to "three" on line 5 (chars count the diff marker)
+        let drag = |viewer: &mut DiffViewer, from: egui::Pos2, to: egui::Pos2| {
+            run_frame(&ctx, viewer, &content, &menu, pointer(from, Some(true)));
+            run_frame(&ctx, viewer, &content, &menu, pointer(to, None));
+            run_frame(&ctx, viewer, &content, &menu, pointer(to, None));
+            run_frame(&ctx, viewer, &content, &menu, pointer(to, Some(false)));
+        };
+        drag(&mut viewer, char_pos(&ctx, 11.0, 4, 5), char_pos(&ctx, 11.0, 5, 6));
+        assert_eq!(viewer.selected_chars(false).as_deref(), Some("two\n-three"));
+        assert_eq!(viewer.selected_text(), "two\nthree", "without the diff markers");
+        assert_eq!(viewer.selected_lines(), [4, 5]);
+        assert!(viewer.has_change_selection());
+        let (_, copied) = run_frame_copied(&ctx, &mut viewer, &content, &menu, vec![egui::Event::Copy]);
+        assert_eq!(copied.as_deref(), Some("two\n-three"));
+        // the old and new versions keep only the selected characters
+        assert_eq!(viewer.selected_version(false), "two\nthree");
+        assert_eq!(viewer.selected_version(true), "two");
+        // dragging backwards selects the same
+        drag(&mut viewer, char_pos(&ctx, 11.0, 5, 6), char_pos(&ctx, 11.0, 4, 5));
+        assert_eq!(viewer.selected_chars(false).as_deref(), Some("two\n-three"));
+        // a click selects the line again
+        run_frame(&ctx, &mut viewer, &content, &menu, pointer(char_pos(&ctx, 11.0, 6, 2), Some(true)));
+        run_frame(&ctx, &mut viewer, &content, &menu, pointer(char_pos(&ctx, 11.0, 6, 2), Some(false)));
+        assert_eq!(viewer.selected_chars(false), None);
+        assert_eq!(viewer.selected_lines(), [6]);
+        let (_, copied) = run_frame_copied(&ctx, &mut viewer, &content, &menu, vec![egui::Event::Copy]);
+        assert_eq!(copied.as_deref(), Some("+3 four"));
+        // the line numbers select whole lines
+        let gutter = |i| egui::pos2(14.0, char_pos(&ctx, 11.0, i, 0).y);
+        drag(&mut viewer, gutter(4), gutter(6));
+        assert_eq!(viewer.selected_chars(false), None);
+        assert_eq!(viewer.selected_lines(), [4, 5, 6]);
+    }
+
+    /// Dragging below the viewer scrolls and selects the lines that come into view.
+    #[test]
+    fn drag_past_the_bottom_scrolls() {
+        let text: String = (0..200).map(|i| format!("line {i}\n")).collect();
+        let content = ViewerContent::Text(text);
+        let ctx = egui::Context::default();
+        let mut viewer = DiffViewer::default();
+        run_frame(&ctx, &mut viewer, &content, &[], vec![]);
+        let start = char_pos(&ctx, 4.0, 0, 2);
+        run_frame(&ctx, &mut viewer, &content, &[], pointer(start, Some(true)));
+        let below = egui::pos2(start.x, 450.0);
+        for _ in 0..40 {
+            run_frame(&ctx, &mut viewer, &content, &[], pointer(below, None));
+        }
+        let last = viewer.selected_lines().last().copied().unwrap_or_default();
+        // about 22 lines fit in the 400 px window
+        assert!(last > 30, "the selection follows the scrolling: {last}");
+        assert!(viewer.selected_text().starts_with("ne 0\nline 1\n"));
+        run_frame(&ctx, &mut viewer, &content, &[], pointer(below, Some(false)));
+        assert!(!viewer.text_drag);
+    }
+
+    #[test]
+    fn double_click_selects_a_word() {
+        let content = ViewerContent::Text("let some_value = 1;\n".into());
+        let ctx = egui::Context::default();
+        let mut viewer = DiffViewer::default();
+        run_frame(&ctx, &mut viewer, &content, &[], vec![]);
+        let at = char_pos(&ctx, 2.0, 0, 6);
+        for _ in 0..2 {
+            run_frame(&ctx, &mut viewer, &content, &[], pointer(at, Some(true)));
+            run_frame(&ctx, &mut viewer, &content, &[], pointer(at, Some(false)));
+        }
+        assert_eq!(viewer.selected_text(), "some_value");
+        assert_eq!(word_at("a + b", 2), (2, 3));
+        assert_eq!(word_at("ab", 5), (5, 5));
+    }
+
+    #[test]
+    fn columns_with_visible_whitespace() {
+        let text = "+\tx\ty";
+        let kind = Some(DiffLineKind::Added);
+        // shown as "+→   x→   y"
+        let shown: Vec<usize> = (0..=5).map(|c| whitespace_column(text, kind, c)).collect();
+        assert_eq!(shown, [0, 1, 5, 6, 10, 11]);
+        for (c, &col) in shown.iter().enumerate() {
+            assert_eq!(text_column(text, kind, col), c);
+        }
+        assert_eq!(text_column(text, kind, 2), 1, "the start of a tab goes before it");
+        assert_eq!(text_column(text, kind, 4), 2, "its end after it");
+        // no visible whitespace in the headers
+        assert_eq!(whitespace_column("@@ a\tb", Some(DiffLineKind::HunkHeader), 6), 6);
+        assert_eq!(char_slice("héllo", 1, 3), "él");
+        assert_eq!(char_slice("ab", 1, 9), "b");
     }
 
     fn key(key: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
