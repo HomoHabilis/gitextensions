@@ -3,6 +3,7 @@
 use crate::args::{to_posix_path, GitArgs};
 use crate::git_ref::{ref_name, GitRef};
 use crate::object_id::ObjectId;
+use crate::status::ResetPaths;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum LocalChangesAction {
@@ -725,6 +726,19 @@ pub fn rebase(o: &RebaseOptions) -> Result<GitArgs, String> {
 
 pub fn remove(force: bool, is_recursive: bool, files: &[&str]) -> GitArgs {
     GitArgs::new("rm").arg_if(force, "--force").arg_if(is_recursive, "-r").arg_if(files.is_empty(), ".").args(files.iter().copied())
+}
+
+/// Resets files to `rev` in the index and the work tree: `checkout <rev> -- <checkout>`, and
+/// `rm --force --ignore-unmatch -- <remove>` for the files that don't exist in `rev`.
+pub fn reset_files_to(rev: &str, paths: &ResetPaths) -> Vec<GitArgs> {
+    let mut cmds = Vec::new();
+    if !paths.checkout.is_empty() {
+        cmds.push(GitArgs::new("checkout").arg(rev).arg("--").args(paths.checkout.iter().map(String::as_str)));
+    }
+    if !paths.remove.is_empty() {
+        cmds.push(GitArgs::new("rm").arg("--force").arg("--quiet").arg("--ignore-unmatch").arg("--").args(paths.remove.iter().map(String::as_str)));
+    }
+    cmds
 }
 
 pub fn rename_branch(name: &str, new_name: &str) -> GitArgs {

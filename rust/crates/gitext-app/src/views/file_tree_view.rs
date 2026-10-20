@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use egui::{CollapsingHeader, RichText, Ui};
 use gitext_core::settings::AppSettings;
+use gitext_core::status::ResetPaths;
 use gitext_core::tree::{GitItem, GitObjectType};
 use gitext_core::{GitModule, ObjectId};
 
@@ -287,7 +288,7 @@ impl FileTreeView {
                             ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button(tr("Reset file to this revision…")).clicked() {
-                            *cmd = Some(DiffCommand::ResetFileTo { rev, files: vec![full.clone()] });
+                            *cmd = Some(DiffCommand::ResetFileTo { rev, paths: ResetPaths { checkout: vec![full.clone()], remove: Vec::new() } });
                             ui.close_kind(egui::UiKind::Menu);
                         }
                         if ui.button(tr("Filter commits by this path")).clicked() {

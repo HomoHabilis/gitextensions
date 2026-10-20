@@ -26,6 +26,15 @@ pub const IGNORED_STATUS: char = '!';
 pub const UNTRACKED_STATUS: char = '?';
 pub const UNUSED_CHARACTER: char = '&';
 
+/// What resetting files to a revision does, see [`GitItemStatus::reset_paths`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ResetPaths {
+    /// Files restored from the revision (index and work tree).
+    pub checkout: Vec<String>,
+    /// Files that don't exist in the revision, deleted from the index and the work tree.
+    pub remove: Vec<String>,
+}
+
 /// A changed file (work tree, index, or between revisions).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct GitItemStatus {
@@ -119,6 +128,43 @@ impl GitItemStatus {
         s.is_new = self.is_deleted;
         s.is_deleted = self.is_new;
         s
+    }
+
+    /// The paths to restore from a revision and the paths to delete when resetting `items`
+    /// (a diff from `first` to `second`) to `first` (`to_first`) or to `second`: the files that
+    /// don't exist in that revision are deleted, as `ResetChanges` of Git Extensions does.
+    pub fn reset_paths<'a>(items: impl IntoIterator<Item = &'a GitItemStatus>, to_first: bool) -> ResetPaths {
+        let mut paths = ResetPaths::default();
+        let push = |list: &mut Vec<String>, name: &str| {
+            if !name.is_empty() && !list.iter().any(|n| n == name) {
+                list.push(name.to_owned());
+            }
+        };
+        for item in items {
+            let old_name = item.old_name.as_deref().filter(|_| item.is_renamed);
+            if to_first {
+                // added and copied files don't exist in `first`; a renamed file is under its old name
+                if item.is_new || item.is_copied || old_name.is_some() {
+                    push(&mut paths.remove, &item.name);
+                }
+                if let Some(old) = old_name {
+                    push(&mut paths.checkout, old);
+                } else if !item.is_new && !item.is_copied {
+                    push(&mut paths.checkout, &item.name);
+                }
+            } else {
+                // deleted files and the old name of a renamed file don't exist in `second`
+                if item.is_deleted {
+                    push(&mut paths.remove, &item.name);
+                } else {
+                    push(&mut paths.checkout, &item.name);
+                }
+                if let Some(old) = old_name {
+                    push(&mut paths.remove, old);
+                }
+            }
+        }
+        paths
     }
 
     /// A one letter status for lists (like `git status --short`).
@@ -453,5 +499,36 @@ mod tests {
         assert_eq!(names(false, true), [("skipped.txt".to_string(), false, true), ("both.txt".to_string(), false, true)]);
         assert_eq!(names(true, true).len(), 3);
         assert!(parse_ls_files_flags(out, true, true).iter().all(|i| i.staged == StagedStatus::WorkTree && i.is_tracked));
+    }
+
+    #[test]
+    fn reset_paths_delete_the_files_missing_in_the_target() {
+        let item = |name: &str, f: fn(&mut GitItemStatus)| {
+            let mut i = GitItemStatus::new(name);
+            f(&mut i);
+            i
+        };
+        let items = [
+            item("changed", |i| i.is_changed = true),
+            item("added", |i| i.is_new = true),
+            item("deleted", |i| i.is_deleted = true),
+            item("new name", |i| {
+                i.is_renamed = true;
+                i.old_name = Some("old name".into());
+            }),
+            item("copy", |i| {
+                i.is_copied = true;
+                i.old_name = Some("changed".into());
+            }),
+        ];
+        let v = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            GitItemStatus::reset_paths(&items, true),
+            ResetPaths { checkout: v(&["changed", "deleted", "old name"]), remove: v(&["added", "new name", "copy"]) }
+        );
+        assert_eq!(
+            GitItemStatus::reset_paths(&items, false),
+            ResetPaths { checkout: v(&["changed", "added", "new name", "copy"]), remove: v(&["deleted", "old name"]) }
+        );
     }
 }
