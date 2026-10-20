@@ -7,7 +7,7 @@ use egui::{RichText, Ui};
 use gitext_core::commands::{self, UntrackedFilesMode};
 use gitext_core::repo_history::RepositoryHistory;
 use gitext_core::settings::{AppSettings, BranchFilterMode, PullAction};
-use gitext_core::status::GitItemStatus;
+use gitext_core::status::{GitItemStatus, ResetPaths};
 use gitext_core::{GitArgs, GitModule, ObjectId};
 
 use crate::dialogs::{self, Action, GitRun};
@@ -1131,17 +1131,7 @@ impl BrowseView {
                     }
                 }
             }
-            DiffCommand::ResetFileTo { rev, files } => {
-                let list = files.clone();
-                let text = trf("Reset {0} file(s) to {1}?", &[&files.len(), &rev.to_short_string()]);
-                actions.push(Action::OpenDialog(Box::new(
-                    Confirm::new(tr("Reset files"), text, tr("Reset"), move |cx| {
-                        let refs: Vec<&str> = files.iter().map(String::as_str).collect();
-                        cx.run(GitRun::new(tr("Reset files"), GitArgs::new("checkout").arg(rev.to_string()).arg("--").args(refs)));
-                    })
-                    .with_list(list),
-                )));
-            }
+            DiffCommand::ResetFileTo { rev, paths } => actions.push(Action::OpenDialog(Box::new(reset_files_to_dialog(rev, paths)))),
             DiffCommand::Stage(files) => {
                 let refs: Vec<&str> = files.iter().map(String::as_str).collect();
                 if let Err(e) = m.stage_files(&refs) {
@@ -1201,6 +1191,22 @@ const _STATE_DESCRIPTIONS: [&str; 7] = [
     n_("Bisect in progress"),
 ];
 
+/// The confirmation of "Reset file(s) to this/parent revision": restores the files `rev` has and
+/// deletes those it doesn't have (e.g. a file added by the commit, reset to its parent).
+fn reset_files_to_dialog(rev: ObjectId, paths: ResetPaths) -> dialogs::Confirm {
+    let short = rev.to_short_string();
+    let mut text = trf("Reset {0} file(s) to {1}?", &[&(paths.checkout.len() + paths.remove.len()), &short]);
+    if !paths.remove.is_empty() {
+        text.push('\n');
+        text.push_str(&trf("{0} file(s) that don't exist in {1} will be deleted.", &[&paths.remove.len(), &short]));
+    }
+    let list = paths.checkout.iter().chain(&paths.remove).cloned().collect();
+    dialogs::Confirm::new(tr("Reset files"), text, tr("Reset"), move |cx| {
+        cx.run(GitRun::many(tr("Reset files"), commands::reset_files_to(&rev.to_string(), &paths)));
+    })
+    .with_list(list)
+}
+
 /// The `git difftool --dir-diff` arguments of `first` → `second` (`OpenWithDifftoolDirDiff`); no
 /// `first` means the parent of `second`.
 fn difftool_dir_diff_args(first: Option<ObjectId>, second: ObjectId, head: ObjectId) -> GitArgs {
@@ -1241,6 +1247,30 @@ fn difftool_dir_diff_args(first: Option<ObjectId>, second: ObjectId, head: Objec
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reset_files_to_dialog_deletes_the_files_missing_in_the_revision() {
+        let rev = ObjectId::parse("a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1").unwrap();
+        let paths = ResetPaths { checkout: vec!["kept.txt".into()], remove: vec!["dir/added.txt".into()] };
+        let mut dialog = reset_files_to_dialog(rev, paths);
+        assert!(dialog.text.contains("will be deleted"), "{}", dialog.text);
+        assert_eq!(dialog.list, ["kept.txt", "dir/added.txt"]);
+
+        let ctx = egui::Context::default();
+        let mut settings = AppSettings::default();
+        let mut history = RepositoryHistory::default();
+        let mut actions = Vec::new();
+        let mut cx = dialogs::Cx { ctx: &ctx, module: None, data: None, settings: &mut settings, history: &mut history, actions: &mut actions, selected: &[] };
+        let on_yes = dialog.on_yes.take().unwrap();
+        on_yes(&mut cx);
+        let [Action::RunGit(run)] = actions.as_slice() else { panic!("expected one git run") };
+        let cmds: Vec<String> = run.commands.iter().map(ToString::to_string).collect();
+        assert_eq!(cmds, [format!("checkout {rev} -- kept.txt"), "rm --force --quiet --ignore-unmatch -- dir/added.txt".to_string()]);
+
+        // only files the revision has: no deletion note
+        let dialog = reset_files_to_dialog(rev, ResetPaths { checkout: vec!["kept.txt".into()], remove: Vec::new() });
+        assert!(!dialog.text.contains("will be deleted"));
+    }
 
     #[test]
     fn difftool_dir_diff_arguments() {

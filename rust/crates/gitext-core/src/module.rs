@@ -719,11 +719,6 @@ impl GitModule {
         self.run_checked(&GitArgs::new("checkout").arg("--").args(files.iter().map(|f| to_posix_path(f))))
     }
 
-    /// Resets files to `rev` in both index and work tree.
-    pub fn reset_files_to(&self, rev: &str, files: &[&str]) -> GitResult<ExecResult> {
-        self.run_checked(&GitArgs::new("checkout").arg(rev).arg("--").args(files.iter().map(|f| to_posix_path(f))))
-    }
-
     /// Removes files from index and work tree (port of `RemoveFiles`).
     pub fn remove_files(&self, files: &[&str], force: bool) -> GitResult<ExecResult> {
         if files.is_empty() {
@@ -1917,6 +1912,57 @@ mod tests {
             .unwrap();
         assert_eq!(repo.module.get_tag_message("v1").as_deref(), Some("Tag message\n\nline 2"));
         assert_eq!(repo.module.get_refs().unwrap().iter().find(|r| r.is_tag()).unwrap().object_id, id);
+    }
+    #[test]
+    fn reset_files_to_a_revision_deletes_the_files_it_does_not_have() {
+        let repo = TestRepo::new();
+        repo.write("keep.txt", "one\n");
+        repo.write("gone.txt", "gone\n");
+        repo.write("old.txt", &"to be renamed\n".repeat(20));
+        repo.git(&["add", "-A"]);
+        repo.module.commit("first", Default::default()).unwrap();
+        let first = repo.module.head_id();
+        repo.write("keep.txt", "two\n");
+        repo.write("dir/added.txt", "added\n");
+        repo.git(&["rm", "-q", "gone.txt"]);
+        repo.git(&["mv", "old.txt", "renamed.txt"]);
+        repo.git(&["add", "-A"]);
+        repo.module.commit("second", Default::default()).unwrap();
+        let second = repo.module.head_id();
+        repo.commit_file("later.txt", "later\n", "third");
+        let files = repo.module.get_diff_files(Some(first), second).unwrap();
+        assert!(files.iter().any(|f| f.is_renamed && f.name == "renamed.txt"), "{files:?}");
+        let tracked = || repo.git(&["ls-files"]).lines().map(str::to_owned).collect::<Vec<_>>();
+        let tree = |rev: ObjectId| repo.git(&["ls-tree", "-r", "--name-only", &rev.to_string()]).lines().map(str::to_owned).collect::<Vec<_>>();
+        let reset = |rev: ObjectId, to_first: bool| {
+            for cmd in commands::reset_files_to(&rev.to_string(), &GitItemStatus::reset_paths(&files, to_first)) {
+                repo.module.run_checked(&cmd).unwrap();
+            }
+        };
+
+        // to the parent: the added file and the new name of the rename are deleted
+        reset(first, true);
+        let mut expected = tree(first);
+        expected.push("later.txt".into());
+        expected.sort();
+        assert_eq!(tracked(), expected);
+        assert!(!repo.dir.path().join("dir/added.txt").exists());
+        assert!(!repo.dir.path().join("renamed.txt").exists());
+        assert_eq!(std::fs::read_to_string(repo.dir.path().join("keep.txt")).unwrap(), "one\n");
+        assert_eq!(std::fs::read_to_string(repo.dir.path().join("gone.txt")).unwrap(), "gone\n");
+        // again, with the files already deleted
+        reset(first, true);
+        assert_eq!(tracked(), expected);
+
+        // to the commit itself: the deleted file and the old name of the rename are deleted
+        reset(second, false);
+        let mut expected = tree(second);
+        expected.push("later.txt".into());
+        expected.sort();
+        assert_eq!(tracked(), expected);
+        assert!(!repo.dir.path().join("gone.txt").exists());
+        assert!(!repo.dir.path().join("old.txt").exists());
+        assert_eq!(std::fs::read_to_string(repo.dir.path().join("dir/added.txt")).unwrap(), "added\n");
     }
 }
 

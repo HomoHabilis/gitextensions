@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use egui::{RichText, Ui};
 use gitext_core::module::DiffOptions;
 use gitext_core::settings::{AppSettings, DiffAppearance};
-use gitext_core::status::GitItemStatus;
+use gitext_core::status::{GitItemStatus, ResetPaths};
 use gitext_core::{GitArgs, GitModule, ObjectId};
 
 use super::diff_viewer::{content_from_bytes, DiffViewer, ViewerCommand, ViewerContent};
@@ -38,9 +38,10 @@ pub enum DiffCommand {
         rev: ObjectId,
         file: String,
     },
+    /// Reset files to `rev`: restore those it has, delete those it doesn't have.
     ResetFileTo {
         rev: ObjectId,
-        files: Vec<String>,
+        paths: ResetPaths,
     },
     Stage(Vec<String>),
     Unstage(Vec<String>),
@@ -770,12 +771,14 @@ impl RevisionDiffView {
                 }
                 if !second.is_artificial() {
                     if menu_item(ui, tr("Reset file(s) to this revision…"), "R") {
-                        cmd = Some(DiffCommand::ResetFileTo { rev: second, files: names.clone() });
+                        let items = sel.iter().filter_map(|&i| files.get(i));
+                        cmd = Some(DiffCommand::ResetFileTo { rev: second, paths: GitItemStatus::reset_paths(items, false) });
                         ui.close_kind(egui::UiKind::Menu);
                     }
                     if let Some(f) = first.filter(|f| !f.is_artificial()) {
                         if ui.button(tr("Reset file(s) to parent revision…")).clicked() {
-                            cmd = Some(DiffCommand::ResetFileTo { rev: f, files: names.clone() });
+                            let items = sel.iter().filter_map(|&i| files.get(i));
+                            cmd = Some(DiffCommand::ResetFileTo { rev: f, paths: GitItemStatus::reset_paths(items, true) });
                             ui.close_kind(egui::UiKind::Menu);
                         }
                     }
@@ -843,7 +846,8 @@ impl RevisionDiffView {
                         if second.is_artificial() {
                             cmd = Some(DiffCommand::ResetWorkFiles(names.clone()));
                         } else {
-                            cmd = Some(DiffCommand::ResetFileTo { rev: second, files: names.clone() });
+                            let items = self.list.selected_items(&files);
+                            cmd = Some(DiffCommand::ResetFileTo { rev: second, paths: GitItemStatus::reset_paths(items, false) });
                         }
                     } else if plain_key(&ctx, Key::H) {
                         cmd = Some(DiffCommand::FileHistory(first_name));
